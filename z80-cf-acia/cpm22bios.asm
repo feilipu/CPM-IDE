@@ -126,6 +126,8 @@ wboote:
 
 ;   individual subroutines to perform each function
 
+EXTERN    DIRBUF                    ;BDOS directory buffer pointer (retargeted to hstbuf slice)
+
 EXTERN    pboot     ;location of preamble code to load CCP/BDOS
 
 EXTERN    asm_shadow_copy           ;RAM copy function
@@ -263,9 +265,7 @@ const:      ;console status, return 0ffh if character ready, 00h if not
 
     rrca                    ;manage remaining console bit
     jr      C,const0        ;------x1b CRT:
-    jr      NC,const1       ;------x0b TTY:
-    xor     a               ;------x-b otherwise
-    ret
+    jr      const1          ;------x0b TTY:
 
 const0:
     call    _acia0_pollc    ;check whether any characters are in CRT (RxA) buffer
@@ -289,9 +289,7 @@ conin:      ;console character into register a
 
     rrca                    ;manage remaining console bit
     jr      C,conin0        ;------x1b CRT:
-    jr      NC,conin1       ;------x0b TTY:
-    xor     a               ;------x-b otherwise
-    ret
+    jr      conin1          ;------x0b TTY:
 
 conin0:     ;------01b CRT:
    call     _acia0_getc     ;check whether any characters are in CRT RxA buffer
@@ -593,32 +591,44 @@ filhst:
     ld      (hstwrt),a      ;no pending write
 
 match:
-;           copy data to or from buffer
+;           HL = 128-byte slice inside hstbuf. DPH DIRBUF overlays hstbuf.
+;           Directory SETDMA is inside that 512-byte window: retarget BDOS
+;           DIRBUF to this slice and skip the copy on read. User DMA still copies.
     ld      a,(seksec)      ;mask buffer number LSB
     and     secmsk          ;least significant bits, shifted off in sekhst calculation
     ld      h,a             ;shift left 7, for 128 bytes x seksec LSBs
     ld      l,0             ;ready to shift
     srl     h
     rr      l
-
-;           HL has relative host buffer address
     ld      de,hstbuf
-    add     hl,de           ;HL = host address
-    ld      de,(dmaadr)     ;get/put CP/M data in destination in DE
-;   ld      bc,128          ;length of move
-    ld      a,(readop)      ;which way?
+    add     hl,de           ;HL = host slice, DE = hstbuf
+    push    hl
+    ld      hl,(dmaadr)
     or      a
-    jr      NZ,rwmove       ;skip if read
-
-;           write operation, mark and switch direction
-    ld      a,1
-    ld      (hstwrt),a      ;hstwrt = 1
-    ex      de,hl           ;source/dest swap
-
+    sbc     hl,de           ;dma - hstbuf
+    jr      C,do_copy
+    ld      a,h
+    cp      2               ;512-byte window
+    jr      NC,do_copy
+    pop     hl              ;HL = slice
+    ld      (DIRBUF),hl     ;BDOS FCB2HL / CHECKSUM / MOVEDIR
+    ld      a,(readop)
+    or      a
+    jr      NZ,after_move   ;directory read: already in place
+    push    hl              ;directory write falls through to copy
+do_copy:
+    pop     hl              ;HL = slice
+    ld      de,(dmaadr)
+    ld      a,(readop)
+    or      a
+    jr      NZ,rwmove
+    inc     a               ;A was 0
+    ld      (hstwrt),a
+    ex      de,hl
 rwmove:
     call    ldi_128
 
-;           data has been moved to/from host buffer
+after_move:
     ld      a,(wrtype)      ;write type
     and     wrdir           ;to directory?
     ld      a,(erflag)      ;in case of errors
@@ -1040,7 +1050,7 @@ putc_buffer_tx:
     in a,(__IO_CF_IDE_STATUS)   ;get status byte again
     and 11000000b               ;mask off BuSY and RDY bits
     xor 01000000b               ;wait for RDY to be set and BuSY to be clear
-    jp NZ,ide_wait_ready
+    jr NZ,ide_wait_ready
 
     scf                         ;set carry flag on success
     ret
@@ -1058,7 +1068,7 @@ putc_buffer_tx:
     in a,(__IO_CF_IDE_STATUS)   ;get status byte again
     and 10001000b               ;mask off BuSY and DRQ bits
     xor 00001000b               ;wait for DRQ to be set and BuSY to be clear
-    jp NZ,ide_wait_drq
+    jr NZ,ide_wait_drq
 
     scf                         ;set carry flag on success
     ret
@@ -1132,7 +1142,7 @@ putc_buffer_tx:
 ;   ld a,__IDE_CMD_CACHE_FLUSH
 ;   out (__IO_CF_IDE_COMMAND),a ;tell drive to flush its hardware cache
 
-    jp ide_wait_ready           ;wait until the write is complete
+    jr ide_wait_ready           ;wait until the write is complete
 
 PUBLIC  _cpm_bios_tail
 _cpm_bios_tail:             ;tail of the cpm bios
@@ -1151,22 +1161,22 @@ dpbase:
 ;   disk Parameter header for disk 00
     defw    0000h, 0000h
     defw    0000h, 0000h
-    defw    dirbf, dpblk
+    defw    hstbuf, dpblk
     defw    0000h, alv00
 ;   disk parameter header for disk 01
     defw    0000h, 0000h
     defw    0000h, 0000h
-    defw    dirbf, dpblk
+    defw    hstbuf, dpblk
     defw    0000h, alv01
 ;   disk parameter header for disk 02
     defw    0000h, 0000h
     defw    0000h, 0000h
-    defw    dirbf, dpblk
+    defw    hstbuf, dpblk
     defw    0000h, alv02
 ;   disk parameter header for disk 03
     defw    0000h, 0000h
     defw    0000h, 0000h
-    defw    dirbf, dpblk
+    defw    hstbuf, dpblk
     defw    0000h, alv03
 ;
 ;   disk parameter block for all disks.
@@ -1250,8 +1260,7 @@ alv01:              defs ((hstalb-1)/8)+1   ;allocation vector 1
 alv02:              defs ((hstalb-1)/8)+1   ;allocation vector 2
 alv03:              defs ((hstalb-1)/8)+1   ;allocation vector 3
 
-dirbf:              defs 128            ;scratch directory area
-hstbuf:             defs hstsiz         ;buffer for host disk sector
+hstbuf:             defs hstsiz         ;host sector; DPH DIRBUF overlays this window
 bios_stack:                             ;temporary bios stack origin
 
 PUBLIC  _cpm_bios_bss_initialised_tail
