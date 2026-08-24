@@ -42,9 +42,18 @@ The IDE Hard Drive Module interface driver is optimised for performance and can 
 
 The IDE Hard Drive Module supports both PATA hard drives (including 3 1/2" magnetic platter, SSD, and DOM storage) and Compact Flash cards in their native 16-bit PATA mode, with buffered I/O provided by the 82C55 device. The IDE Hard Drive Module is the ideal way to attach "spinning rust" to your RC2014. Attaching one physical Master drive is supported.
 
-The CP/M-IDE system supports up to 4 mounted CP/M "drives" (files) of nominally 8 MBytes each. There can be as many CP/M drives stored on the FAT32 formatted disk as desired, and CP/M-IDE can be started with any 4 of them. Collections of hundreds (or even thousands) of CP/M drives can be stored in any number of sub-directories on the FAT32 host disk, to be mounted at will.
+v3 mounts **FAT directories** as CP/M A:–D:. Files in those directories are native 8.3 FAT files (`FOO.COM`, …). The shell command is `cpm <dirA> [dirB] [dirC] [dirD]`, or `cpm <parent>` if `<parent>` contains subdirectories `A`/`B`/`C`/`D`, or `cpm` with `CPMIDE.CFG` in the current or root directory:
 
-All CP/M-IDE builds provide at least 56kB of free TPA for the user's CP/M applications. This large free TPA achieved by limiting the number of concurrently mounted CP/M drives to 4.
+```toml
+[drives]
+A = "SYS"
+B = "USER"
+C = "GAMES/ZORK"
+```
+
+Contiguous 8 MB `.CPM` container files remain readable as ordinary host files but are no longer the mount object. Within CP/M the BIOS still deblocks 512-byte IDE sectors to 128-byte BDOS records (one copy, same as v2). Directory records are synthesized in RAM and do not touch the IDE.
+
+The SIO v3 build provides **44.25 KB** of TPA. Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). Four live drives maximum.
 
 <div>
 <table style="border: 2px solid #cccccc;">

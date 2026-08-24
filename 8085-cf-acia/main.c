@@ -65,7 +65,6 @@ int8_t ya_help(char ** args);   // help
 int8_t ya_exit(char ** args);   // exit and restart
 
 // fat related functions
-int8_t ya_frag(char ** args);   // check file for fragmentation
 int8_t ya_ls(char ** args);     // directory listing
 int8_t ya_cd(char ** args);     // change the current working directory
 int8_t ya_pwd(char ** args);    // show the current working directory
@@ -100,7 +99,6 @@ struct Builtin builtins[] = {
     { "hload", &ya_hload, "- load an Intel HEX CP/M file and run it"},
 
 // fat related functions
-    { "frag", &ya_frag, "[file] - check for file fragmentation"},
     { "ls", &ya_ls, "[path] - directory listing"},
     { "cd", &ya_cd, "[path] - change the current working directory"},
     { "pwd", &ya_pwd, "- show the current working directory"},
@@ -245,50 +243,6 @@ int8_t ya_exit(char ** args)    /* exit and restart */
 /*
   fat related functions
  */
-
-
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "frag".  args[1] is the name of the file.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_frag(char ** args)    /* check file for fragmentation */
-{
-    FRESULT res;
-    DWORD clst, clsz, step;
-    FSIZE_t fsz;
-
-    if (args[1] == NULL) {
-        fprintf(stdout, "Expected 1 argument to \"frag\"\n");
-    } else {
-
-        fprintf(stdout,"Checking \"%s\"", args[1]);
-        res = f_open(&file, (const TCHAR *)args[1], FA_OPEN_EXISTING | FA_READ);
-        if (res != FR_OK) { put_rc(res); return 1; }
-
-        fsz = f_size(&file);                                    /* File size */
-        clsz = (DWORD)(&file)->obj.fs->csize * FF_MAX_SS;       /* Cluster size */
-        if (fsz > 0) {                                          /* Check file size non-zero */
-            clst = (&file)->obj.sclust - 1;                     /* An initial cluster leading the first cluster for first test */
-            while (fsz) {                                       /* Check clusters are contiguous */
-                step = (fsz >= clsz) ? clsz : (DWORD)fsz;
-                res = f_lseek(&file, f_tell(&file) + step);     /* Advances file pointer a cluster */
-                if (res != FR_OK) { put_rc(res); return 1; }
-                if (clst + 1 != (&file)->clust) break;          /* Is not the cluster next to previous one? */
-                clst = (&file)->clust; fsz -= step;             /* Get current cluster for next test */
-            }
-            fprintf(stdout," at LBA %lu", (&file)->obj.fs->database + ((&file)->obj.fs->csize * ((&file)->obj.sclust - 2)));
-            if (fsz == 0) {                                     /* All checked contiguous without fail? */
-                fprintf(stdout," is OK\n");
-            } else {
-                fprintf(stdout," is fragmented\n");
-            }
-        }
-
-        f_close(&file);
-    }
-    return 1;
-}
 
 
 /**
