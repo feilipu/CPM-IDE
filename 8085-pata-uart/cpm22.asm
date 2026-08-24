@@ -4080,8 +4080,7 @@ HLD_LOADER:
     JP      HLD_READ_DATA   ;now get the first data
 ;
 HLD_WAIT_COLON:
-    CALL    CONIN           ;Rx byte in A
-    JP      NC,HLD_WAIT_COLON   ;carry set if byte available
+    CALL    CONIN           ;blocking BIOS CONIN; byte in A
     CP      ':'             ;wait for ':'
     JP      NZ,HLD_WAIT_COLON
     LD      E,0             ;reset E to compute checksum
@@ -4139,9 +4138,7 @@ HLD_READ_BYTE:              ;returns byte in A, checksum in E
 HLD_READ_NIBBLE:
     PUSH    HL
     PUSH    BC
-HLD_READ_WAIT:
-    CALL    CONIN           ;Rx byte in A
-    JP      NC,HLD_READ_WAIT;carry set if byte available
+    CALL    CONIN           ;blocking BIOS CONIN; byte in A
     POP     BC
     POP     HL
     SUB     '0'
@@ -4207,6 +4204,7 @@ SCRATCH3:   DEFW    0       ;last selected sector number.
 ;
 ;   Disk storage areas from parameter block.
 ;
+PUBLIC  DIRBUF
 DIRBUF:     DEFW    0       ;address of directory buffer to use.
 DISKPB:     DEFW    0       ;contains address of disk parameter block.
 CHKVECT:    DEFW    0       ;address of check vector.
