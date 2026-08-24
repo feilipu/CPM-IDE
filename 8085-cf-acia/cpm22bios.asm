@@ -1093,7 +1093,7 @@ sod_loop:
 ; and bit 3 (DRQ, value = 0x08) sets.
 ; Or until bit 0 (ERR, value = 0x01) or bit 5 (WFT, value = 0x20) sets.
 ; If neither error bit is set, the device is ready right then.
-; Uses AF, DE
+; Uses AF
 ; return carry on success
 
 .ide_wait_ready
@@ -1111,7 +1111,7 @@ sod_loop:
 
 ; Wait for the drive to be ready to transfer data.
 ; Returns the drive's status in A
-; Uses AF, DE
+; Uses AF
 ; return carry on success
 
 .ide_wait_drq
@@ -1148,7 +1148,6 @@ sod_loop:
     ld a,__IDE_CMD_READ
     out (__IO_CF_IDE_COMMAND),a ;ask the drive to read it
 
-    call ide_wait_ready         ;make sure drive is ready to proceed
     call ide_wait_drq           ;wait until it's got the data
 
     ;Read a block of 512 bytes (one sector) from the drive
@@ -1186,7 +1185,6 @@ sod_loop:
     ld a,__IDE_CMD_WRITE
     out (__IO_CF_IDE_COMMAND),a ;instruct drive to write a sector
 
-    call ide_wait_ready         ;make sure drive is ready to proceed
     call ide_wait_drq           ;wait until it wants the data
 
     ;Write a block of 512 bytes (one sector) from (HL++) to
@@ -1200,11 +1198,8 @@ sod_loop:
     out (__IO_CF_IDE_DATA),a    ;write the data byte (hl++)
     djnz ide_wrblk              ;keep iterative count in b
 
-;   call ide_wait_ready
-;   ld a,__IDE_CMD_CACHE_FLUSH
-;   out (__IO_CF_IDE_COMMAND),a ;tell drive to flush its hardware cache
-
-    jr ide_wait_ready           ;wait until the write is complete
+    scf                         ;posted write; next command waits ready
+    ret
 
 PUBLIC  _cpm_bios_tail
 _cpm_bios_tail:             ;tail of the cpm bios
