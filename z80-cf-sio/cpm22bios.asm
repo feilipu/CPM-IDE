@@ -9,14 +9,16 @@ SECTION rodata_driver               ;read only driver (code)
 
 INCLUDE "config_rc2014_private.inc"
 
+; 8-byte Tx: cut-through when empty; rings stay in this file (not the library).
+UNDEFINE __IO_SIO_TX_SIZE
+defc    __IO_SIO_TX_SIZE            = 0x08
+
 ;------------------------------------------------------------------------------
 ; location setting
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_BIOS    ;base of bios
-defc    __COMMON_AREA_PHASE_BIOS    = 0xC900    ;v3; FILE_MAX 64, TPA 44.25 KB
-
-defc    __CPM_BIOS_BSS_HEAD         = 0xDD40    ;FILE_MAX 64 ×24×4; serial still 0xFEC0
+defc    __COMMON_AREA_PHASE_BIOS    = 0xE380    ;meets BDOS STKAREA; FAT/IDE in ROM
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -221,7 +223,8 @@ rboot:
     ld      hl,_cpm_ccp_tfcb
     ld      de,hl
     inc     de
-    call    ldi_31          ;clear default FCB
+    ld      bc,31
+    ldir                    ;clear default FCB
 
     call    _sioa_reset     ;reset and empty the SIOA Tx & Rx buffers
     call    _siob_reset     ;reset and empty the SIOB Tx & Rx buffers
@@ -239,12 +242,9 @@ diskchk_jp_addr:            ;optional SMC, to void the LBA check and directly ex
 diskchk:
     ld      c,a             ;send current disk number to the ccp
     ld      hl,_cpm_dir_sclust
-    ld      a,(hl)
-    inc     hl
-    or      (hl)
-    inc     hl
-    or      (hl)
-    inc     hl
+    ld      a,(hl+)
+    or      (hl+)
+    or      (hl+)
     or      (hl)
     jp      NZ,_cpm_ccp_head        ;valid mount, go to ccp
 
@@ -382,12 +382,9 @@ chgdsk:
     ld      d,0
     ld      hl,_cpm_dir_sclust
     add     hl,de
-    ld      a,(hl)
-    inc     hl
-    or      (hl)
-    inc     hl
-    or      (hl)
-    inc     hl
+    ld      a,(hl+)
+    or      (hl+)
+    or      (hl+)
     or      (hl)
     jr      Z,seldskreset   ;unmounted
 
@@ -398,8 +395,14 @@ chgdsk:
     add     hl,de
     ld      a,(hl)
     or      a
+    jr      NZ,chgdsk_packed
+    xor     a
+    out     (__IO_ROM_TOGGLE),a     ;ROM in (pack_drive)
     ld      a,c
-    call    Z,pack_drive
+    call    pack_drive
+    ld      a,$01
+    out     (__IO_ROM_TOGGLE),a     ;RAM in
+chgdsk_packed:
     ld      a,c             ;recover selected disk
     ld      (sekdsk),a      ;and set the seeked disk
     add     a,a             ;*2 calculate offset into dpbase
@@ -468,7 +471,14 @@ read:
 write:
     ld      a,c
     cp      wrdir
-    jp      Z,wrdir_cpm
+    jp      NZ,write_data
+    xor     a
+    out     (__IO_ROM_TOGGLE),a     ;ROM in (wrdir_cpm)
+    call    wrdir_cpm
+    ld      a,$01
+    out     (__IO_ROM_TOGGLE),a     ;RAM in
+    ret
+write_data:
     xor     a               ;0 to accumulator
     ld      (readop),a      ;not a read operation
     ld      a,c             ;write type in c
@@ -593,7 +603,7 @@ nomatch:
 ;           proper disk, but not correct sector
     ld      a,(hstwrt)      ;host written?
     or      a
-    call    NZ,writehst     ;clear host buff
+    call    NZ,writehst_page    ;clear host buff (ROM)
 
 filhst:
 ;           may have to fill the host buffer
@@ -605,14 +615,15 @@ filhst:
     ld      (hstsec),a
     ld      a,(rsflag)      ;need to read?
     or      a
-    call    NZ,readhst      ;yes, if 1
+    call    NZ,readhst_page     ;yes, if 1 (ROM)
     xor     a               ;0 to accum
     ld      (hstwrt),a      ;no pending write
 
 match:
-;           HL = 128-byte slice inside hstbuf. DPH DIRBUF overlays hstbuf.
-;           Directory SETDMA is inside that 512-byte window: retarget BDOS
-;           DIRBUF to this slice and skip the copy on read. User DMA still copies.
+;           HL = 128-byte slice inside hstbuf (high RAM). ROM is paged out:
+;           ldi_128 copies TPA <-> hstbuf. Directory SETDMA inside the 512-byte
+;           window: retarget BDOS DIRBUF to this slice and skip the copy on
+;           read. User DMA still copies.
     ld      a,(seksec)      ;mask buffer number LSB
     and     secmsk          ;least significant bits, shifted off in sekhst calculation
     ld      h,a             ;shift left 7, for 128 bytes x seksec LSBs
@@ -648,17 +659,7 @@ rwmove:
     call    ldi_128
 
 after_move:
-    ld      a,(wrtype)      ;write type
-    and     wrdir           ;to directory?
-    ld      a,(erflag)      ;in case of errors
-    ret     Z               ;no further processing
-
-;           clear host buffer for directory write
-    or      a               ;errors?
-    ret     NZ              ;skip if so
-    xor     a               ;0 to accum
-    ld      (hstwrt),a      ;buffer written
-    call    writehst
+    ; WRITE C=1 never reaches rwoper (it goes to wrdir_cpm). Return host status.
     ld      a,(erflag)
     ret
 
@@ -670,7 +671,7 @@ after_move:
 ;*                                                   *
 ;*****************************************************
 
-PUBLIC  copy_build                  ;fill ldi_body with 32 * ldi + ret
+PUBLIC  copy_build                  ;fill ldi_body with 16 * ldi + ret
 PUBLIC  ldi_128                   ;128-byte copy via ldi_body
 
 ; clobbers AF, BC, HL
@@ -680,12 +681,10 @@ copy_build:
     ld      (fat_winsect+2),hl
     ld      hl,ldi_body             ;target: ldi_body (BSS)
 
-    ld      b,32                    ;32 * ldi (ED A0)
+    ld      b,16                    ;16 * ldi (ED A0)
 copy_build_loop:
-    ld      (hl),$ED                ;ldi opcode
-    inc     hl
-    ld      (hl),$A0                ;ldi opcode
-    inc     hl
+    ld      (hl+),$ED               ;ldi opcode
+    ld      (hl+),$A0
     djnz    copy_build_loop
 
     ld      (hl),$C9                ;ret
@@ -693,75 +692,33 @@ copy_build_loop:
 
 ; IN:  HL = src, DE = dst
 ; OUT: HL += 128, DE += 128, BC clobbered
+; 16-ldi grain: call once for 64, fall through for 64.
 ldi_128:
-    ld      bc,ldi_body             ;32 * ldi + ret in BSS
-    push    bc                      ;run 1: 32 * ldi
-    push    bc                      ;run 2: 32 * ldi
-    push    bc                      ;run 3: 32 * ldi
-    jp      ldi_body                ;run 4: 32 * ldi, then ret
+    call    ldi_64
+ldi_64:
+    ld      bc,ldi_body
+    push    bc                      ;16
+    push    bc                      ;32
+    push    bc                      ;48
+    jp      ldi_body                ;64
 
-ldi_32:
-    jp      ldi_body            ;32 * ldi + ret (filled by copy_build)
-ldi_31:
-    jp      ldi_body+2          ;skip one ldi: 31 * ldi + ret
-
-;
-;*****************************************************
-;*                                                   *
-;*    WRITEHST performs the physical write to        *
-;*    the host disk, READHST reads the physical      *
-;*    disk.                                          *
-;*                                                   *
-;*****************************************************
-
-writehst:
-    call    fat_hst_isdir
-    ret     C                       ;never write synthesized directory
-    call    fat_hst_map             ;BCDE = data LBA
-    jr      C,writehst_go
-    call    fat_wrual_bind
-    ret     NC
-    call    fat_hst_map
-    jr      NC,writehst_err
-writehst_go:
-    ld      hl,hstbuf
-
-    ;write a sector
-    ;specified by the 4 bytes in BCDE
-    ;the address of the origin buffer is in HL
-    ;HL is left incremented by 512 bytes
-    ;return carry on success, no carry for an error
-    call    ide_write_sector
-    ret     C
-writehst_err:
+; Page ROM ($0000–$7FFF) to run writehst/readhst. Those map the host sector
+; and call IDE; the buffers they use (hstbuf, fatwin, fat_files) stay here in
+; high RAM. Page RAM back so ldi_128 and the SIO ISRs see RAM in low memory.
+writehst_page:
+    xor     a
+    out     (__IO_ROM_TOGGLE),a     ;ROM in (disk map + IDE)
+    call    writehst
     ld      a,$01
-    ld      (erflag),a
+    out     (__IO_ROM_TOGGLE),a     ;RAM in (TPA copy, serial)
     ret
 
-readhst:
-    call    fat_hst_isdir
-    jr      NC,readhst_data
-    ld      a,(hstsec)
-    add     a,a
-    add     a,a                     ;host sec * 4 = first CP/M dir rec
-    ld      l,a
-    ld      h,0
-    jp      synth_dir
-readhst_data:
-    call    fat_hst_map
-    jr      NC,readhst_err
-    ld      hl,hstbuf
-
-    ;read a sector
-    ;LBA specified by the 4 bytes in BCDE
-    ;the address of the buffer to fill is in HL
-    ;HL is left incremented by 512 bytes
-    ;return carry on success, no carry for an error
-    call    ide_read_sector
-    ret     C
-readhst_err:
+readhst_page:
+    xor     a
+    out     (__IO_ROM_TOGGLE),a     ;ROM in (disk map + IDE)
+    call    readhst
     ld      a,$01
-    ld      (erflag),a
+    out     (__IO_ROM_TOGGLE),a     ;RAM in (TPA copy, serial)
     ret
 
 ;------------------------------------------------------------------------------
@@ -1221,9 +1178,100 @@ siob_putc_buffer_tx:
 
     ret
 
+PUBLIC  _cpm_bios_tail
+_cpm_bios_tail:             ;tail of the RAM BIOS (FAT stays in ROM)
+
+ALIGN $10                   ;align for sio interrupt vector table
+
+
+PUBLIC  _cpm_sio_interrupt_vector_table
+
+; origin of the SIO/2 IM2 interrupt vector table
+
+_cpm_sio_interrupt_vector_table:
+    defw    __siob_interrupt_tx_empty
+    defw    __siob_interrupt_ext_status
+    defw    __siob_interrupt_rx_char
+    defw    __siob_interrupt_rx_error
+    defw    __sioa_interrupt_tx_empty
+    defw    __sioa_interrupt_ext_status
+    defw    __sioa_interrupt_rx_char
+    defw    __sioa_interrupt_rx_error
+
 ;------------------------------------------------------------------------------
-; start of common area driver - Compact Flash & IDE functions
+; start of fixed tables - non aligned rodata
 ;------------------------------------------------------------------------------
+;
+;    fixed data tables for four-drive standard drives
+;    no translations
+;
+dpbase:
+;   disk Parameter header for disk 00
+    defw    0000h, 0000h
+    defw    0000h, 0000h
+    defw    hstbuf, dpblk
+    defw    0000h, alv00
+;   disk parameter header for disk 01
+    defw    0000h, 0000h
+    defw    0000h, 0000h
+    defw    hstbuf, dpblk
+    defw    0000h, alv01
+;   disk parameter header for disk 02
+    defw    0000h, 0000h
+    defw    0000h, 0000h
+    defw    hstbuf, dpblk
+    defw    0000h, alv02
+;   disk parameter header for disk 03
+    defw    0000h, 0000h
+    defw    0000h, 0000h
+    defw    hstbuf, dpblk
+    defw    0000h, alv03
+;
+;   disk parameter block for all disks.
+;
+dpblk:
+    defw    cpmspt      ;SPT - sectors per track
+    defb    5           ;BSH - block shift factor from BLS
+    defb    31          ;BLM - block mask from BLS
+    defb    1           ;EXM - Extent mask
+    defw    hstalb-1    ;DSM - Storage size (blocks - 1)
+    defw    cpmdir-1    ;DRM - Number of directory entries - 1
+    defb    $C0         ;AL0 - 2 directory blocks (256×32 = 8192)
+    defb    $00         ;AL1
+    defw    0           ;CKS - DIR check vector size (DRM+1)/4 (0=fixed disk) (ALLOC1)
+    defw    0           ;OFF - Reserved tracks offset
+
+;------------------------------------------------------------------------------
+; end of fixed tables
+;------------------------------------------------------------------------------
+
+ALIGN 16                    ;BSS follows DPH/DPB; no fixed $E850
+
+PUBLIC  _cpm_bios_rodata_tail
+_cpm_bios_rodata_tail:      ;tail of the cpm bios read only data
+
+PUBLIC  _cpm_bios_bss_bridge
+_cpm_bios_bss_bridge:
+
+DEPHASE
+
+;
+;*****************************************************
+;*                                                   *
+;*    Host I/O + IDE + FAT — runs in ROM.            *
+;*                                                   *
+;*    This code is not copied to high RAM. The RAM   *
+;*    BIOS pages it in with out (toggle),0 and back  *
+;*    with out 1. Buffers stay in high RAM:          *
+;*      hstbuf     host 512-byte sector (deblock)    *
+;*      fatwin     FAT / directory window            *
+;*      fat_files  reverse map                       *
+;*    IDE transfers those RAM buffers; it does not   *
+;*    keep a sector in ROM. Serial ISRs stay in the  *
+;*    RAM PHASE (rings at $FEF0 / $FF00).            *
+;*    wrdir_cpm is already in ROM: call writehst.    *
+;*                                                   *
+;*****************************************************
 
 ; set up the drive LBA registers
 ; Uses AF, BC, DE
@@ -1281,10 +1329,6 @@ siob_putc_buffer_tx:
     scf                         ;set carry flag on success
     ret
 
-;------------------------------------------------------------------------------
-; Routines that talk with the IDE drive, these should not be called by
-; the main program.
-
 ; read a sector
 ; LBA specified by the 4 bytes in BCDE
 ; the address of the buffer to fill is in HL
@@ -1313,10 +1357,6 @@ siob_putc_buffer_tx:
 
     scf                         ;carry = 1 on return = operation ok
     ret
-
-;------------------------------------------------------------------------------
-; Routines that talk with the IDE drive, these should not be called by
-; the main program.
 
 ; write a sector
 ; specified by the 4 bytes in BCDE
@@ -1347,20 +1387,45 @@ siob_putc_buffer_tx:
     scf                         ;posted write; next command waits ready
     ret
 
-PUBLIC  _cpm_bios_tail
-_cpm_bios_tail:             ;tail of the cpm bios
+; Map the host sector to an IDE LBA and transfer hstbuf (high RAM).
+; RAM deblock uses writehst_page / readhst_page (page ROM around this).
+; wrdir_cpm is already in ROM and calls writehst directly.
+writehst:
+    call    fat_hst_isdir
+    ret     C                       ;never write synthesized directory
+    call    fat_hst_map             ;BCDE = data LBA
+    jr      C,writehst_go
+    call    fat_wrual_bind
+    ret     NC
+    call    fat_hst_map
+    ret     NC
+writehst_go:
+    ld      hl,hstbuf               ;high RAM host sector
+    call    ide_write_sector
+    ret     C
+    ld      a,$01
+    ld      (erflag),a
+    ret
 
-PUBLIC  _cpm_bios_rodata_head
-_cpm_bios_rodata_head:      ;origin of the cpm bios rodata
-
-
-;
-;*****************************************************
-;*                                                   *
-;*    FAT translator (native 8.3 files as CP/M A:–D:) *
-;*    Same PHASE as this BIOS. Do not SECTION here.  *
-;*                                                   *
-;*****************************************************
+readhst:
+    call    fat_hst_isdir
+    jr      NC,readhst_data
+    ld      a,(hstsec)
+    add     a,a
+    add     a,a                     ;host sec * 4 = first CP/M dir rec
+    ld      l,a
+    ld      h,0
+    jp      synth_dir               ;fills hstbuf in high RAM
+readhst_data:
+    call    fat_hst_map
+    jr      NC,readhst_err
+    ld      hl,hstbuf               ;high RAM host sector
+    call    ide_read_sector
+    ret     C
+readhst_err:
+    ld      a,$01
+    ld      (erflag),a
+    ret
 
 DEFC    FS_FAT16        = 2
 DEFC    FS_FAT32        = 3
@@ -1388,7 +1453,13 @@ DEFC    AM_LFN          = $0F
 DEFC    AM_VOL          = $08
 DEFC    AM_DIR          = $10
 DEFC    FILE_MAX        = 64
-DEFC    FILE_SIZ        = 24
+DEFC    FILE_SIZ        = 13            ;flags+sclust+size+first_al+n_al; 8.3 from FAT
+DEFC    FF_FLAGS        = 0
+DEFC    FF_SCLUST       = 1
+DEFC    FF_SIZE         = 5
+DEFC    FF_FIRSTAL      = 9
+DEFC    FF_NAL          = 11
+DEFC    FF_USED         = $80
 DEFC    EOC32           = $0FFFFFFF
 
 DEFC    AM_RDO          = $01
@@ -1516,7 +1587,7 @@ fat_sync_window:
     jr      Z,fat_sync_ok           ;nothing dirty
     ld      de,(fat_winsect)        ;E LSB, D
     ld      bc,(fat_winsect+2)      ;C, B MSB
-    ld      hl,fatwin
+    ld      hl,fatwin               ;high RAM FAT window
     call    ide_write_sector        ;C: OK; HL += 512
     ret     NC                      ;leave flag dirty
     xor     a
@@ -1557,7 +1628,7 @@ fat_move_do:
     ret     NC
     push    bc
     push    de
-    ld      hl,fatwin
+    ld      hl,fatwin               ;high RAM FAT window
     call    ide_read_sector
     pop     de
     pop     bc
@@ -1947,8 +2018,7 @@ get_fat:
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
     jr      Z,get_fat32
-    ld      e,(hl)
-    inc     hl
+    ld      e,(hl+)
     ld      d,(hl)
     ld      a,d
     cp      $F8
@@ -1962,12 +2032,9 @@ get_fat16ok:
     scf
     ret
 get_fat32:
-    ld      e,(hl)
-    inc     hl
-    ld      d,(hl)
-    inc     hl
-    ld      c,(hl)
-    inc     hl
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
     ld      a,(hl)
     and     $0F
     ld      b,a
@@ -1999,9 +2066,8 @@ put_fat:
     cp      FS_FAT32
     jr      Z,put_fat32
     ld      a,(de)
-    ld      (hl),a
+    ld      (hl+),a
     inc     de
-    inc     hl
     ld      a,(de)
     ld      (hl),a
 put_fat_dirty:
@@ -2011,17 +2077,14 @@ put_fat_dirty:
     ret
 put_fat32:
     ld      a,(de)
-    ld      (hl),a
+    ld      (hl+),a
     inc     de
-    inc     hl
     ld      a,(de)
-    ld      (hl),a
+    ld      (hl+),a
     inc     de
-    inc     hl
     ld      a,(de)
-    ld      (hl),a
+    ld      (hl+),a
     inc     de
-    inc     hl
     ld      a,(de)
     and     $0F
     ld      b,a
@@ -2036,23 +2099,16 @@ PUBLIC  clst_from_off
 ; OUT C: BCDE = cluster containing fptr
 ; Sequential CP/M I/O hits clst_cache_* so we do not re-walk from sclust.
 clst_from_off:
-    ld      e,(hl)
-    inc     hl
-    ld      d,(hl)
-    inc     hl
-    ld      c,(hl)
-    inc     hl
-    ld      b,(hl)
-    inc     hl
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
+    ld      b,(hl+)
     ld      (fat_work),de            ;sclust
     ld      (fat_work+2),bc
-    ld      e,(hl)
-    inc     hl
-    ld      d,(hl)
-    inc     hl
-    ld      c,(hl)
-    inc     hl
-    ld      b,(hl)                  ;fptr
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
+    ld      b,(hl)                   ;fptr
     ; cluster index = (fptr >> 9) / csize
     srl     b
     rr      c
@@ -2567,8 +2623,7 @@ pack_drive:
     ld      (fat_work+15),a         ;drive
     call    fat_filebase
     ld      (fat_work),hl           ;table base
-    ld      e,l
-    ld      d,h
+    ld      de,hl
     inc     de
     xor     a
     ld      (hl),a
@@ -2581,12 +2636,9 @@ pack_drive:
     ld      d,0
     ld      hl,_cpm_dir_sclust
     add     hl,de
-    ld      e,(hl)
-    inc     hl
-    ld      d,(hl)
-    inc     hl
-    ld      c,(hl)
-    inc     hl
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
     ld      b,(hl)
     ld      a,b
     or      c
@@ -2624,12 +2676,9 @@ pd_loop:
     ld      hl,(dir_ptr)
     ld      bc,DIR_FileSize
     add     hl,bc
-    ld      e,(hl)
-    inc     hl
-    ld      d,(hl)
-    inc     hl
-    ld      c,(hl)
-    inc     hl
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
     ld      b,(hl)
     ld      hl,$0FFF
     add     hl,de
@@ -2663,15 +2712,12 @@ pd_nd:
     add     a,l
     jp      C,pd_done
     ld      (fat_work+6),a
-    ; slot = base + nfiles*24
+    ; slot = base + nfiles*FILE_SIZ
     ld      a,(fat_work+4)
     call    pd_slot
     ex      de,hl
-    ld      hl,(dir_ptr)
-    ld      bc,11
-    ldir                            ;name
-    xor     a
-    ld      (de),a                  ;uu
+    ld      a,FF_USED               ;used, UU 0 (FAT has no user)
+    ld      (de),a
     inc     de
     ld      hl,(dir_ptr)
     ld      bc,DIR_ClusLO
@@ -2741,25 +2787,76 @@ pd_done:
     ld      hl,$FFFF
     ld      (clst_cache_sclust),hl
     ld      (clst_cache_sclust+2),hl
+    ld      a,$FF
+    ld      (synth_fi),a            ;DIR name walk cache
     scf
     ret
 
-; A = file index, HL = table base + A*24
+; A = file index, HL = table base + A*FILE_SIZ (13 = *8 + *4 + *1)
 pd_slot:
     ld      l,a
     ld      h,0
-    add     hl,hl
     ld      e,l
     ld      d,h
     add     hl,hl
     add     hl,hl
-    add     hl,hl
-    add     hl,de
-    add     hl,de
-    add     hl,de
-    add     hl,de                   ;*24
+    add     hl,hl                   ;*8
+    add     hl,de                   ;*9
+    add     hl,de                   ;*10
+    add     hl,de                   ;*11
+    add     hl,de                   ;*12
+    add     hl,de                   ;*13
     ld      de,(fat_work)
     add     hl,de
+    ret
+
+; A = packed-file index. OUT C: dir_ptr on that FAT 8.3 entry.
+; Walks the drive directory (same skip rules as pack_drive).
+sd_fat_entry:
+    ld      (synth_want),a
+    ld      a,(hstdsk)
+    add     a,a
+    add     a,a
+    ld      e,a
+    ld      d,0
+    ld      hl,_cpm_dir_sclust
+    add     hl,de
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
+    ld      b,(hl)
+    ld      hl,0
+    call    dir_sdi
+    ret     NC
+    xor     a
+    ld      (synth_seen),a
+sfe_lp:
+    ld      hl,(dir_ptr)
+    ld      a,(hl)
+    or      a
+    ret     Z
+    cp      $E5
+    jr      Z,sfe_sk
+    cp      '.'
+    jr      Z,sfe_sk
+    ld      bc,DIR_Attr
+    add     hl,bc
+    ld      a,(hl)
+    cp      AM_LFN
+    jr      Z,sfe_sk
+    and     AM_DIR|AM_VOL
+    jr      NZ,sfe_sk
+    ld      a,(synth_seen)
+    ld      hl,synth_want
+    cp      (hl)
+    scf
+    ret     Z
+    inc     a
+    ld      (synth_seen),a
+sfe_sk:
+    call    dir_next
+    jp      C,sfe_lp
+    or      a
     ret
 
 PUBLIC  synth_dir
@@ -2801,7 +2898,7 @@ sd_fi:
     ld      a,(hl)
     or      a
     jp      Z,sd_empty
-    ld      bc,22
+    ld      bc,FF_NAL
     add     hl,bc
     ld      e,(hl)
     inc     hl
@@ -2844,14 +2941,29 @@ sd_z:
 sd_hit:
     add     hl,de                   ;HL = extent e within file
     ld      (fat_work+10),hl
-    ld      hl,(fat_work)           ;slot
-    ld      de,(fat_work+12)        ;dest
-    ld      bc,12                   ;name + uu
-    ldir
-    ld      de,(fat_work+12)
-    ld      hl,12
-    add     hl,de
-    ex      de,hl                   ;DE = dest+12 (EX)
+    ld      hl,(fat_work)
+    push    hl                      ;slot
+    ld      hl,(fat_work+10)
+    push    hl                      ;e
+    ld      hl,(fat_work+12)
+    push    hl                      ;dest
+    ld      a,(fat_work+14)
+    call    sd_fat_entry            ;dir_ptr -> 8.3; clobbers fat_work
+    pop     de                      ;dest
+    pop     bc                      ;e
+    pop     hl                      ;slot
+    jp      NC,sd_empty
+    ld      (fat_work),hl
+    ld      (fat_work+10),bc
+    push    hl
+    ld      hl,(dir_ptr)
+    ld      bc,11
+    ldir                            ;FAT 8.3
+    pop     hl
+    ld      a,(hl)
+    and     $0F                     ;UU
+    ld      (de),a
+    inc     de                      ;DE = dest+12 (EX)
     ld      hl,(fat_work+10)        ;e
     add     hl,hl                   ;2e  (EXM=1)
     ld      a,l
@@ -2873,7 +2985,7 @@ sd_hit:
     inc     de
     push    de                      ;dest → AL[0]
     ld      hl,(fat_work)
-    ld      bc,20
+    ld      bc,FF_FIRSTAL
     add     hl,bc
     ld      c,(hl)
     inc     hl
@@ -2928,7 +3040,7 @@ sd_al_n:
 ; records = (size+127)>>7; rem = records - e*256.
 sd_rc:
     ld      hl,(fat_work)
-    ld      bc,16
+    ld      bc,FF_SIZE
     add     hl,bc
     ld      e,(hl)
     inc     hl
@@ -2990,7 +3102,7 @@ ma_lp:
     or      a
     jr      Z,ma_next
     push    hl
-    ld      bc,20
+    ld      bc,FF_FIRSTAL
     add     hl,bc
     ld      c,(hl)
     inc     hl
@@ -3073,7 +3185,7 @@ fat_hst_map:
     ld      (fat_work),hl
     ld      a,(fat_work+14)
     call    pd_slot
-    ld      bc,12
+    ld      bc,FF_SCLUST
     add     hl,bc
     ld      de,fat_work
     ld      bc,4
@@ -3189,7 +3301,7 @@ fat_wrual_bind:
     or      a
     ret     Z
     push    hl
-    ld      bc,22
+    ld      bc,FF_NAL
     add     hl,bc
     inc     (hl)                    ;n_al++
     jr      NZ,fwb_1
@@ -3197,14 +3309,11 @@ fat_wrual_bind:
     inc     (hl)
 fwb_1:
     pop     hl
-    ld      bc,12
+    ld      bc,FF_SCLUST
     add     hl,bc
-    ld      e,(hl)
-    inc     hl
-    ld      d,(hl)
-    inc     hl
-    ld      c,(hl)
-    inc     hl
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
     ld      b,(hl)
     ld      a,b
     or      c
@@ -3222,16 +3331,13 @@ fwb_1:
     ld      (fat_work),hl
     ld      a,(unamap_idx)
     call    pd_slot
-    ld      bc,12
+    ld      bc,FF_SCLUST
     add     hl,bc
     pop     de
     pop     bc
-    ld      (hl),e
-    inc     hl
-    ld      (hl),d
-    inc     hl
-    ld      (hl),c
-    inc     hl
+    ld      (hl+),e
+    ld      (hl+),d
+    ld      (hl+),c
     ld      (hl),b
     scf
     ret
@@ -3272,6 +3378,8 @@ wrdir_cpm:
     ld      hl,$FFFF
     ld      (clst_cache_sclust),hl
     ld      (clst_cache_sclust+2),hl
+    ld      a,$FF
+    ld      (synth_fi),a
     ld      hl,(dmaadr)
     ld      b,4
 wd_lp:
@@ -3288,7 +3396,7 @@ wd_lp:
     ld      (erflag),a
     ret
 
-; HL -> CP/M dirent. ERA unlinks; else find/create 8.3, copy name, T1', size, pack slot.
+; HL -> CP/M dirent. ERA unlinks; else find/create 8.3, T1', size, pack slot.
 wrdir_slot:
     ld      a,(hl)
     or      a
@@ -3362,8 +3470,10 @@ wd_ez:
     or      a
     jr      Z,wd_ezn
     push    hl
-    ld      de,(dir_ptr)
-    ld      b,11
+    ld      bc,FF_SCLUST
+    add     hl,bc
+    ld      de,fat_found_sclust
+    ld      b,4
 wd_ezc:
     ld      a,(de)
     cp      (hl)
@@ -3372,7 +3482,9 @@ wd_ezc:
     inc     hl
     djnz    wd_ezc
     pop     hl
-    ld      (hl),0
+    ld      (hl),0                  ;clear used flag
+    ld      a,$FF
+    ld      (synth_fi),a
     ld      a,1
     ld      (fat_wflag),a
     ret
@@ -3469,6 +3581,10 @@ wd_sz1:
     ret
 
 wd_pack:
+    ld      a,(hl)                  ;CP/M UU
+    and     $0F
+    or      FF_USED
+    ld      (fat_work+13),a
     ld      a,(hstdsk)
     call    fat_filebase
     ld      (fat_work),hl
@@ -3482,8 +3598,10 @@ wd_ps:
     or      a
     jr      Z,wd_pempty
     push    hl
-    ld      de,(dir_ptr)
-    ld      b,11
+    ld      bc,FF_SCLUST
+    add     hl,bc
+    ld      de,fat_found_sclust
+    ld      b,4
 wd_pc:
     ld      a,(de)
     cp      (hl)
@@ -3499,112 +3617,33 @@ wd_pn:
     inc     a
     jr      wd_ps
 wd_pempty:
-    ex      de,hl
-    ld      hl,(dir_ptr)
-    ld      bc,11
-    ldir
-    xor     a
-    ld      (de),a
+    ld      a,(fat_work+13)
+    ld      (hl),a
     ld      a,(fat_work+14)
     call    pd_slot
 wd_phit:
+    ld      a,(fat_work+13)         ;used | UU
+    ld      (hl),a
     ld      a,(fat_work+14)
     ld      (unamap_idx),a
     ld      a,(hstdsk)
     ld      (unamap_drv),a
-    ld      bc,12
+    ld      bc,FF_SCLUST
     add     hl,bc
     ld      de,fat_found_sclust
     ld      bc,4
-    ldir
-    ld      de,fat_work+4
+    ldir                            ;sclust; HL -> slot size
+    ex      de,hl
+    ld      hl,fat_work+4
     ld      bc,4
-    ldir
+    ldir                            ;size from wd_size
     ret
-
-;------------------------------------------------------------------------------
-; start of fixed tables - aligned rodata
-;------------------------------------------------------------------------------
-
-ALIGN $10                   ;align for sio interrupt vector table
-
-
-PUBLIC  _cpm_sio_interrupt_vector_table
-
-; origin of the SIO/2 IM2 interrupt vector table
-
-_cpm_sio_interrupt_vector_table:
-    defw    __siob_interrupt_tx_empty
-    defw    __siob_interrupt_ext_status
-    defw    __siob_interrupt_rx_char
-    defw    __siob_interrupt_rx_error
-    defw    __sioa_interrupt_tx_empty
-    defw    __sioa_interrupt_ext_status
-    defw    __sioa_interrupt_rx_char
-    defw    __sioa_interrupt_rx_error
-
-;------------------------------------------------------------------------------
-; start of fixed tables - non aligned rodata
-;------------------------------------------------------------------------------
-;
-;    fixed data tables for four-drive standard drives
-;    no translations
-;
-dpbase:
-;   disk Parameter header for disk 00
-    defw    0000h, 0000h
-    defw    0000h, 0000h
-    defw    hstbuf, dpblk
-    defw    0000h, alv00
-;   disk parameter header for disk 01
-    defw    0000h, 0000h
-    defw    0000h, 0000h
-    defw    hstbuf, dpblk
-    defw    0000h, alv01
-;   disk parameter header for disk 02
-    defw    0000h, 0000h
-    defw    0000h, 0000h
-    defw    hstbuf, dpblk
-    defw    0000h, alv02
-;   disk parameter header for disk 03
-    defw    0000h, 0000h
-    defw    0000h, 0000h
-    defw    hstbuf, dpblk
-    defw    0000h, alv03
-;
-;   disk parameter block for all disks.
-;
-dpblk:
-    defw    cpmspt      ;SPT - sectors per track
-    defb    5           ;BSH - block shift factor from BLS
-    defb    31          ;BLM - block mask from BLS
-    defb    1           ;EXM - Extent mask
-    defw    hstalb-1    ;DSM - Storage size (blocks - 1)
-    defw    cpmdir-1    ;DRM - Number of directory entries - 1
-    defb    $C0         ;AL0 - 2 directory blocks (256×32 = 8192)
-    defb    $00         ;AL1
-    defw    0           ;CKS - DIR check vector size (DRM+1)/4 (0=fixed disk) (ALLOC1)
-    defw    0           ;OFF - Reserved tracks offset
-
-;------------------------------------------------------------------------------
-; end of fixed tables
-;------------------------------------------------------------------------------
-
-ALIGN __CPM_BIOS_BSS_HEAD   ;align for bss head (_cpm_dir_sclust)
-
-PUBLIC  _cpm_bios_rodata_tail
-_cpm_bios_rodata_tail:      ;tail of the cpm bios read only data
-
-PUBLIC  _cpm_bios_bss_bridge
-_cpm_bios_bss_bridge:
-
-DEPHASE
 
 ;
 ;*****************************************************
 ;*                                                   *
-;*    C shell entries. These bytes stay in ROM and   *
-;*    CALL the PHASE mini-FAT after preamble copy.   *
+;*    C shell entries (ROM). FAT is in ROM too;      *
+;*    no PHASE trampoline from the monitor.          *
 ;*    L=0 success, L=1 fail (zsdcc ABI 0 fastcall).  *
 ;*                                                   *
 ;*****************************************************
@@ -3627,12 +3666,9 @@ _dir_next:
 
 PUBLIC  _fat_dir_open
 _fat_dir_open:
-    ld      e,(hl)
-    inc     hl
-    ld      d,(hl)
-    inc     hl
-    ld      c,(hl)
-    inc     hl
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
     ld      b,(hl)
     ld      hl,0
     call    dir_sdi
@@ -3657,6 +3693,115 @@ _fat_dir_read:
 fat_dir_read_end:
     pop     hl
     ld      (hl),0
+    ld      l,1
+    ret
+
+PUBLIC  _dir_create
+_dir_create:
+    call    dir_create
+    ld      l,0
+    ret     C
+    inc     l
+    ret
+
+PUBLIC  _dir_zap
+_dir_zap:
+    call    dir_zap
+    ld      l,0
+    ret     C
+    inc     l
+    ret
+
+PUBLIC  _fat_sync
+_fat_sync:
+    call    fat_sync_window
+    ld      l,0
+    ret     C
+    inc     l
+    ret
+
+; HL -> DWORD cluster (LE). Write next cluster back. L=0 success.
+PUBLIC  _fat_next
+_fat_next:
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
+    ld      b,(hl)
+    push    hl
+    call    get_fat
+    pop     hl
+    jr      NC,fat_next_fail
+    ld      (hl),b
+    dec     hl
+    ld      (hl),c
+    dec     hl
+    ld      (hl),d
+    dec     hl
+    ld      (hl),e
+    ld      l,0
+    ret
+fat_next_fail:
+    ld      l,1
+    ret
+
+; HL -> DWORD last cluster (0 = new chain). Write new cluster back.
+PUBLIC  _fat_alloc
+_fat_alloc:
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
+    ld      b,(hl)
+    push    hl
+    call    create_chain
+    pop     hl
+    jr      NC,fat_alloc_fail
+    ld      (hl),b
+    dec     hl
+    ld      (hl),c
+    dec     hl
+    ld      (hl),d
+    dec     hl
+    ld      (hl),e
+    ld      l,0
+    ret
+fat_alloc_fail:
+    ld      l,1
+    ret
+
+; HL -> DWORD start cluster.
+PUBLIC  _fat_free
+_fat_free:
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
+    ld      b,(hl)
+    call    remove_chain
+    ld      l,0
+    ret     C
+    inc     l
+    ret
+
+; HL -> DWORD cluster in, LBA out.
+PUBLIC  _fat_clst2sect
+_fat_clst2sect:
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
+    ld      b,(hl)
+    push    hl
+    call    clst2sect
+    pop     hl
+    jr      NC,fat_c2s_fail
+    ld      (hl),b
+    dec     hl
+    ld      (hl),c
+    dec     hl
+    ld      (hl),d
+    dec     hl
+    ld      (hl),e
+    ld      l,0
+    ret
+fat_c2s_fail:
     ld      l,1
     ret
 
@@ -3735,7 +3880,7 @@ fatwin:             defs 512
 fat_winsect:        defs 4
 fat_wflag:          defs 1
 
-ldi_body:           defs 65 ;32 * ldi (ED A0) + ret; filled by copy_build
+ldi_body:           defs 33 ;16 * ldi (ED A0) + ret; filled by copy_build
 
 drv_packed:         defs 4
 
@@ -3751,11 +3896,9 @@ _fat_found_size:
 fat_found_size:     defs 4
 clst_cache_sclust:  defs 4
 clst_cache_ci:      defs 2  ;cluster index from start
-                    defs 2
 clst_cache_clst:    defs 4
 _fat_cwd:
 fat_cwd:            defs 4
-last_clst:          defs 4
 ; scratch 16 bytes — one caller at a time
 ; pack:    +0 table, +2 next_al, +4 nfiles, +6 ndirents, +8 n_al, +15 drive
 ; cfo/map: +0 sclust dword, +4 fptr/ci, +8 block, +14 file index
@@ -3768,11 +3911,14 @@ alv01:              defs ((hstalb-1)/8)+1
 alv02:              defs ((hstalb-1)/8)+1
 alv03:              defs ((hstalb-1)/8)+1
 
-dirbf:              defs 128
 hstbuf:             defs hstsiz
 
-; name 11, uu 1, sclust 4, size 4, first_al 2, n_al 2
+; flags 1 (bit7=used, 0-3=UU), sclust 4, size 4, first_al 2, n_al 2
 fat_files:          defs FILE_MAX*FILE_SIZ*4
+
+synth_fi:           defs 1          ;$FF = DIR walk invalid
+synth_want:         defs 1
+synth_seen:         defs 1
 
 bios_stack:                             ;temporary bios stack origin
 

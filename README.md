@@ -53,7 +53,7 @@ C = "GAMES/ZORK"
 
 Contiguous 8 MB `.CPM` container files remain readable as ordinary host files but are no longer the mount object. Within CP/M the BIOS still deblocks 512-byte IDE sectors to 128-byte BDOS records (one copy, same as v2). Directory records are synthesized in RAM and do not touch the IDE.
 
-The SIO v3 build provides **44.25 KB** of TPA. Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). Four live drives maximum.
+The SIO v3 build provides **51.00 KB** of TPA. Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). Four live drives maximum. 8.3 names are walked from the FAT directory on `DIR` rather than cached in the BIOS maps.
 
 <div>
 <table style="border: 2px solid #cccccc;">
@@ -215,7 +215,7 @@ The CP/M-IDE is built using the z88dk compilers and libraries, including a simpl
 
 CP/M 2.2 always transfers **128-byte** records through `SETDMA` / `READ` / `WRITE`. The host disk is **512-byte** IDE/CF sectors, so the BIOS deblocks four CP/M records per host sector in `hstbuf`. File I/O (default DMA `0x80`, TPA) still copies 128 bytes between that host slice and the caller's DMA. That copy is required: the program looks at the address it passed to `SETDMA`, and a 512-byte IDE transfer cannot be aimed at a 128-byte hole in a `.COM` (or at `0x80`). Z80 builds use unrolled `LDI`; 8085 builds use `ld a,(hl+)` / `ld (de+),a`.
 
-**SIO v3** synthesizes directory records in RAM (`dirbf` / FAT name tables). Those records do not come from a 512-byte IDE directory sector.
+**SIO v3** synthesizes directory records from the four resident FAT file maps (8.3 names are read from the FAT directory, not cached in the map). Those records do not come from a 512-byte IDE directory sector.
 
 On the **other six** firmware builds, BDOS snapshots DPH `DIRBUF` at `SELDSK` and then `SETDMA`s that address for every directory record:
 
@@ -226,7 +226,7 @@ On the **other six** firmware builds, BDOS snapshots DPH `DIRBUF` at `SELDSK` an
 
 The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that path uses `ld bc,de` / `sub hl,bc`, and `sra hl` for the slice shift.
 
-On those six ports TPA is unchanged (~56 KB) and `_cpm_dsk0_base` stays at **`0xF800`**. The SIO v3 prototype uses BIOS origin `0xC900` / BSS `0xDD40` and **44.25 KB** TPA (`FILE_MAX` 64). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
+On those six ports TPA is unchanged (~56 KB) and `_cpm_dsk0_base` stays at **`0xF800`**. The SIO v3 prototype runs FatFs, IDE, and host sector I/O from ROM (BIOS pages ROM in on disk I/O, serial ISRs stay in high RAM) with BIOS origin `0xE380` / BSS `0xE900` and **51.00 KB** TPA (`FILE_MAX` 64, four resident maps). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
 
 ### Installation
 
@@ -248,7 +248,7 @@ __NOTE:__ Where the SIO Module or the UART Module is being used, on startup the 
 
 CP/M can be started by command __`cpm file.a [file.b] [file.c] [file.d]`__. At least one valid file name must be provided. CP/M can be started with to up to four (4) files to be mounted on __`A:`__, __`B:`__, __`C:`__, and __`D:`__ drives, from any of the thousands of CP/M drive files you may have available. Up to 4 CP/M drive files can be concurrently mounted. Each CP/M drive file must be contiguous, but can be located anywhere on the FATFS drive (any LBA) in any directory, provided the full path is used to reference it.
 
-The shell provides some other basic functions, such as __`frag`__, __`hload`__, __`ls`__, __`cd`__, and __`pwd`__ file functions, and __`mount`__, __`ds`__, and __`dd`__ disk functions. And __`md`__ to show the contents of the ROM and RAM. __`frag`__ can be used to confirm whether a CP/M drive file (or any other FAT32 file) is contiguous or fragmented. __`hload`__ can be used to upload and directly run a CP/M application, rather than from a drive. __`exit`__ can be used to restart the RC2014 if desired.
+The shell provides __`ls`__, __`cd`__, __`pwd`__, __`rm`__, __`rmdir`__, __`mkdir`__, __`type`__, __`cp`__, and __`mv`__ on the FAT volume, plus __`hload`__, __`mount`__, __`ds`__, __`dd`__, and __`md`__. __`hload`__ can be used to upload and directly run a CP/M application, rather than from a drive. __`exit`__ can be used to restart the RC2014 if desired.
 
 Once the shell __`cpm`__ command has established that it has a valid CP/M drive available, then it will page out the ROM, write in a new `Page 0` with relevant CP/M data and interrupt linkages, and then pass control to the CP/M CCP.
 
@@ -333,10 +333,15 @@ Again, here is a view of what success looks like.
 - `hload` - load an Intel HEX CP/M file and run it
 
 ### File System Functions
-- `frag [file]` - check for file fragmentation
 - `ls [path]` - directory listing
 - `cd [path]` - change the current working directory
 - `pwd` - show the current working directory
+- `rm <file>` - delete a file
+- `rmdir <path>` - remove an empty directory
+- `mkdir <path>` - create a directory
+- `type <file>` - print a text file
+- `cp <src> <dst>` - copy a file
+- `mv <src> <dst>` - rename or move a file
 - `mount [option]` - mount a FAT file system, option 0 = delayed, 1 = immediate
 
 ### Disk Functions
@@ -402,7 +407,7 @@ First though, refer to the library, disk and buffer configuration notes below.
 
 `zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m -llib/rc2014/ff_ro --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-pata-sio -create-app`
 
-`zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m -llib/rc2014/ff_ro --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-sio -create-app`
+`zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m @cpm22.lst -o ../rc2014-cpm22-z80-cf-sio -create-app`
 
 `zcc +rc2014 -subtype=uart -SO3 --opt-code-speed -m -llib/rc2014/ff_ro --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-uart -create-app`
 
@@ -419,7 +424,7 @@ Alternate z88dk command lines to build the CP/M-IDE for the 8085 CPU Module is b
 
 Prior to running the above build commands, in addition to the normal z88dk provided libraries, a [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) provided by [ChaN](http://elm-chan.org/fsw/ff/00index_e.html) and customised for read-only for the RC2014 must be installed. Copy `ff_ro.lib` into `lib/clibs/sdcc_ix/lib/rc2014/` (that is the `-L` path used by both `-clib=sdcc_ix` and the default `-clib=sdcc_iy`). Copy `ff_85_ro.lib` into `lib/clibs/sccz80/lib/rc2014/` for the 8085 builds. The SDCC `ff_ro` object is built once with `-clib=sdcc_iy` (`--reserve-regs-iy`); do not keep a second copy under `sdcc_iy/`. Rebuild against your current z88dk if prebuilt binaries fail to link. (`z88dk-lib +rc2014 -f …` installs `ff.lib` into the same `lib/clibs/…` trees; `ff_ro` is copied by hand.)
 
-Due to ROM space constraints, it is not possible to include the FATFS write functions within the CP/M-IDE ROM shell. This does not affect the use of disk read or write by CP/M or z88dk applications compiled using the default FATFS library. It simply means that CP/M-IDE "drives" must be prepared on a host using the [cpmtools](http://www.moria.de/~michael/cpmtools/) on your operating system of choice. The default (read/write) version of the [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) should be installed so that applications you compile using z88dk can read and write to the FATFS file system.
+The SIO v3 prototype has FAT write in ROM (`rm`, `mkdir`, `cp`). The other six firmware builds still use the read-only ChaN package, so those shells cannot create drive files; prepare `.CPM` containers on a host with [cpmtools](http://www.moria.de/~michael/cpmtools/). The default (read/write) version of the [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) should be installed so that applications you compile using z88dk can read and write to the FATFS file system.
 
 Again: ROM builds use **bare** subtypes + `ff_ro`; application `.COM` builds under running CP/M use **`-subtype=cpm`** (FCB file I/O) and optional full `ff` / `time` for FatFs — see [z88dk applications under CP/M-IDE](#z88dk-applications-under-cpm-ide--subtypecpm) above.
 

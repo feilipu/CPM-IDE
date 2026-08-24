@@ -26,7 +26,7 @@ typedef uint32_t DWORD;
 
 // PRAGMA DEFINES
 #pragma output CRT_ORG_VECTOR_TABLE = 0 // we place our own IM2 Vector Table
-#pragma output REGISTER_SP = 0xB200     // below the CP/M CCP (FILE_MAX 64)
+#pragma output REGISTER_SP = 0xCD00     // below the CP/M CCP (FAT in ROM)
 #pragma printf = "%c %s %d %u %lu %X"   // enables %c, %s, %d, %u, %lu, %X only
 
 // DEFINES
@@ -63,8 +63,15 @@ extern uint8_t * fat_dir_ptr;
 
 extern uint8_t fat_mount(void);
 extern uint8_t dir_find(uint8_t *name11) __z88dk_fastcall;
+extern uint8_t dir_create(uint8_t *name11) __z88dk_fastcall;
+extern uint8_t dir_zap(void);
+extern uint8_t fat_sync(void);
 extern uint8_t fat_dir_open(uint32_t *sclust) __z88dk_fastcall;
 extern uint8_t fat_dir_read(uint8_t *ent32) __z88dk_fastcall;
+extern uint8_t fat_next(uint32_t *clst) __z88dk_fastcall;
+extern uint8_t fat_alloc(uint32_t *clst) __z88dk_fastcall;
+extern uint8_t fat_free(uint32_t *clst) __z88dk_fastcall;
+extern uint8_t fat_clst2sect(uint32_t *clst) __z88dk_fastcall;
 
 #define AM_RDO  0x01
 #define AM_HID  0x02
@@ -97,6 +104,12 @@ int8_t ya_exit(char ** args);   // exit and restart
 int8_t ya_ls(char ** args);     // directory listing
 int8_t ya_cd(char ** args);     // change the current working directory
 int8_t ya_pwd(char ** args);    // show the current working directory
+int8_t ya_rm(char ** args);     // delete a file
+int8_t ya_rmdir(char ** args);  // remove an empty directory
+int8_t ya_mkdir(char ** args);  // create a directory
+int8_t ya_type(char ** args);   // print a text file
+int8_t ya_cp(char ** args);     // copy a file
+int8_t ya_mv(char ** args);     // rename or move a file
 int8_t ya_mount(char ** args);  // mount a FAT file system
 
 // disk related functions
@@ -139,6 +152,12 @@ struct Builtin builtins[] = {
     { "ls", &ya_ls, "[path] - directory listing"},
     { "cd", &ya_cd, "[path] - change the current working directory"},
     { "pwd", &ya_pwd, "- show the current working directory"},
+    { "rm", &ya_rm, "<file> - delete a file"},
+    { "rmdir", &ya_rmdir, "<path> - remove an empty directory"},
+    { "mkdir", &ya_mkdir, "<path> - create a directory"},
+    { "type", &ya_type, "<file> - print a text file"},
+    { "cp", &ya_cp, "<src> <dst> - copy a file"},
+    { "mv", &ya_mv, "<src> <dst> - rename or move a file"},
     { "mount", &ya_mount, "[option] - mount a FAT file system"},
 
 // disk related functions
@@ -250,6 +269,188 @@ static uint8_t path_to_dir(const char *path, uint32_t *out)
     }
     *out = clst;
     return 0;
+}
+
+static uint8_t is_eoc(uint32_t clst)
+{
+    return (clst & 0x0FFFFFFFul) >= 0x0FFFFFF8ul;
+}
+
+static uint8_t is_dot_name(const uint8_t *n)
+{
+    return n[0] == '.' && (n[1] == ' ' || (n[1] == '.' && n[2] == ' '));
+}
+
+/* Walk all but the last component. Leaf 8.3 in name11. */
+static uint8_t path_split(const char *path, uint32_t *parent, uint8_t *name11)
+{
+    uint32_t clst;
+    uint8_t n[11];
+    char comp[13];
+    uint8_t ci;
+
+    if (path == NULL || path[0] == 0)
+        return 1;
+    if (path[0] == '/' || path[0] == '\\') {
+        clst = root_clst();
+        ++path;
+    } else {
+        clst = fat_cwd;
+    }
+    while (*path == '/' || *path == '\\')
+        ++path;
+    if (*path == 0)
+        return 1;
+
+    while (*path) {
+        ci = 0;
+        while (*path && *path != '/' && *path != '\\' && ci < 12)
+            comp[ci++] = *path++;
+        comp[ci] = 0;
+        while (*path == '/' || *path == '\\')
+            ++path;
+        if (comp[0] == 0)
+            continue;
+        if (*path == 0) {
+            name83(name11, comp);
+            *parent = clst;
+            return 0;
+        }
+        if (fat_dir_open(&clst))
+            return 1;
+        name83(n, comp);
+        if (dir_find(n))
+            return 1;
+        if ((fat_dir_ptr[11] & AM_DIR) == 0 && (comp[0] != '.'))
+            return 1;
+        clst = fat_found_sclust;
+    }
+    return 1;
+}
+
+/* Split path, refuse . / .., open the parent, find the leaf. 0 = found. */
+static uint8_t open_leaf(const char *path, uint32_t *parent, uint8_t *n)
+{
+    if (path_split(path, parent, n) || is_dot_name(n))
+        return 1;
+    return (uint8_t)(fat_dir_open(parent) || dir_find(n));
+}
+
+/* 1 if the directory contains only . / .. (and deleted / LFN / volume). */
+static uint8_t dir_is_empty(uint32_t clst)
+{
+    uint8_t ent[32];
+
+    if (fat_dir_open(&clst))
+        return 0;
+    while (fat_dir_read(ent) == 0) {
+        if (ent[0] == 0)
+            break;
+        if (ent[0] == 0xE5 || ent[11] == AM_LFN || (ent[11] & AM_VOL))
+            continue;
+        if (ent[0] == '.' && (ent[1] == ' ' || (ent[1] == '.' && ent[2] == ' ')))
+            continue;
+        return 0;
+    }
+    return 1;
+}
+
+static uint8_t dir_fill(uint8_t attr, uint32_t clst, uint32_t size)
+{
+    uint8_t *e = fat_dir_ptr;
+
+    e[11] = attr;
+    e[20] = (uint8_t)(clst >> 16);
+    e[21] = (uint8_t)(clst >> 24);
+    e[26] = (uint8_t)clst;
+    e[27] = (uint8_t)(clst >> 8);
+    e[28] = (uint8_t)size;
+    e[29] = (uint8_t)(size >> 8);
+    e[30] = (uint8_t)(size >> 16);
+    e[31] = (uint8_t)(size >> 24);
+    return fat_sync();
+}
+
+static uint8_t zero_cluster(uint32_t clst, uint32_t parent)
+{
+    uint32_t lba;
+    uint8_t s, nsec;
+    uint8_t *e;
+
+    lba = clst;
+    if (fat_clst2sect(&lba))
+        return 1;
+    memset(buffer, 0, 512);
+    e = (uint8_t *)buffer;
+    e[0] = '.';
+    memset(e + 1, ' ', 10);
+    e[11] = AM_DIR;
+    e[20] = (uint8_t)(clst >> 16);
+    e[21] = (uint8_t)(clst >> 24);
+    e[26] = (uint8_t)clst;
+    e[27] = (uint8_t)(clst >> 8);
+    e[32] = '.';
+    e[33] = '.';
+    memset(e + 34, ' ', 9);
+    e[43] = AM_DIR;
+    if (parent == root_clst())
+        parent = 0;
+    e[52] = (uint8_t)(parent >> 16);
+    e[53] = (uint8_t)(parent >> 24);
+    e[58] = (uint8_t)parent;
+    e[59] = (uint8_t)(parent >> 8);
+    if (disk_write(0, buffer, lba, 1))
+        return 1;
+    memset(buffer, 0, 512);
+    nsec = cpm_fat_vol.csize;
+    for (s = 1; s < nsec; ++s)
+        if (disk_write(0, buffer, lba + s, 1))
+            return 1;
+    return 0;
+}
+
+static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first)
+{
+    uint32_t last = 0, first = 0, lbas, lbad, nxt;
+    uint8_t s, nsec;
+    uint32_t chunk;
+
+    *out_first = 0;
+    if (size == 0)
+        return 0;
+    while (size) {
+        if (src < 2 || is_eoc(src))
+            return 1;
+        lbas = src;
+        if (fat_clst2sect(&lbas))
+            return 1;
+        nxt = last;
+        if (fat_alloc(&nxt))
+            return 1;
+        if (first == 0)
+            first = nxt;
+        last = nxt;
+        lbad = nxt;
+        if (fat_clst2sect(&lbad))
+            return 1;
+        nsec = cpm_fat_vol.csize;
+        for (s = 0; s < nsec && size; ++s) {
+            if (disk_read(0, buffer, lbas + s, 1))
+                return 1;
+            if (disk_write(0, buffer, lbad + s, 1))
+                return 1;
+            chunk = (size > 512) ? 512 : size;
+            size -= chunk;
+        }
+        if (size == 0)
+            break;
+        nxt = src;
+        if (fat_next(&nxt) || is_eoc(nxt))
+            return 1;
+        src = nxt;
+    }
+    *out_first = first;
+    return fat_sync();
 }
 
 int8_t ya_mkcpm(char ** args)   /* initialise CP/M with up to 4 directory mounts */
@@ -563,6 +764,330 @@ int8_t ya_pwd(char ** args)     /* show the current working directory */
 {
     (void *)args;
     fprintf(output, "cluster %lu\n", fat_cwd);
+    return 1;
+}
+
+
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "rm". args[1] is the file.
+   @return Always returns 1, to continue executing.
+ */
+int8_t ya_rm(char ** args)
+{
+    uint32_t parent, clst;
+    uint8_t n[11];
+
+    if (args[1] == NULL) {
+        fprintf(output, "Expected 1 argument to \"rm\"\n");
+        return 1;
+    }
+    if (open_leaf(args[1], &parent, n)) {
+        put_rc(1);
+        return 1;
+    }
+    if (fat_dir_ptr[11] & (AM_DIR | AM_RDO)) {
+        put_rc(1);
+        return 1;
+    }
+    clst = fat_found_sclust;
+    if (dir_zap() || fat_sync()) {
+        put_rc(1);
+        return 1;
+    }
+    if (clst >= 2) {
+        if (fat_free(&clst) || fat_sync())
+            put_rc(1);
+    }
+    return 1;
+}
+
+
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "rmdir". args[1] is the directory.
+   @return Always returns 1, to continue executing.
+ */
+int8_t ya_rmdir(char ** args)
+{
+    uint32_t parent, clst;
+    uint8_t n[11];
+
+    if (args[1] == NULL) {
+        fprintf(output, "Expected 1 argument to \"rmdir\"\n");
+        return 1;
+    }
+    if (open_leaf(args[1], &parent, n)) {
+        put_rc(1);
+        return 1;
+    }
+    if ((fat_dir_ptr[11] & AM_DIR) == 0) {
+        put_rc(1);
+        return 1;
+    }
+    clst = fat_found_sclust;
+    if (clst == fat_cwd || dir_is_empty(clst) == 0) {
+        put_rc(1);
+        return 1;
+    }
+    if (fat_dir_open(&parent) || dir_find(n) || dir_zap() || fat_sync()) {
+        put_rc(1);
+        return 1;
+    }
+    if (clst >= 2) {
+        if (fat_free(&clst) || fat_sync())
+            put_rc(1);
+    }
+    return 1;
+}
+
+
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "mkdir". args[1] is the path.
+   @return Always returns 1, to continue executing.
+ */
+int8_t ya_mkdir(char ** args)
+{
+    uint32_t parent, clst;
+    uint8_t n[11];
+
+    if (args[1] == NULL) {
+        fprintf(output, "Expected 1 argument to \"mkdir\"\n");
+        return 1;
+    }
+    if (path_split(args[1], &parent, n) || is_dot_name(n)) {
+        put_rc(1);
+        return 1;
+    }
+    if (fat_dir_open(&parent)) {
+        put_rc(1);
+        return 1;
+    }
+    if (dir_find(n) == 0) {
+        put_rc(1);
+        return 1;
+    }
+    clst = 0;
+    if (fat_alloc(&clst) || fat_sync()) {
+        put_rc(1);
+        return 1;
+    }
+    if (fat_dir_open(&parent) || dir_create(n)) {
+        fat_free(&clst);
+        fat_sync();
+        put_rc(1);
+        return 1;
+    }
+    if (dir_fill(AM_DIR, clst, 0) || zero_cluster(clst, parent))
+        put_rc(1);
+    return 1;
+}
+
+
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "type". args[1] is the file.
+   @return Always returns 1, to continue executing.
+ */
+int8_t ya_type(char ** args)
+{
+    uint32_t parent, clst, size, lba;
+    uint8_t n[11], s, nsec;
+    uint16_t i, nout;
+    uint8_t *p;
+
+    if (args[1] == NULL) {
+        fprintf(output, "Expected 1 argument to \"type\"\n");
+        return 1;
+    }
+    if (open_leaf(args[1], &parent, n)) {
+        put_rc(1);
+        return 1;
+    }
+    if (fat_dir_ptr[11] & AM_DIR) {
+        put_rc(1);
+        return 1;
+    }
+    clst = fat_found_sclust;
+    size = fat_found_size;
+    while (size) {
+        if (clst < 2 || is_eoc(clst))
+            break;
+        lba = clst;
+        if (fat_clst2sect(&lba)) {
+            put_rc(1);
+            return 1;
+        }
+        nsec = cpm_fat_vol.csize;
+        for (s = 0; s < nsec && size; ++s) {
+            if (disk_read(0, buffer, lba + s, 1)) {
+                put_rc(1);
+                return 1;
+            }
+            p = (uint8_t *)buffer;
+            nout = (size > 512) ? 512 : (uint16_t)size;
+            for (i = 0; i < nout; ++i) {
+                if (p[i] == 0x1A) {
+                    size = 0;
+                    break;
+                }
+                fputc(p[i], output);
+            }
+            if (size)
+                size -= nout;
+        }
+        if (size == 0)
+            break;
+        if (fat_next(&clst) || is_eoc(clst))
+            break;
+    }
+    return 1;
+}
+
+
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "cp". args[1] src, args[2] dst.
+   @return Always returns 1, to continue executing.
+ */
+int8_t ya_cp(char ** args)
+{
+    uint32_t sp, dp, src, size, first, old;
+    uint8_t sn[11], dn[11];
+    uint8_t dest_exists;
+
+    if (args[1] == NULL || args[2] == NULL) {
+        fprintf(output, "Expected 2 arguments to \"cp\"\n");
+        return 1;
+    }
+    if (open_leaf(args[1], &sp, sn)) {
+        put_rc(1);
+        return 1;
+    }
+    if (fat_dir_ptr[11] & AM_DIR) {
+        put_rc(1);
+        return 1;
+    }
+    src = fat_found_sclust;
+    size = fat_found_size;
+
+    if (path_split(args[2], &dp, dn) || is_dot_name(dn)) {
+        put_rc(1);
+        return 1;
+    }
+    if (sp == dp && memcmp(sn, dn, 11) == 0)
+        return 1;
+    if (fat_dir_open(&dp)) {
+        put_rc(1);
+        return 1;
+    }
+    dest_exists = (uint8_t)(dir_find(dn) == 0);
+    if (dest_exists) {
+        if (fat_dir_ptr[11] & AM_DIR) {
+            put_rc(1);
+            return 1;
+        }
+        old = fat_found_sclust;
+        if (old >= 2) {
+            if (fat_free(&old) || fat_sync()) {
+                put_rc(1);
+                return 1;
+            }
+        }
+        if (fat_dir_open(&dp) || dir_find(dn) || dir_fill(AM_ARC, 0, 0)) {
+            put_rc(1);
+            return 1;
+        }
+    } else {
+        if (dir_create(dn) || fat_sync()) {
+            put_rc(1);
+            return 1;
+        }
+    }
+    if (copy_file(src, size, &first)) {
+        put_rc(1);
+        return 1;
+    }
+    if (fat_dir_open(&dp) || dir_find(dn) || dir_fill(AM_ARC, first, size))
+        put_rc(1);
+    return 1;
+}
+
+
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "mv". args[1] src, args[2] dst.
+   @return Always returns 1, to continue executing.
+ */
+int8_t ya_mv(char ** args)
+{
+    uint32_t sp, dp, sclust, ssize, old;
+    uint8_t sn[11], dn[11], attr;
+
+    if (args[1] == NULL || args[2] == NULL) {
+        fprintf(output, "Expected 2 arguments to \"mv\"\n");
+        return 1;
+    }
+    if (open_leaf(args[1], &sp, sn)) {
+        put_rc(1);
+        return 1;
+    }
+    if (fat_dir_ptr[11] & AM_DIR) {
+        put_rc(1);
+        return 1;
+    }
+    attr = fat_dir_ptr[11];
+    sclust = fat_found_sclust;
+    ssize = fat_found_size;
+
+    if (path_split(args[2], &dp, dn) || is_dot_name(dn)) {
+        put_rc(1);
+        return 1;
+    }
+    if (sp == dp && memcmp(sn, dn, 11) == 0)
+        return 1;
+    if (fat_dir_open(&dp)) {
+        put_rc(1);
+        return 1;
+    }
+    if (dir_find(dn) == 0) {
+        if (fat_dir_ptr[11] & AM_DIR) {
+            put_rc(1);
+            return 1;
+        }
+        old = fat_found_sclust;
+        if (dir_zap() || fat_sync()) {
+            put_rc(1);
+            return 1;
+        }
+        if (old >= 2) {
+            if (fat_free(&old) || fat_sync()) {
+                put_rc(1);
+                return 1;
+            }
+        }
+        if (fat_dir_open(&dp)) {
+            put_rc(1);
+            return 1;
+        }
+    }
+    if (sp == dp) {
+        if (dir_find(sn)) {
+            put_rc(1);
+            return 1;
+        }
+        memcpy(fat_dir_ptr, dn, 11);
+        if (fat_sync())
+            put_rc(1);
+        return 1;
+    }
+    if (dir_create(dn) || dir_fill(attr, sclust, ssize)) {
+        put_rc(1);
+        return 1;
+    }
+    if (fat_dir_open(&sp) || dir_find(sn) || dir_zap() || fat_sync())
+        put_rc(1);
     return 1;
 }
 

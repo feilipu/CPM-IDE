@@ -33,7 +33,7 @@ SECTION rodata_lib           ;read only library (code)
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xB200    ;v3: BIOS 0xC900, FILE_MAX 64
+defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xCD00    ;v3: BIOS 0xE380, FAT/IDE in ROM
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -4243,7 +4243,7 @@ CKSUMTBL:   DEFS    16,0
 ;
             DEFS    48,0    ;minimum BDOS stack allocation.
 ;
-ALIGN       0x100
+ALIGN       0x20
 ;
 STKAREA:                    ;top of BDOS stack.
 ;
