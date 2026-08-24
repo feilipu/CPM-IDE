@@ -1783,7 +1783,10 @@ RDBUF2:
     CP      LF
     JP      Z,RDBUF17
     CP      BS              ;how about a backspace?
-    JP      NZ,RDBUF3
+    JP      Z,RDBUF3
+    CP      DEL             ;DEL same as BS (DRI APN 02)
+    JP      NZ,RDBUF4
+RDBUF3:
     LD      A,B             ;yes, but ignore at the beginning of the line.
     OR      A
     JP      Z,RDBUF1
@@ -1791,16 +1794,6 @@ RDBUF2:
     LD      A,(CURPOS)      ;if we backspace to the start of the line,
     LD      (OUTFLAG),A     ;treat as a cancel (control-x).
     JP      RDBUF10
-RDBUF3:
-    CP      DEL             ;user typed a rubout?
-    JP      NZ,RDBUF4
-    LD      A,B             ;ignore at the start of the line.
-    OR      A
-    JP      Z,RDBUF1
-    LD      A,(HL)          ;ok, echo the prevoius character.
-    DEC     B               ;and reset pointers (counters).
-    DEC     HL
-    JP      RDBUF15
 RDBUF4:
     CP      CNTRLE          ;physical end of line?
     JP      NZ,RDBUF5

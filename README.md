@@ -211,7 +211,7 @@ Directory I/O is different. BDOS snapshots DPH `DIRBUF` at `SELDSK` and then `SE
 - DPH `DIRBUF` overlays `hstbuf` (the separate 128-byte `dirbf` is gone: **128 bytes of BIOS RAM recovered**).
 - When DMA already lies in the 512-byte host window, `READ` does not copy. The BIOS writes the active 128-byte slice address into the BDOS `DIRBUF` word so `FCB2HL` / `CHECKSUM` / `MOVEDIR` see the record in place.
 - Directory `WRITE` still copies the record into the slice (then `WRITE` C=1 flushes the host sector immediately).
-- CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it.
+- CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, and BDOS function 10 treats `DEL` as backspace (DRI APN 02).
 
 The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that path uses `ld bc,de` / `sub hl,bc`, and `sra hl` for the slice shift.
 
