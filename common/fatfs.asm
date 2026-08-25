@@ -175,7 +175,7 @@ clst2sect_shx:
     add     hl,hl
     rl      de                      ;x <<= 1 (DEHL; portable to 8085)
     ld      bc,de
-    ld      de,hl
+    ex      de,hl                   ;DE = new low; HL was already in BC
     or      a
     jr      NZ,clst2sect_mloop
 clst2sect_muldone:
@@ -594,7 +594,7 @@ fat_fatent_shl:
     add     hl,hl
     rl      de
     ld      bc,de
-    ld      de,hl
+    ex      de,hl                   ;DE = new low; HL was already in BC
     dec     a
     jr      NZ,fat_fatent_shl
     pop     af
@@ -688,9 +688,8 @@ put_fat:
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
     jr      Z,put_fat32
-    ld      a,(de)
+    ld      a,(de+)
     ld      (hl+),a
-    inc     de
     ld      a,(de)
     ld      (hl),a
 put_fat_dirty:
@@ -699,15 +698,12 @@ put_fat_dirty:
     scf
     ret
 put_fat32:
-    ld      a,(de)
+    ld      a,(de+)
     ld      (hl+),a
-    inc     de
-    ld      a,(de)
+    ld      a,(de+)
     ld      (hl+),a
-    inc     de
-    ld      a,(de)
+    ld      a,(de+)
     ld      (hl+),a
-    inc     de
     ld      a,(de)
     and     $0F
     ld      b,a
@@ -1574,27 +1570,22 @@ sd_hit:
     pop     hl
     ld      a,(hl)
     and     $0F                     ;UU
-    ld      (de),a
-    inc     de                      ;DE = dest+12 (EX)
+    ld      (de+),a                 ;DE = dest+12 (EX)
     ld      hl,(fat_work+10)        ;e
     add     hl,hl                   ;2e  (EXM=1)
     ld      a,l
     and     $1F
-    ld      (de),a                  ;EX
-    inc     de
+    ld      (de+),a                 ;EX
     xor     a
-    ld      (de),a                  ;S1
-    inc     de
+    ld      (de+),a                 ;S1
     ld      a,(fat_work+10)
     srl     a
     srl     a
     srl     a
     srl     a
-    ld      (de),a                  ;S2 = e>>4
-    inc     de
+    ld      (de+),a                 ;S2 = e>>4
     call    sd_rc
-    ld      (de),a                  ;RC
-    inc     de
+    ld      (de+),a                 ;RC
     push    de                      ;dest → AL[0]
     ld      hl,(fat_work)
     ld      bc,FF_FIRSTAL
@@ -2271,12 +2262,9 @@ _fat_next:
     call    get_fat
     pop     hl
     jr      NC,fat_next_fail
-    ld      (hl),b
-    dec     hl
-    ld      (hl),c
-    dec     hl
-    ld      (hl),d
-    dec     hl
+    ld      (hl-),b
+    ld      (hl-),c
+    ld      (hl-),d
     ld      (hl),e
     ld      l,0
     ret
@@ -2295,12 +2283,9 @@ _fat_alloc:
     call    create_chain
     pop     hl
     jr      NC,fat_alloc_fail
-    ld      (hl),b
-    dec     hl
-    ld      (hl),c
-    dec     hl
-    ld      (hl),d
-    dec     hl
+    ld      (hl-),b
+    ld      (hl-),c
+    ld      (hl-),d
     ld      (hl),e
     ld      l,0
     ret
@@ -2332,12 +2317,9 @@ _fat_clst2sect:
     call    clst2sect
     pop     hl
     jr      NC,fat_c2s_fail
-    ld      (hl),b
-    dec     hl
-    ld      (hl),c
-    dec     hl
-    ld      (hl),d
-    dec     hl
+    ld      (hl-),b
+    ld      (hl-),c
+    ld      (hl-),d
     ld      (hl),e
     ld      l,0
     ret

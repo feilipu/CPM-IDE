@@ -8,6 +8,15 @@
 ; 8085: no ldir/djnz/srl/sbc hl,rr/res/set. Use ld a,(hl+)/ld (de+),a,
 ; rl de, add hl,hl, sub hl,bc, ld de,hl+*, rra-through-A for >> .
 ;
+; Buffers (fatwin, hstbuf, fat_files, volume) stay in the BIOS BSS PHASE
+; in high RAM. IDE transfers those RAM buffers.
+;
+; C shell calls the PUBLIC _names directly (zsdcc ABI 0). Functions that
+; take a single pointer are __z88dk_fastcall (HL). DWORD cluster/LBA in
+; BCDE stays a register ABI; the _fat_next/_fat_alloc/_fat_free/
+; _fat_clst2sect/_fat_dir_open entries load that from (HL).
+; Success: L=0 and carry set. Fail: L=1 and carry clear.
+;
 
 SECTION code_compiler
 
@@ -189,7 +198,7 @@ clst2sect_shx:
     add     hl,hl
     rl      de                      ;x <<= 1 (DEHL; portable to 8085)
     ld      bc,de
-    ld      de,hl
+    ex      de,hl                   ;DE = new low; HL was already in BC
     or      a
     jr      NZ,clst2sect_mloop
 clst2sect_muldone:
@@ -227,8 +236,10 @@ fat_sync_window:
     ld      a,(fat_wflag)
     or      a
     jr      Z,fat_sync_ok           ;nothing dirty
-    ld      de,(fat_winsect)        ;E LSB, D
-    ld      bc,(fat_winsect+2)      ;C, B MSB
+    ld      hl,(fat_winsect+2)
+    ld      bc,hl
+    ld      hl,(fat_winsect)
+    ex      de,hl
     ld      hl,fatwin               ;high RAM FAT window
     call    ide_write_sector        ;C: OK; HL += 512
     ld      l,1
@@ -393,12 +404,15 @@ fat_parse_bpb:
     ld      (_cpm_fat_vol+24),a     ;n_fats
     ld      hl,(fatwin+BPB_RootEntCnt)
     ld      (_cpm_fat_vol+2),hl     ;n_rootent
-    ld      de,(fatwin+BPB_FATSz16)
+    ld      hl,(fatwin+BPB_FATSz16)
+    ex      de,hl
     ld      a,d
     or      e
     jr      NZ,fat_mount_fsz
-    ld      de,(fatwin+BPB_FATSz32)
-    ld      bc,(fatwin+BPB_FATSz32+2)
+    ld      hl,(fatwin+BPB_FATSz32+2)
+    ld      bc,hl
+    ld      hl,(fatwin+BPB_FATSz32)
+    ex      de,hl
     jr      fat_mount_fsz32
 fat_mount_fsz:
     ld      bc,0
@@ -409,28 +423,34 @@ fat_mount_fsz32:
     ld      a,h
     or      l
     jr      NZ,fat_mount_tsz16
+    ld      hl,(fatwin+BPB_TotSec32+2)
+    ex      de,hl
     ld      hl,(fatwin+BPB_TotSec32)
-    ld      de,(fatwin+BPB_TotSec32+2)
     jr      fat_mount_tsz
 fat_mount_tsz16:
     ld      de,0
 fat_mount_tsz:
     ld      (fat_work+4),hl          ;tsect
     ld      (fat_work+6),de
+    ld      hl,(_cpm_fat_vol+22)
+    ex      de,hl
     ld      hl,(_cpm_fat_vol+20)    ;fatsz
-    ld      de,(_cpm_fat_vol+22)
     ld      a,(_cpm_fat_vol+24)
     cp      2
     jr      NZ,fat_mount_fatarea
     add     hl,hl
     rl      de                      ;fatsz * n_fats
 fat_mount_fatarea:
-    ld      bc,(fatwin+BPB_RsvdSecCnt)
+    ld      bc,hl
+    ld      hl,(fatwin+BPB_RsvdSecCnt)
     add     hl,bc
     jr      NC,fat_mount_sy1
     inc     de
 fat_mount_sy1:
-    ld      bc,(_cpm_fat_vol+2)     ;n_rootent
+    push    hl
+    ld      hl,(_cpm_fat_vol+2)     ;n_rootent
+    ld      bc,hl
+    pop     hl
     ld      a,b
     or      a
     rra
@@ -465,12 +485,14 @@ fat_mount_sy1:
 fat_mount_sy2:
     ld      (fat_work+8),hl          ;sysect
     ld      (fat_work+10),de
+    ld      hl,(fat_work+8)
+    ld      bc,hl
     ld      hl,(fat_work+4)          ;tsect - sysect
-    ld      bc,(fat_work+8)
     sub     hl,bc
     ld      (fat_work+12),hl
+    ld      hl,(fat_work+10)
+    ld      bc,hl
     ld      hl,(fat_work+6)
-    ld      bc,(fat_work+10)
     ld      a,l
     sbc     a,c
     ld      l,a
@@ -488,8 +510,9 @@ fat_mount_log:
     inc     b
     jr      fat_mount_log
 fat_mount_shr:
+    ld      hl,(fat_work+14)
+    ex      de,hl
     ld      hl,(fat_work+12)
-    ld      de,(fat_work+14)
     ld      a,b
     or      a
     jr      Z,fat_mount_ncl
@@ -536,8 +559,9 @@ fat_mount_fat32:
     ld      a,FS_FAT32
 fat_mount_type:
     ld      (_cpm_fat_vol),a
+    ld      hl,(fat_work+14)
+    ex      de,hl
     ld      hl,(fat_work+12)
-    ld      de,(fat_work+14)
     ld      bc,2
     add     hl,bc
     jr      NC,fat_mount_nfe
@@ -545,8 +569,9 @@ fat_mount_type:
 fat_mount_nfe:
     ld      (_cpm_fat_vol+4),hl     ;n_fatent
     ld      (_cpm_fat_vol+6),de
+    ld      hl,(fatwin+BPB_RsvdSecCnt)
+    ld      bc,hl
     ld      hl,(fat_winsect)        ;fatbase = bsect + nrsv
-    ld      bc,(fatwin+BPB_RsvdSecCnt)
     add     hl,bc
     ld      (_cpm_fat_vol+8),hl
     ld      hl,(fat_winsect+2)
@@ -558,12 +583,14 @@ fat_mount_nfe:
     adc     a,b
     ld      h,a
     ld      (_cpm_fat_vol+10),hl
+    ld      hl,(fat_work+8)
+    ld      bc,hl
     ld      hl,(fat_winsect)        ;database = bsect + sysect
-    ld      bc,(fat_work+8)
     add     hl,bc
     ld      (_cpm_fat_vol+16),hl
+    ld      hl,(fat_work+10)
+    ld      bc,hl
     ld      hl,(fat_winsect+2)
-    ld      bc,(fat_work+10)
     ld      a,l
     adc     a,c
     ld      l,a
@@ -574,8 +601,9 @@ fat_mount_nfe:
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
     jr      Z,fat_mount_r32
+    ld      hl,(_cpm_fat_vol+2)
+    ld      bc,hl
     ld      hl,(_cpm_fat_vol+16)    ;dirbase = database - rootsecs
-    ld      bc,(_cpm_fat_vol+2)
     ld      a,b
     or      a
     rra
@@ -677,7 +705,7 @@ fat_fatent_shl:
     add     hl,hl
     rl      de
     ld      bc,de
-    ld      de,hl
+    ex      de,hl                   ;DE = new low; HL was already in BC
     dec     a
     jr      NZ,fat_fatent_shl
     pop     af
@@ -787,9 +815,8 @@ put_fat:
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
     jr      Z,put_fat32
-    ld      a,(de)
+    ld      a,(de+)
     ld      (hl+),a
-    inc     de
     ld      a,(de)
     ld      (hl),a
 put_fat_dirty:
@@ -798,15 +825,12 @@ put_fat_dirty:
     scf
     ret
 put_fat32:
-    ld      a,(de)
+    ld      a,(de+)
     ld      (hl+),a
-    inc     de
-    ld      a,(de)
+    ld      a,(de+)
     ld      (hl+),a
-    inc     de
-    ld      a,(de)
+    ld      a,(de+)
     ld      (hl+),a
-    inc     de
     ld      a,(de)
     and     $0F
     ld      b,a
@@ -903,25 +927,29 @@ cfo_ci:
     ld      a,(fat_work+3)
     cp      (hl)
     jr      NZ,cfo_from0
+    ld      hl,(fat_work+4)
+    ld      bc,hl
     ld      hl,(clst_cache_ci)
-    ld      de,(fat_work+4)
-    ld      bc,de
     sub     hl,bc                   ;cache_ci - want_ci
     jr      Z,cfo_cached
     jr      NC,cfo_from0            ;want is behind the cache
+    ld      hl,(clst_cache_ci)
+    ld      bc,hl
     ld      hl,(fat_work+4)
-    ld      de,(clst_cache_ci)
-    ld      bc,de
     sub     hl,bc
     ld      (fat_work+8),hl         ;steps from cached cluster
-    ld      de,(clst_cache_clst)
-    ld      bc,(clst_cache_clst+2)
+    ld      hl,(clst_cache_clst+2)
+    ld      bc,hl
+    ld      hl,(clst_cache_clst)
+    ex      de,hl
     jr      cfo_loop
 cfo_from0:
     ld      hl,(fat_work+4)
     ld      (fat_work+8),hl         ;steps from sclust
-    ld      de,(fat_work)
-    ld      bc,(fat_work+2)
+    ld      hl,(fat_work+2)
+    ld      bc,hl
+    ld      hl,(fat_work)
+    ex      de,hl
 cfo_loop:
     ld      a,(fat_work+8)
     ld      hl,fat_work+9
@@ -943,8 +971,10 @@ cfo_store:
     ld      (fat_work+8),hl
     jr      cfo_loop
 cfo_cached:
-    ld      de,(clst_cache_clst)
-    ld      bc,(clst_cache_clst+2)
+    ld      hl,(clst_cache_clst+2)
+    ld      bc,hl
+    ld      hl,(clst_cache_clst)
+    ex      de,hl
 cfo_have:
     ld      (clst_cache_clst),de
     ld      (clst_cache_clst+2),bc
@@ -1002,8 +1032,10 @@ cc_scan:
     or      h
     or      l
     jr      Z,cc_wrap               ;search >= n_fatent
-    ld      de,(fat_work+12)
-    ld      bc,(fat_work+14)
+    ld      hl,(fat_work+14)
+    ld      bc,hl
+    ld      hl,(fat_work+12)
+    ex      de,hl
     call    get_fat
     ret     NC
     ld      a,b
@@ -1011,8 +1043,10 @@ cc_scan:
     or      d
     or      e
     jr      NZ,cc_next              ;in use
-    ld      de,(fat_work+12)
-    ld      bc,(fat_work+14)
+    ld      hl,(fat_work+14)
+    ld      bc,hl
+    ld      hl,(fat_work+12)
+    ex      de,hl
     ld      hl,cc_eoc
     call    put_fat
     ret     NC
@@ -1024,21 +1058,27 @@ cc_scan:
     jr      Z,cc_ok
     push    bc
     push    de
-    ld      de,(fat_work+8)
-    ld      bc,(fat_work+10)
+    ld      hl,(fat_work+10)
+    ld      bc,hl
+    ld      hl,(fat_work+8)
+    ex      de,hl
     ld      hl,fat_work+12
     call    put_fat
     pop     de
     pop     bc
     ret     NC
 cc_ok:
-    ld      de,(fat_work+12)
-    ld      bc,(fat_work+14)
+    ld      hl,(fat_work+14)
+    ld      bc,hl
+    ld      hl,(fat_work+12)
+    ex      de,hl
     scf
     ret
 cc_next:
-    ld      de,(fat_work+12)
-    ld      bc,(fat_work+14)
+    ld      hl,(fat_work+14)
+    ld      bc,hl
+    ld      hl,(fat_work+12)
+    ex      de,hl
     inc     de
     ld      a,d
     or      e
@@ -1080,13 +1120,17 @@ rc_loop:
     ret     NC
     ld      (fat_work+12),de         ;next
     ld      (fat_work+14),bc
-    ld      de,(fat_work+8)
-    ld      bc,(fat_work+10)
+    ld      hl,(fat_work+10)
+    ld      bc,hl
+    ld      hl,(fat_work+8)
+    ex      de,hl
     ld      hl,cc_zero
     call    put_fat
     ret     NC
-    ld      de,(fat_work+12)
-    ld      bc,(fat_work+14)
+    ld      hl,(fat_work+14)
+    ld      bc,hl
+    ld      hl,(fat_work+12)
+    ex      de,hl
     ld      a,b
     or      c
     or      d
@@ -1117,8 +1161,8 @@ dir_sdi:
     or      d
     or      e
     jr      NZ,dsdi_chain
-    ld      de,(_cpm_fat_vol+2)     ;n_rootent
-    ex      de,hl                   ;HL = n_rootent; DE = dir_ofs
+    ex      de,hl                   ;DE = dir_ofs (cluster already saved)
+    ld      hl,(_cpm_fat_vol+2)     ;n_rootent
     add     hl,hl
     add     hl,hl
     add     hl,hl
@@ -1158,15 +1202,17 @@ dsdi_root:
     ld      hl,fatwin
     add     hl,de
     ld      (dir_ptr),hl
-    ld      de,(dir_sect)
-    ld      bc,(dir_sect+2)
+    ld      hl,(dir_sect+2)
+    ld      bc,hl
+    ld      hl,(dir_sect)
+    ex      de,hl
     call    fat_move_window
     ret
 dsdi_chain:
     ld      hl,dir_sclust           ;{sclust, fptr} at dir_sclust then need fptr
     ; build temp: sclust already, fptr = dir_ofs zero-extended
-    ld      de,(dir_ofs)
-    ld      (fat_work),de            ;use clst_from_off struct at dir_sclust — fptr must follow
+    ld      hl,(dir_ofs)
+    ld      (fat_work),hl            ;use clst_from_off struct at dir_sclust — fptr must follow
     ; dir_sclust is 4 bytes then dir_sect... not fptr. Copy to fat_work layout.
     ld      hl,dir_sclust
     ld      de,fat_work
@@ -1229,8 +1275,10 @@ dir_next:
     ld      hl,(dir_ofs)
     ld      bc,32
     add     hl,bc
-    ld      de,(dir_sclust)
-    ld      bc,(dir_sclust+2)
+    ld      hl,(dir_sclust+2)
+    ld      bc,hl
+    ld      hl,(dir_sclust)
+    ex      de,hl
     jp      dir_sdi
 
 PUBLIC  dir_find
@@ -1240,8 +1288,10 @@ PUBLIC  _dir_find
 _dir_find:
 dir_find:
     ld      (fat_work),hl
-    ld      de,(dir_sclust)
-    ld      bc,(dir_sclust+2)
+    ld      hl,(dir_sclust+2)
+    ld      bc,hl
+    ld      hl,(dir_sclust)
+    ex      de,hl
     ld      hl,0
     call    dir_sdi
     ld      l,1
@@ -1261,7 +1311,8 @@ df_loop:
     ld      a,(hl)
     cp      AM_LFN
     jr      Z,df_next
-    ld      de,(dir_ptr)
+    ld      hl,(dir_ptr)
+    ex      de,hl
     ld      hl,(fat_work)
     ld      b,11
 df_cmp:
@@ -1315,8 +1366,10 @@ PUBLIC  _dir_create
 _dir_create:
 dir_create:
     ld      (fat_work),hl
-    ld      de,(dir_sclust)
-    ld      bc,(dir_sclust+2)
+    ld      hl,(dir_sclust+2)
+    ld      bc,hl
+    ld      hl,(dir_sclust)
+    ex      de,hl
     ld      hl,0
     call    dir_sdi
     ld      l,1
@@ -1341,7 +1394,8 @@ dc_z:
     ld      (hl+),a
     dec     b
     jp      NZ,dc_z
-    ld      de,(dir_ptr)
+    ld      hl,(dir_ptr)
+    ex      de,hl
     ld      hl,(fat_work)
     ld      bc,11
     call    fat_copy
@@ -1546,8 +1600,9 @@ pd_sz:
     ld      (de+),a
     ld      a,h
     ld      (de),a
-    ld      de,(fat_work+2)
-    add     hl,de
+    ld      bc,hl
+    ld      hl,(fat_work+2)
+    add     hl,bc
     ld      (fat_work+2),hl         ;next first_al
     ld      a,(fat_work+4)
     inc     a
@@ -1584,7 +1639,8 @@ pd_slot:
     add     hl,de                   ;*11
     add     hl,de                   ;*12
     add     hl,de                   ;*13
-    ld      de,(fat_work)
+    ex      de,hl
+    ld      hl,(fat_work)
     add     hl,de
     ret
 
@@ -1723,7 +1779,8 @@ sd_nd:
     inc     a
     jr      sd_fi
 sd_empty:
-    ld      de,(fat_work+12)
+    ld      hl,(fat_work+12)
+    ex      de,hl
     ld      b,32
     xor     a
 sd_z:
@@ -1755,17 +1812,14 @@ sd_hit:
     pop     hl
     ld      a,(hl)
     and     $0F                     ;UU
-    ld      (de),a
-    inc     de                      ;DE = dest+12 (EX)
+    ld      (de+),a                 ;DE = dest+12 (EX)
     ld      hl,(fat_work+10)        ;e
     add     hl,hl                   ;2e  (EXM=1)
     ld      a,l
     and     $1F
-    ld      (de),a                  ;EX
-    inc     de
+    ld      (de+),a                 ;EX
     xor     a
-    ld      (de),a                  ;S1
-    inc     de
+    ld      (de+),a                 ;S1
     ld      a,(fat_work+10)
     or      a
     rra
@@ -1775,11 +1829,9 @@ sd_hit:
     rra
     or      a
     rra
-    ld      (de),a                  ;S2 = e>>4
-    inc     de
+    ld      (de+),a                 ;S2 = e>>4
     call    sd_rc
-    ld      (de),a                  ;RC
-    inc     de
+    ld      (de+),a                 ;RC
     push    de                      ;dest → AL[0]
     ld      hl,(fat_work)
     ld      bc,FF_FIRSTAL
@@ -2221,7 +2273,9 @@ wrdir_slot:
 wd_upd:
     push    hl
     inc     hl
-    ld      de,(dir_ptr)
+    ex      de,hl
+    ld      hl,(dir_ptr)
+    ex      de,hl
     ld      bc,11
     call    fat_copy
     pop     hl
@@ -2261,8 +2315,10 @@ wd_era:
     call    wd_loaddir
     call    dir_find
     ret     NC
-    ld      de,(fat_found_sclust)
-    ld      bc,(fat_found_sclust+2)
+    ld      hl,(fat_found_sclust+2)
+    ld      bc,hl
+    ld      hl,(fat_found_sclust)
+    ex      de,hl
     call    remove_chain
     call    dir_zap
     ld      a,(hstdsk)
@@ -2508,12 +2564,9 @@ _fat_next:
     call    get_fat
     pop     hl
     jr      NC,fat_next_fail
-    ld      (hl),b
-    dec     hl
-    ld      (hl),c
-    dec     hl
-    ld      (hl),d
-    dec     hl
+    ld      (hl-),b
+    ld      (hl-),c
+    ld      (hl-),d
     ld      (hl),e
     ld      l,0
     ret
@@ -2532,12 +2585,9 @@ _fat_alloc:
     call    create_chain
     pop     hl
     jr      NC,fat_alloc_fail
-    ld      (hl),b
-    dec     hl
-    ld      (hl),c
-    dec     hl
-    ld      (hl),d
-    dec     hl
+    ld      (hl-),b
+    ld      (hl-),c
+    ld      (hl-),d
     ld      (hl),e
     ld      l,0
     ret
@@ -2569,12 +2619,9 @@ _fat_clst2sect:
     call    clst2sect
     pop     hl
     jr      NC,fat_c2s_fail
-    ld      (hl),b
-    dec     hl
-    ld      (hl),c
-    dec     hl
-    ld      (hl),d
-    dec     hl
+    ld      (hl-),b
+    ld      (hl-),c
+    ld      (hl-),d
     ld      (hl),e
     ld      l,0
     ret

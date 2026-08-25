@@ -16,4 +16,4 @@ ROM-resident code (mini-FAT, IDE, shell) is **not** inside PHASE. Mini-FAT lives
 
 ## Synthetics
 
-Prefer `ld a,(hl+)` and `ld (hl+),a` for byte streams (z80asm expands to `ld` + `inc hl`). Other registers: `ld r,(hl+)`, not `ld rr,(hl+)`. Last byte of a field with no post-increment stays `ld r,(hl)`. Serial ring wrap stays `inc l` (size-1 mask), never `inc hl`.
+Prefer `ld a,(hl+)` and `ld (hl+),a` for byte streams (z80asm expands to `ld` + `inc hl`). Other registers: `ld r,(hl+)`, not `ld rr,(hl+)`. Last byte of a field with no post-increment stays `ld r,(hl)`. `ld (rr),r` / `dec rr` is `ld (rr-),r`. Prefer `ex de,hl` over `ld de,hl` when old DE belongs in HL (or HL is dead). Serial ring wrap stays `inc l` (size-1 mask), never `inc hl`.
