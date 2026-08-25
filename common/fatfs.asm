@@ -2,8 +2,9 @@
 ; Mini-FAT16/32 for CP/M-IDE.
 ;
 ; Same PUBLIC API, BSS names, and function contracts as fatfs_85.asm.
-; Z80-native ops here (ld (nn),de / ld de,(nn), ldir, srl, sbc hl,de);
-; 8085 uses SHLD/LHLD through HL, fat_copy, rra, sub hl,bc.
+; This file is Z80: ld (nn),de / ld de,(nn) (ED 53/5B), ldir, djnz,
+; sla/rl, srl, sbc hl,de / adc hl,de. Do not park through HL for a
+; pair store or load — that is the 8085 SHLD/LHLD path in fatfs_85.asm.
 ;
 ; ROM-resident: assembled and linked at its storage address (no PHASE).
 ; PHASE/DEPHASE is only for code copied to high RAM (BIOS, CCP/BDOS).
@@ -157,18 +158,16 @@ clst2sect:
 
     pop     de
     pop     bc                      ;BCDE = clst-2
-    ld      hl,de                   ;DEHL = clst-2
-    ld      de,bc
     ld      a,(_cpm_fat_vol+1)      ;csize is 2^n
 clst2sect_mul:
     srl     a
     jr      Z,clst2sect_base
-    add     hl,hl
-    rl      de
+    sla     e
+    rl      d
+    rl      c
+    rl      b
     jr      clst2sect_mul
 clst2sect_base:
-    ld      bc,de
-    ex      de,hl                   ;BCDE = (clst-2)*csize
     ld      hl,_cpm_fat_vol+16      ;database
     ld      a,(hl+)
     add     a,e
@@ -567,26 +566,26 @@ fat_fatent:
     ld      a,b
     sbc     a,0
     ret     C
-    ld      hl,de                   ;DEHL = cluster
-    ld      de,bc
-    add     hl,hl
-    rl      de                      ;FAT16: byte offset = clst*2
+    sla     e
+    rl      d
+    rl      c
+    rl      b                       ;FAT16: byte offset = clst*2
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
     jr      NZ,fat_fatent_off
-    add     hl,hl
-    rl      de                      ;FAT32: *4
+    sla     e
+    rl      d
+    rl      c
+    rl      b                       ;FAT32: *4
 fat_fatent_off:
-    push    hl                      ;offset low (for &511)
-    ld      l,h
-    ld      h,e
+    push    de                      ;offset low (for &511)
     ld      e,d
-    ld      d,0                     ;DEHL = offset>>8
-    srl     e
-    rr      h
-    rr      l                       ;DEHL = offset>>9
-    ld      bc,de
-    ex      de,hl                   ;BCDE = FAT sector index
+    ld      d,c
+    ld      c,b
+    ld      b,0                     ;BCDE = offset>>8
+    srl     c
+    rr      d
+    rr      e                       ;BCDE = offset>>9
     ld      hl,_cpm_fat_vol+8       ;+ fatbase
     ld      a,(hl+)
     add     a,e
@@ -957,16 +956,16 @@ cc_zero:
 PUBLIC  dir_sdi
 ; IN: BCDE = dir start cluster (0 = FAT16 root), HL = byte offset
 dir_sdi:
+    ld      (dir_sclust),de
+    ld      (dir_sclust+2),bc
     ld      (dir_ofs),hl
     ld      a,b
     or      c
     or      d
     or      e
-    jr      NZ,dsdi_chain_save
-    ex      de,hl                   ;DE = ofs; HL = 0
-    ld      (dir_sclust),hl
-    ld      (dir_sclust+2),hl
-    ld      hl,(_cpm_fat_vol+2)     ;n_rootent
+    jr      NZ,dsdi_chain
+    ld      de,(_cpm_fat_vol+2)     ;n_rootent
+    ex      de,hl                   ;HL = n_rootent; DE = dir_ofs
     add     hl,hl
     add     hl,hl
     add     hl,hl
@@ -1004,9 +1003,6 @@ dsdi_root:
     ld      bc,(dir_sect+2)
     call    fat_move_window
     ret
-dsdi_chain_save:
-    ld      (dir_sclust),de
-    ld      (dir_sclust+2),bc
 dsdi_chain:
     ld      hl,dir_sclust
     ld      de,fat_work
@@ -1030,12 +1026,12 @@ dsdi_chain:
     and     l                       ;mod csize if csize 2^n
     ld      l,a
     ld      h,0
-    add     hl,de                   ;HL = LBA + sector-in-cluster
+    add     hl,de
+    ex      de,hl                   ;DE = LBA + sector-in-cluster
     jr      NC,dsdi_sec
     inc     bc
 dsdi_sec:
-    ld      (dir_sect),hl
-    ex      de,hl                   ;DE = LBA low for ide
+    ld      (dir_sect),de
     ld      (dir_sect+2),bc
     call    fat_move_window
     ret     NC
