@@ -641,7 +641,7 @@ match:
     rr      l
     ld      de,hstbuf
     add     hl,de           ;HL = host slice, DE = hstbuf
-    push    hl
+    ld      bc,hl           ;park slice
     ld      hl,(dmaadr)
     or      a
     sbc     hl,de           ;dma - hstbuf
@@ -649,14 +649,12 @@ match:
     ld      a,h
     cp      2               ;512-byte window
     jr      NC,do_copy
-    pop     hl              ;HL = slice
-    ld      (DIRBUF),hl     ;BDOS FCB2HL / CHECKSUM / MOVEDIR
+    ld      (DIRBUF),bc     ;BDOS FCB2HL / CHECKSUM / MOVEDIR
     ld      a,(readop)
     or      a
     jr      NZ,after_move   ;directory read: already in place
-    push    hl              ;directory write falls through to copy
 do_copy:
-    pop     hl              ;HL = slice
+    ld      hl,bc           ;HL = slice
     ld      de,(dmaadr)
     ld      a,(readop)
     or      a

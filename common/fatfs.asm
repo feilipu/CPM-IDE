@@ -153,34 +153,18 @@ clst2sect:
 
     pop     de
     pop     bc                      ;BCDE = clst-2
-
-    ld      hl,0
-    push    hl
-    push    hl                      ;result = 0 (low on top)
-    ld      a,(_cpm_fat_vol+1)      ;csize
-    or      a
-    jr      Z,clst2sect_muldone
-clst2sect_mloop:
-    srl     a
-    jr      NC,clst2sect_shx
-    pop     hl                      ;result low
-    add     hl,de                   ;+ x low
-    ex      (sp),hl                 ;stack = new low; HL = result high
-    adc     hl,bc                   ;+ x high + cy
-    ex      (sp),hl                 ;stack = new high; HL = new low
-    push    hl                      ;[high][low]
-clst2sect_shx:
-    ld      hl,de
+    ld      hl,de                   ;DEHL = clst-2
     ld      de,bc
+    ld      a,(_cpm_fat_vol+1)      ;csize is 2^n
+clst2sect_mul:
+    srl     a
+    jr      Z,clst2sect_base
     add     hl,hl
-    rl      de                      ;x <<= 1 (DEHL; portable to 8085)
+    rl      de
+    jr      clst2sect_mul
+clst2sect_base:
     ld      bc,de
-    ex      de,hl                   ;DE = new low; HL was already in BC
-    or      a
-    jr      NZ,clst2sect_mloop
-clst2sect_muldone:
-    pop     de                      ;product low
-    pop     bc                      ;product high
+    ex      de,hl                   ;BCDE = (clst-2)*csize
     ld      hl,_cpm_fat_vol+16      ;database
     ld      a,(hl+)
     add     a,e
@@ -581,35 +565,26 @@ fat_fatent:
     ret     C
     ld      (fat_work),de            ;save cluster
     ld      (fat_work+2),bc
-    ld      a,(_cpm_fat_vol)
-    cp      FS_FAT32
-    ld      a,1                     ;shift count 1 (×2) or 2 (×4)
-    jr      NZ,fat_fatent_sh
-    inc     a
-fat_fatent_sh:
-    push    af
-fat_fatent_shl:
-    ld      hl,de
+    ld      hl,de                   ;DEHL = cluster
     ld      de,bc
     add     hl,hl
-    rl      de
-    ld      bc,de
-    ex      de,hl                   ;DE = new low; HL was already in BC
-    dec     a
-    jr      NZ,fat_fatent_shl
-    pop     af
-    push    de                      ;offset low (for &511)
-    srl     b                       ;offset >> 9 = >>8 then >>1
-    rr      c
-    rr      d
-    rr      e
+    rl      de                      ;FAT16: byte offset = clst*2
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      NZ,fat_fatent_off
+    add     hl,hl
+    rl      de                      ;FAT32: *4
+fat_fatent_off:
+    push    hl                      ;offset low (for &511)
+    ld      l,h
+    ld      h,e
     ld      e,d
-    ld      d,c
-    ld      c,b
-    ld      b,0
-    srl     c
-    rr      d
-    rr      e                       ;BCDE = FAT sector index (B=0)
+    ld      d,0                     ;DEHL = offset>>8
+    srl     e
+    rr      h
+    rr      l                       ;DEHL = offset>>9
+    ld      bc,de
+    ex      de,hl                   ;BCDE = FAT sector index
     ld      hl,_cpm_fat_vol+8       ;+ fatbase
     ld      a,(hl+)
     add     a,e
@@ -1028,15 +1003,10 @@ dsdi_root:
     call    fat_move_window
     ret
 dsdi_chain:
-    ld      hl,dir_sclust           ;{sclust, fptr} at dir_sclust then need fptr
-    ; build temp: sclust already, fptr = dir_ofs zero-extended
-    ld      de,(dir_ofs)
-    ld      (fat_work),de            ;use clst_from_off struct at dir_sclust — fptr must follow
-    ; dir_sclust is 4 bytes then dir_sect... not fptr. Copy to fat_work layout.
     ld      hl,dir_sclust
     ld      de,fat_work
     ld      bc,4
-    ldir                            ;sclust
+    ldir                            ;sclust at fat_work; fptr follows
     ld      hl,(dir_ofs)
     ld      (fat_work+4),hl
     ld      hl,0
@@ -1044,17 +1014,8 @@ dsdi_chain:
     ld      hl,fat_work
     call    clst_from_off
     ret     NC
-    push    bc
-    push    de
     call    clst2sect
-    pop     hl                      ;cluster low discarded
-    pop     hl
     ret     NC
-    ld      a,(dir_ofs)
-    ld      l,a
-    ld      a,(dir_ofs+1)
-    and     1
-    ld      h,a                     ;ofs in 512
     ; add sector-in-cluster: (dir_ofs >> 9) % csize
     ld      a,(dir_ofs+1)
     srl     a                       ;offset/512 low
@@ -1065,8 +1026,7 @@ dsdi_chain:
     ld      l,a
     ld      h,0
     add     hl,de
-    ld      e,l
-    ld      d,h
+    ex      de,hl
     jr      NC,dsdi_sec
     inc     bc
 dsdi_sec:
@@ -1406,8 +1366,7 @@ pd_done:
 pd_slot:
     ld      l,a
     ld      h,0
-    ld      e,l
-    ld      d,h
+    ld      de,hl
     add     hl,hl
     add     hl,hl
     add     hl,hl                   ;*8
@@ -1605,7 +1564,7 @@ sd_hit:
     ld      hl,0
 sd_al_ok:
     push    hl                      ;ALs still in file after e*8
-    ld      hl,de
+    ex      de,hl                   ;HL = e*8
     add     hl,bc                   ;start AL
     pop     bc                      ;remaining
     pop     de                      ;dest
@@ -1711,18 +1670,14 @@ ma_lp:
     sbc     a,b
     ld      d,a
     jr      C,ma_next               ;AL < first
-    ld      a,e
+    ld      bc,de                   ;AL-first
     ld      hl,(fat_work)
-    ld      c,a
-    ld      a,d
-    ld      b,a                     ;BC = AL-first
     ld      a,c
     sub     l
     ld      a,b
     sbc     a,h
     jr      NC,ma_next              ;AL-first >= n_al
-    ld      l,c
-    ld      h,b
+    ld      hl,bc
     pop     de
     pop     af
     scf
@@ -1782,7 +1737,11 @@ fat_hst_map:
     ldir                            ;sclust at fat_work+0
     ; fptr = block<<12 + (hstsec&7)<<9
     ld      hl,(fat_work+12)
-    ld      de,0
+    ld      de,hl
+    ld      h,l
+    ld      l,0
+    ld      e,d
+    ld      d,0                     ;DEHL = block<<8
     add     hl,hl
     rl      de
     add     hl,hl
@@ -1790,37 +1749,13 @@ fat_hst_map:
     add     hl,hl
     rl      de
     add     hl,hl
-    rl      de
-    add     hl,hl
-    rl      de
-    add     hl,hl
-    rl      de
-    add     hl,hl
-    rl      de
-    add     hl,hl
-    rl      de
-    add     hl,hl
-    rl      de
-    add     hl,hl
-    rl      de
-    add     hl,hl
-    rl      de
-    add     hl,hl
-    rl      de                       ;HL = fptr low, DE = fptr high
+    rl      de                       ;block<<12
     ld      a,(hstsec)
     and     7
     push    de
     push    hl
-    ld      l,a
-    ld      h,0
-    add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    add     hl,hl
+    ld      h,a
+    ld      l,0
     add     hl,hl                   ;(sec&7)<<9
     pop     de                      ;low of block<<12
     add     hl,de
