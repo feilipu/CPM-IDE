@@ -1,6 +1,10 @@
 ;
 ; Mini-FAT16/32 for CP/M-IDE.
 ;
+; Same PUBLIC API, BSS names, and function contracts as fatfs_85.asm.
+; Z80-native ops here (ld (nn),de / ld de,(nn), ldir, srl, sbc hl,de);
+; 8085 uses SHLD/LHLD through HL, fat_copy, rra, sub hl,bc.
+;
 ; ROM-resident: assembled and linked at its storage address (no PHASE).
 ; PHASE/DEPHASE is only for code copied to high RAM (BIOS, CCP/BDOS).
 ; This file is independent of each tree's BIOS PHASE origin so one copy
@@ -442,8 +446,8 @@ fat_mount_shrl:
     rr      l
     djnz    fat_mount_shrl
 fat_mount_ncl:
-    ld      (fat_work+12),hl         ;nclst
-    ld      (fat_work+14),de
+    ld      (fat_work+12),hl         ;nclst low
+    ld      (fat_work+14),de         ;nclst high
     ld      a,h
     or      l
     or      d
@@ -452,7 +456,7 @@ fat_mount_ncl:
     ld      a,d
     or      e
     jr      NZ,fat_mount_fat32
-    ld      de,hl
+    ld      de,hl                   ;park low; high is 0
     ld      bc,MAX_FAT12+1
     or      a
     sbc     hl,bc
@@ -563,8 +567,6 @@ fat_fatent:
     ld      a,b
     sbc     a,0
     ret     C
-    ld      (fat_work),de            ;save cluster
-    ld      (fat_work+2),bc
     ld      hl,de                   ;DEHL = cluster
     ld      de,bc
     add     hl,hl
@@ -955,16 +957,16 @@ cc_zero:
 PUBLIC  dir_sdi
 ; IN: BCDE = dir start cluster (0 = FAT16 root), HL = byte offset
 dir_sdi:
-    ld      (dir_sclust),de
-    ld      (dir_sclust+2),bc
     ld      (dir_ofs),hl
     ld      a,b
     or      c
     or      d
     or      e
-    jr      NZ,dsdi_chain
-    ld      de,(_cpm_fat_vol+2)     ;n_rootent
-    ex      de,hl                   ;HL = n_rootent; DE = dir_ofs
+    jr      NZ,dsdi_chain_save
+    ex      de,hl                   ;DE = ofs; HL = 0
+    ld      (dir_sclust),hl
+    ld      (dir_sclust+2),hl
+    ld      hl,(_cpm_fat_vol+2)     ;n_rootent
     add     hl,hl
     add     hl,hl
     add     hl,hl
@@ -1002,6 +1004,9 @@ dsdi_root:
     ld      bc,(dir_sect+2)
     call    fat_move_window
     ret
+dsdi_chain_save:
+    ld      (dir_sclust),de
+    ld      (dir_sclust+2),bc
 dsdi_chain:
     ld      hl,dir_sclust
     ld      de,fat_work
@@ -1025,12 +1030,12 @@ dsdi_chain:
     and     l                       ;mod csize if csize 2^n
     ld      l,a
     ld      h,0
-    add     hl,de
-    ex      de,hl
+    add     hl,de                   ;HL = LBA + sector-in-cluster
     jr      NC,dsdi_sec
     inc     bc
 dsdi_sec:
-    ld      (dir_sect),de
+    ld      (dir_sect),hl
+    ex      de,hl                   ;DE = LBA low for ide
     ld      (dir_sect+2),bc
     call    fat_move_window
     ret     NC
@@ -1274,12 +1279,13 @@ pd_shr12:
     rr      d
     rr      e
     djnz    pd_shr12                ;DE = n_al (fits 16 bits for 8 MB)
-    ld      (fat_work+8),de
-    ; n_dirents = 1 if n_al==0 else ceil(n_al/8)
+    ld      (fat_work+8),de          ;n_al
     ld      a,d
     or      e
+    jr      NZ,pd_nd_ceil
     ld      hl,1
-    jr      Z,pd_nd
+    jr      pd_nd
+pd_nd_ceil:
     ld      hl,de
     ld      bc,7
     add     hl,bc

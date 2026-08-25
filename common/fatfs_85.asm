@@ -1,7 +1,8 @@
 ;
 ; Mini-FAT16/32 for CP/M-IDE — 8085.
 ;
-; Same PUBLIC API and BSS names as fatfs.asm / fatfs.h. ROM-resident,
+; Same PUBLIC API, BSS names, and function contracts as fatfs.asm /
+; fatfs.h. ROM-resident,
 ; no PHASE. C calls _names (__z88dk_fastcall HL; DWORD marshals load
 ; BCDE from (HL)). Success: L=0 and carry set. Fail: L=1 and NC.
 ;
