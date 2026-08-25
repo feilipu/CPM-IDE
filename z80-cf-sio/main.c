@@ -39,47 +39,9 @@ typedef uint32_t DWORD;
 
 // GLOBALS
 
+#include "../common/fatfs.h"
+
 extern uint8_t  bios_iobyte;
-
-typedef struct {
-    uint8_t  fs_type;
-    uint8_t  csize;
-    uint16_t n_rootent;
-    uint32_t n_fatent;
-    uint32_t fatbase;
-    uint32_t dirbase;
-    uint32_t database;
-    uint32_t fatsz;
-    uint8_t  n_fats;
-    uint8_t  pad[3];
-} fat_vol_t;
-
-extern fat_vol_t cpm_fat_vol;
-extern uint32_t  cpm_dir_sclust[4];
-extern uint32_t  fat_cwd;
-extern uint32_t  fat_found_sclust;
-extern uint32_t  fat_found_size;
-extern uint8_t * fat_dir_ptr;
-
-extern uint8_t fat_mount(void);
-extern uint8_t dir_find(uint8_t *name11) __z88dk_fastcall;
-extern uint8_t dir_create(uint8_t *name11) __z88dk_fastcall;
-extern uint8_t dir_zap(void);
-extern uint8_t fat_sync(void);
-extern uint8_t fat_dir_open(uint32_t *sclust) __z88dk_fastcall;
-extern uint8_t fat_dir_read(uint8_t *ent32) __z88dk_fastcall;
-extern uint8_t fat_next(uint32_t *clst) __z88dk_fastcall;
-extern uint8_t fat_alloc(uint32_t *clst) __z88dk_fastcall;
-extern uint8_t fat_free(uint32_t *clst) __z88dk_fastcall;
-extern uint8_t fat_clst2sect(uint32_t *clst) __z88dk_fastcall;
-
-#define AM_RDO  0x01
-#define AM_HID  0x02
-#define AM_SYS  0x04
-#define AM_VOL  0x08
-#define AM_DIR  0x10
-#define AM_ARC  0x20
-#define AM_LFN  0x0F
 
 static void * buffer;           /* create a scratch buffer on heap later */
 
@@ -116,10 +78,21 @@ int8_t ya_mount(char ** args);  // mount a FAT file system
 int8_t ya_ds(char ** args);     // disk status
 int8_t ya_dd(char ** args);     // disk dump sector
 
-// helper functions
-static void put_rc (uint8_t rc);    // print error codes to defined error IO
-static void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt);
-static uint8_t ya_read_cfg(void);
+// helper functions (not CLI user commands)
+static void put_rc(uint8_t rc);
+static void put_dump(const uint8_t *buff, uint16_t ofs, uint8_t cnt);
+static void name83(uint8_t *dst, const char *src);
+static uint32_t root_clst(void);
+static uint8_t path_to_dir(const char *path, uint32_t *out);
+static uint8_t is_eoc(uint32_t clst);
+static uint8_t is_dot_name(const uint8_t *n);
+static uint8_t path_split(const char *path, uint32_t *parent, uint8_t *name11);
+static uint8_t open_leaf(const char *path, uint32_t *parent, uint8_t *n);
+static uint8_t dir_is_empty(uint32_t clst);
+static uint8_t dir_fill(uint8_t attr, uint32_t clst, uint32_t size);
+static uint8_t zero_cluster(uint32_t clst, uint32_t parent);
+static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first);
+static uint8_t read_cfg(void);
 
 // external functions
 
@@ -176,15 +149,9 @@ uint8_t ya_num_builtins(void) {
 
 
 /*
-  Builtin function implementations.
-*/
-
-
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "cpm".  args[1][2][3][4] are names of drive files.
-   @return Always returns 1, to continue executing.
+  helper functions
  */
+
 static void name83(uint8_t *dst, const char *src)
 {
     uint8_t i;
@@ -453,75 +420,7 @@ static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first)
     return fat_sync();
 }
 
-int8_t ya_mkcpm(char ** args)   /* initialise CP/M with up to 4 directory mounts */
-{
-    uint8_t i;
-    uint32_t clst;
-    char letter[2];
-
-    if (fat_mount()) {
-        put_rc(1);
-        return 1;
-    }
-
-    for (i = 0; i < 4; ++i)
-        cpm_dir_sclust[i] = 0;
-
-    if (args[1] == NULL) {
-        if (ya_read_cfg() == 0)
-            goto cpm_go;
-        fprintf(output, "Expected <dirA> [dirB] [dirC] [dirD], a parent with A/B/C/D, or CPMIDE.CFG\n");
-        return 1;
-    }
-
-    if (args[2] == NULL) {
-        /* parent-directory form: <parent>/A … <parent>/D */
-        letter[1] = 0;
-        for (i = 0; i < 4; ++i) {
-            letter[0] = (char)('A' + i);
-            /* path = args[1] + "/" + letter — reuse buffer */
-            strcpy((char *)buffer, args[1]);
-            strcat((char *)buffer, "/");
-            strcat((char *)buffer, letter);
-            if (path_to_dir((char *)buffer, &clst) == 0) {
-                cpm_dir_sclust[i] = clst;
-                fprintf(output, "%c: \"%s\" cluster %lu\n", letter[0], (char *)buffer, clst);
-            }
-        }
-        if (cpm_dir_sclust[0] == 0) {
-            /* single directory as A: */
-            if (path_to_dir(args[1], &clst)) {
-                put_rc(1);
-                return 1;
-            }
-            cpm_dir_sclust[0] = clst;
-            fprintf(output, "A: \"%s\" cluster %lu\n", args[1], clst);
-        }
-    } else {
-        for (i = 0; i < 4 && args[i + 1] != NULL; ++i) {
-            fprintf(output, "Opening \"%s\"", args[i + 1]);
-            if (path_to_dir(args[i + 1], &clst)) {
-                put_rc(1);
-                return 1;
-            }
-            cpm_dir_sclust[i] = clst;
-            fprintf(output, " cluster %lu\n", clst);
-        }
-    }
-
-    if (cpm_dir_sclust[0] == 0) {
-        fprintf(output, "A: not mounted\n");
-        return 1;
-    }
-
-cpm_go:
-    fprintf(output, "Initialised CP/M\n");
-    cpu_delay_ms(1);
-    cpm_boot();
-    return 1;
-}
-
-static uint8_t ya_read_cfg(void)
+static uint8_t read_cfg(void)
 {
     uint8_t n[11];
     uint32_t clst, lba;
@@ -586,6 +485,105 @@ static uint8_t ya_read_cfg(void)
 }
 
 
+/*  use put_rc to get a plain text interpretation of the disk return or error code. */
+static
+void put_rc (uint8_t rc)
+{
+    if (rc)
+        fprintf(error, "\nrc=%u\n", rc);
+}
+
+
+static
+void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt)
+{
+    uint8_t i;
+
+    fprintf(output,"%04X:", ofs);
+
+    for(i = 0; i < cnt; ++i) {
+        fprintf(output," %02X", buff[i]);
+    }
+    fputc(' ', output);
+    for(i = 0; i < cnt; ++i) {
+        fputc((buff[i] >= ' ' && buff[i] <= '~') ? buff[i] : '.', output);
+    }
+    fputc('\n', output);
+}
+
+
+/*
+  Builtin function implementations (CLI user functions, ya_*).
+*/
+
+int8_t ya_mkcpm(char ** args)   /* initialise CP/M with up to 4 directory mounts */
+{
+    uint8_t i;
+    uint32_t clst;
+    char letter[2];
+
+    if (fat_mount()) {
+        put_rc(1);
+        return 1;
+    }
+
+    for (i = 0; i < 4; ++i)
+        cpm_dir_sclust[i] = 0;
+
+    if (args[1] == NULL) {
+        if (read_cfg() == 0)
+            goto cpm_go;
+        fprintf(output, "Expected <dirA> [dirB] [dirC] [dirD], a parent with A/B/C/D, or CPMIDE.CFG\n");
+        return 1;
+    }
+
+    if (args[2] == NULL) {
+        /* parent-directory form: <parent>/A … <parent>/D */
+        letter[1] = 0;
+        for (i = 0; i < 4; ++i) {
+            letter[0] = (char)('A' + i);
+            /* path = args[1] + "/" + letter — reuse buffer */
+            strcpy((char *)buffer, args[1]);
+            strcat((char *)buffer, "/");
+            strcat((char *)buffer, letter);
+            if (path_to_dir((char *)buffer, &clst) == 0) {
+                cpm_dir_sclust[i] = clst;
+                fprintf(output, "%c: \"%s\" cluster %lu\n", letter[0], (char *)buffer, clst);
+            }
+        }
+        if (cpm_dir_sclust[0] == 0) {
+            /* single directory as A: */
+            if (path_to_dir(args[1], &clst)) {
+                put_rc(1);
+                return 1;
+            }
+            cpm_dir_sclust[0] = clst;
+            fprintf(output, "A: \"%s\" cluster %lu\n", args[1], clst);
+        }
+    } else {
+        for (i = 0; i < 4 && args[i + 1] != NULL; ++i) {
+            fprintf(output, "Opening \"%s\"", args[i + 1]);
+            if (path_to_dir(args[i + 1], &clst)) {
+                put_rc(1);
+                return 1;
+            }
+            cpm_dir_sclust[i] = clst;
+            fprintf(output, " cluster %lu\n", clst);
+        }
+    }
+
+    if (cpm_dir_sclust[0] == 0) {
+        fprintf(output, "A: not mounted\n");
+        return 1;
+    }
+
+cpm_go:
+    fprintf(output, "Initialised CP/M\n");
+    cpu_delay_ms(1);
+    cpm_boot();
+    return 1;
+}
+
 /**
    @brief Builtin command:
    @param args List of args.  args[0] is "hload".
@@ -602,11 +600,6 @@ int8_t ya_hload(char ** args)   /* load an Intel HEX CP/M file and run it */
 
     return 1;
 }
-
-
-/*
-  system related functions
- */
 
 
 /**
@@ -666,11 +659,6 @@ int8_t ya_exit(char ** args)    /* exit and restart */
 
     return 0;
 }
-
-
-/*
-  fat related functions
- */
 
 
 /**
@@ -1160,36 +1148,6 @@ int8_t ya_dd(char ** args)      /* disk dump */
     return 1;
 }
 
-
-/*
-  helper functions
- */
-
-/*  use put_rc to get a plain text interpretation of the disk return or error code. */
-static
-void put_rc (uint8_t rc)
-{
-    if (rc)
-        fprintf(error, "\nrc=%u\n", rc);
-}
-
-
-static
-void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt)
-{
-    uint8_t i;
-
-    fprintf(output,"%04X:", ofs);
-
-    for(i = 0; i < cnt; ++i) {
-        fprintf(output," %02X", buff[i]);
-    }
-    fputc(' ', output);
-    for(i = 0; i < cnt; ++i) {
-        fputc((buff[i] >= ' ' && buff[i] <= '~') ? buff[i] : '.', output);
-    }
-    fputc('\n', output);
-}
 
 
 /*

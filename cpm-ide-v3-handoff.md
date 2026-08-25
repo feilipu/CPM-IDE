@@ -60,9 +60,9 @@ zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m \
 cp ../rc2014-cpm22-z80-cf-sio.ihx ../rc2014-cpm22-z80-cf-sio.hex
 ```
 
-`cpm22.lst`: `cpm22preamble`, `cpm22bios`, `cpm22`, `sio_init_async_rodata`, `main.c`. Do **not** add a FAT source file. Parallel `zcc` in one cwd corrupts `zcc_opt.def`. `*.hex` is gitignored: `git add -f`.
+`cpm22.lst`: `cpm22preamble`, `cpm22bios`, `cpm22`, `sio_init_async_rodata`, `../common/fatfs.asm`, `main.c`. Parallel `zcc` in one cwd corrupts `zcc_opt.def`. `*.hex` is gitignored: `git add -f`.
 
-Gate: boot image **≤ 32768**. Linked CODE **27520** (`$6B80`, slack **5248**). HEX copied from ihx.
+Gate: boot image **≤ 32768**. Linked CODE **27399** (slack **5369**). HEX copied from ihx. `fat_mount` links at `$1779` (ROM `code_compiler`), not inside the BIOS PHASE.
 
 SIO TX is **8** via `UNDEFINE __IO_SIO_TX_SIZE` / `defc = 0x08` in `cpm22bios.asm` (not a z88dk `config_sio.m4` change). Rings are in this BIOS file. Do not shrink RX.
 
@@ -72,13 +72,16 @@ SIO TX is **8** via `UNDEFINE __IO_SIO_TX_SIZE` / `defc = 0x08` in `cpm22bios.as
 
 | Path | Role |
 |------|------|
-| `z80-cf-sio/cpm22bios.asm` | Serial + CF IDE + Z80 mini-FAT (one code PHASE, one BSS PHASE) |
+| `common/fatfs.asm` | Mini-FAT16/32 Z80 (ROM, **no PHASE**). Linked with the C shell. |
+| `common/fatfs_85.asm` | Same API, 8085 ops (`rl de`, `ld de,hl+*`, no `ldir`) |
+| `common/fatfs.h` | C prototypes shared by both |
+| `z80-cf-sio/cpm22bios.asm` | Serial + CF IDE; RAM PHASE + BSS PHASE; IDE/`writehst` in ROM after `DEPHASE` |
 | `z80-cf-sio/cpm22.asm` | CCP origin `$CD00`; BDOS stack `ALIGN $20`; APN 02 already in |
 | `z80-cf-sio/main.c` | Shell on mini-FAT; `REGISTER_SP 0xCD00`; `ff_ro` / `frag` gone |
 | `z80-cf-acia/`, `z80-cf-uart/`, `z80-pata-sio/` | `frag` out, `md` kept; **still v2 BIOS** |
 | `8085-*` | same: shell only; no 8085 FAT twin |
 
-**Layout rule:** mini-FAT is **in** `cpm22bios.asm`, not a `common/` INCLUDE. A second file with its own `SECTION` abandons the PHASE origin. Porting **copies** the FAT/IDE/`writehst` blocks into each tree’s BIOS file.
+**Layout rule:** `PHASE` / `DEPHASE` only wrap code that is LDIR’d to high RAM (BIOS, CCP/BDOS). Mini-FAT is **`common/fatfs.asm`**, `SECTION code_compiler`, linked from `cpm22.lst`. Labels are storage addresses so it runs in ROM. Porting other trees adds that one file to the lst; IDE stays per-tree.
 
 ---
 
@@ -88,7 +91,7 @@ SIO TX is **8** via `UNDEFINE __IO_SIO_TX_SIZE` / `defc = 0x08` in `cpm22bios.as
 
 | Lives in | What |
 |----------|------|
-| ROM (after `DEPHASE`; not LDIR’d) | mini-FAT, CF IDE, `writehst` / `readhst`, C veneers, shell |
+| ROM (not LDIR’d) | mini-FAT (`common/fatfs.asm`), CF IDE, `writehst` / `readhst`, shell |
 | High RAM PHASE | deblock `READ`/`WRITE`, SIO ISRs/putc/getc, `writehst_page` / `readhst_page`, `ldi_128` |
 | High RAM BSS | `hstbuf`, `fatwin`, `fat_files`, ALVs, `ldi_body` |
 
@@ -205,7 +208,7 @@ Volume `_cpm_fat_vol` (28 bytes):
 
 File row (13 bytes) at `fat_files`: flags 1 (bit7=used, 0–3=UU), sclust 4, size 4, first_al 2, n_al 2. **64 rows × 4 drives**. 8.3 is read from the FAT directory on `DIR`.
 
-PUBLIC for the shell: `_cpm_dir_sclust`, `_cpm_fat_vol`, `_fat_cwd`, `_fat_found_sclust`, `_fat_found_size`, `_fat_dir_ptr`, `_fat_mount`, `_dir_find`, `_fat_dir_open`, `_fat_dir_read`, `_dir_create`, `_dir_zap`, `_fat_sync`, `_fat_next`, `_fat_alloc`, `_fat_free`, `_fat_clst2sect`. Fastcall: L=0 success, L=1 fail.
+PUBLIC for the shell (in `common/fatfs.asm`, called directly — no extra CALL/RET veneer): `_cpm_dir_sclust`, `_cpm_fat_vol`, `_fat_cwd`, `_fat_found_sclust`, `_fat_found_size`, `_fat_dir_ptr`, `_fat_mount`, `_dir_find`, `_fat_dir_open`, `_fat_dir_read`, `_dir_create`, `_dir_zap`, `_fat_sync`, `_fat_next`, `_fat_alloc`, `_fat_free`, `_fat_clst2sect`. Fastcall: L=0 success, L=1 fail. DWORD marshals (`_fat_next` and friends) load BCDE from `(HL)` because the BIOS ABI is four registers.
 
 ---
 
