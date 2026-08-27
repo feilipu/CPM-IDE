@@ -1287,10 +1287,19 @@ UNKWN2:
     LDI
     LDI
     CALL    OPENFCB        ;and open this file.
+    JP    NZ,UNKWNLD    ;found
+    LD    A,(CHGDRV)    ;nameless command: retry A:
+    OR    A
+    JP    NZ,UNKWN9
+    INC    A
+    LD    (CHGDRV),A
+    CALL    DSELECT
+    CALL    OPENFCB
     JP    Z,UNKWN9    ;not present?
 ;
 ;   Load in the program.
 ;
+UNKWNLD:
     LD    HL,TBASE    ;store the program starting here.
 UNKWN3:
     PUSH    HL
