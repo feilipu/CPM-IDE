@@ -19,6 +19,7 @@ PUBLIC sekdsk, sektrk, seksec, sekhst, hstact
 PUBLIC unacnt, unadsk, unatrk, unasec
 PUBLIC rsflag, readop
 PUBLIC DIRBUF, _dirbuf
+PUBLIC ldi_body, _ldi_body
 
 _cpm_dir_sclust:        defs 16
 _cpm_fat_vol:           defs 28
@@ -81,3 +82,5 @@ rsflag:                 defs 1
 readop:                 defs 1
 DIRBUF:
 _dirbuf:                defs 2
+_ldi_body:
+ldi_body:               defs 65     ;Z80 33; 8085 65; copy_build fills this

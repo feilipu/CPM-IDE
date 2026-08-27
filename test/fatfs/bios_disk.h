@@ -15,6 +15,7 @@ extern uint8_t  hstwrt;
 extern uint8_t  hstact;
 extern uint8_t *dirbuf;
 
+extern void     bios_init(void);
 extern void     bios_home(void);
 extern void     bios_settrk(uint16_t track) __z88dk_fastcall;
 extern void     bios_setsec(uint16_t sector) __z88dk_fastcall;

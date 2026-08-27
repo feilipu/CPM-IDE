@@ -63,6 +63,7 @@ EXTERN  hstdsk
 EXTERN  hsttrk
 EXTERN  hstsec
 EXTERN  hstwrt
+EXTERN  hstact
 EXTERN  wrtype
 EXTERN  dmaadr
 EXTERN  erflag
@@ -1113,7 +1114,7 @@ PUBLIC  _dir_find
 ; OUT C and L=0: HL = dir_ptr, fat_found_* filled
 _dir_find:
 dir_find:
-    ld      (fat_work),hl
+    ld      (pack_sv),hl            ;8.3; dir_sdi clobbers fat_work
     ld      de,(dir_sclust)
     ld      bc,(dir_sclust+2)
     ld      hl,0
@@ -1136,7 +1137,7 @@ df_loop:
     cp      AM_LFN
     jr      Z,df_next
     ld      de,(dir_ptr)
-    ld      hl,(fat_work)
+    ld      hl,(pack_sv)
     ld      b,11
 df_cmp:
     ld      a,(de+)
@@ -1187,7 +1188,7 @@ PUBLIC  _dir_create
 ; IN: HL -> 11-byte 8.3
 _dir_create:
 dir_create:
-    ld      (fat_work),hl
+    ld      (pack_sv),hl            ;8.3; dir_sdi clobbers fat_work
     ld      de,(dir_sclust)
     ld      bc,(dir_sclust+2)
     ld      hl,0
@@ -1214,7 +1215,7 @@ dc_z:
     ld      (hl+),a
     djnz    dc_z
     ld      de,(dir_ptr)
-    ld      hl,(fat_work)
+    ld      hl,(pack_sv)
     ld      bc,11
     ldir
     ld      a,1
@@ -1757,13 +1758,15 @@ ma_lp:
     ld      a,d
     sbc     a,b
     ld      d,a
-    jr      C,ma_next               ;AL < first
+    jr      C,ma_next               ;AL < first; HL = slot
     ld      bc,de                   ;AL-first
+    push    hl                      ;slot
     ld      hl,(fat_work)
     ld      a,c
     sub     l
     ld      a,b
     sbc     a,h
+    pop     hl                      ;slot
     jr      NC,ma_next              ;AL-first >= n_al
     ld      hl,bc
     pop     de
@@ -1985,6 +1988,7 @@ wrdir_cpm:
     call    NZ,writehst
     xor     a
     ld      (hstwrt),a
+    ld      (hstact),a              ;next DIR read must synth_dir
     ld      hl,$FFFF
     ld      (clst_cache_sclust),hl
     ld      (clst_cache_sclust+2),hl

@@ -485,6 +485,7 @@ write:
     call    wrdir_cpm
     ld      a,$01
     out     (__IO_ROM_TOGGLE),a     ;RAM in
+    ld      a,(erflag)
     ret
 write_data:
     xor     a               ;0 to accumulator
