@@ -1760,13 +1760,13 @@ ma_lp:
     ld      d,a
     jr      C,ma_next               ;AL < first; HL = slot
     ld      bc,de                   ;AL-first
-    push    hl                      ;slot
+    ex      de,hl                   ;park slot
     ld      hl,(fat_work)
     ld      a,c
     sub     l
     ld      a,b
     sbc     a,h
-    pop     hl                      ;slot
+    ex      de,hl                   ;HL = slot
     jr      NC,ma_next              ;AL-first >= n_al
     ld      hl,bc
     pop     de
