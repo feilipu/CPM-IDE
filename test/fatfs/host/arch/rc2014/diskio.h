@@ -1,0 +1,35 @@
+#ifndef __DISKIO_H__
+#define __DISKIO_H__
+
+/* Host / test diskio. Types come from ff.h (included first). */
+
+typedef BYTE DSTATUS;
+
+typedef enum {
+    RES_OK = 0,
+    RES_ERROR,
+    RES_WRPRT,
+    RES_NOTRDY,
+    RES_PARERR
+} DRESULT;
+
+#ifndef _LBA_T
+#define _LBA_T
+typedef DWORD LBA_t;
+#endif
+
+#define STA_NOINIT   0x01
+#define STA_NODISK   0x02
+#define STA_PROTECT  0x04
+#define CTRL_SYNC    0
+#define GET_SECTOR_COUNT 1
+#define GET_SECTOR_SIZE  2
+#define GET_BLOCK_SIZE   3
+
+DSTATUS disk_initialize(BYTE pdrv);
+DSTATUS disk_status(BYTE pdrv);
+DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count);
+DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count);
+DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff);
+
+#endif
