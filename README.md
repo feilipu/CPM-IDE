@@ -38,7 +38,7 @@ __NOTE:__ All serial interfaces (on the ACIA Serial Module, on the SIO Serial Mo
 
 __NOTE:__ To enable flow control with any Serial Module it is critical to use a USB Serial adapter that supports __`/RTS`__ on Pin 6. Typical FTDI USB Adapters pinout __`/DTR`__ to Pin 6. The [recommended USB Serial adapter](https://www.tindie.com/products/8086net/uusbusb-c-cdc-serial-adaptor-5v/) is available from 8086 Consultancy.
 
-The IDE Hard Drive Module interface driver is optimised for performance and can achieve about 110kB/s throughput, using the ChaN FATFS libraries. It does this by minimising error management and streamlining read and write routines. The assumption is that modern PATA attached IDE drives have their own error management and if there are errors from the IDE interface, then there are other issues at stake. The CF Module can achieve up to 200kB/s throughput at FATFS level, and it seems to provide best performance using SD Cards in SD to CF Card Adapters. Within CP/M, file data still pays the DRI deblock copy (512-byte host sector to the caller's 128-byte DMA). On the SIO v3 prototype, directory records are synthesized in RAM and do not touch the IDE. The other six ports overlay DPH `DIRBUF` on `hstbuf` so directory `READ` skips that copy; see [CP/M deblocking](#cpm-deblocking) below.
+The IDE Hard Drive Module interface driver is optimised for performance and can achieve about 110kB/s throughput. It does this by minimising error management and streamlining read and write routines. The assumption is that modern PATA attached IDE drives have their own error management and if there are errors from the IDE interface, then there are other issues at stake. The CF Module can achieve up to 200kB/s throughput at FATFS level, and it seems to provide best performance using SD Cards in SD to CF Card Adapters. Within CP/M, file data still pays the DRI deblock copy (512-byte host sector to the caller's 128-byte DMA). Directory records are synthesized in RAM and do not touch the IDE; see [CP/M deblocking](#cpm-deblocking) below.
 
 The IDE Hard Drive Module supports both PATA hard drives (including 3 1/2" magnetic platter, SSD, and DOM storage) and Compact Flash cards in their native 16-bit PATA mode, with buffered I/O provided by the 82C55 device. The IDE Hard Drive Module is the ideal way to attach "spinning rust" to your RC2014. Attaching one physical Master drive is supported.
 
@@ -53,7 +53,7 @@ C = "GAMES/ZORK"
 
 Contiguous 8 MB `.CPM` container files remain readable as ordinary host files but are no longer the mount object. Within CP/M the BIOS still deblocks 512-byte IDE sectors to 128-byte BDOS records (one copy, same as v2). Directory records are synthesized in RAM and do not touch the IDE.
 
-The SIO v3 build provides **51.00 KB** of TPA. Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). Four live drives maximum. 8.3 names are walked from the FAT directory on `DIR` rather than cached in the BIOS maps.
+All seven firmware builds provide **51.00 KB** of TPA (BIOS origin `0xE380`, CCP `0xCD00`). Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). Four live drives maximum. 8.3 names are walked from the FAT directory on `DIR` rather than cached in the BIOS maps. Mini-FAT, IDE, and host sector I/O run from ROM (the RAM BIOS pages ROM in on disk I/O; serial ISRs stay in high RAM). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
 
 <div>
 <table style="border: 2px solid #cccccc;">
@@ -215,24 +215,19 @@ The CP/M-IDE is built using the z88dk compilers and libraries, including a simpl
 
 CP/M 2.2 always transfers **128-byte** records through `SETDMA` / `READ` / `WRITE`. The host disk is **512-byte** IDE/CF sectors, so the BIOS deblocks four CP/M records per host sector in `hstbuf`. File I/O (default DMA `0x80`, TPA) still copies 128 bytes between that host slice and the caller's DMA. That copy is required: the program looks at the address it passed to `SETDMA`, and a 512-byte IDE transfer cannot be aimed at a 128-byte hole in a `.COM` (or at `0x80`). Z80 builds use unrolled `LDI`; 8085 builds use `ld a,(hl+)` / `ld (de+),a`.
 
-**SIO v3** synthesizes directory records from the four resident FAT file maps (8.3 names are read from the FAT directory, not cached in the map). Those records do not come from a 512-byte IDE directory sector.
+Directory records are synthesized from the four resident FAT file maps (8.3 names are read from the FAT directory, not cached in the map). Those records do not come from a 512-byte IDE directory sector. `WRITE` C=1 is handled by `wrdir_cpm` in ROM.
 
-On the **other six** firmware builds, BDOS snapshots DPH `DIRBUF` at `SELDSK` and then `SETDMA`s that address for every directory record:
+DPH `DIRBUF` overlays `hstbuf`. When DMA already lies in the 512-byte host window, `READ` does not copy; the BIOS writes the active 128-byte slice address into the BDOS `DIRBUF` word so `FCB2HL` / `CHECKSUM` / `MOVEDIR` see the record in place. User DMA still copies.
 
-- DPH `DIRBUF` overlays `hstbuf` (the separate 128-byte `dirbf` is gone: **128 bytes of BIOS RAM recovered**).
-- When DMA already lies in the 512-byte host window, `READ` does not copy. The BIOS writes the active 128-byte slice address into the BDOS `DIRBUF` word so `FCB2HL` / `CHECKSUM` / `MOVEDIR` see the record in place.
-- Directory `WRITE` still copies the record into the slice (then `WRITE` C=1 flushes the host sector immediately).
-- CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, and BDOS function 10 treats `DEL` as backspace (DRI APN 02).
+CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, BDOS function 10 treats `DEL` as backspace (DRI APN 02), and a nameless `.COM` missing on the current drive is retried on A: (explicit `d:` does not fall back).
 
 The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that path uses `ld bc,de` / `sub hl,bc`, and `sra hl` for the slice shift.
-
-On those six ports TPA is unchanged (~56 KB) and `_cpm_dsk0_base` stays at **`0xF800`**. The SIO v3 prototype runs FatFs, IDE, and host sector I/O from ROM (BIOS pages ROM in on disk I/O, serial ISRs stay in high RAM) with BIOS origin `0xE380` / BSS `0xE900` and **51.00 KB** TPA (`FILE_MAX` 64, four resident maps). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
 
 ### Installation
 
 Using the correct HEX file for your hardware configuration from this directory, burn it into a 32kB or 64kB EEPROM, or PROM.
 
-To initially configure your hard drive, use either a USB caddy for your PATA IDE drive, or a CF adapter for your Compact Flash card to mount your drive on your host computer. Your host computer should be able to read and write FAT32 formatted drives. Format the drive for FAT32 (or FAT16 if it is quite small). Then __unzip__ and __"Drag and drop"__ or __copy__ some of the example [CP/M drive files](https://github.com/feilipu/CPM-IDE/tree/master/CPM%20Drives) into the root directory of your drive. At least the `sys.cpm` example file is required (until you customise your own) as it contains many system utilities. Check that each of the drive files is using 8388608 Bytes on your IDE or CF drive. You may put the CP/M drive files into directories (to organise them based on your workflow), or leave them all in the root directory.
+To initially configure your hard drive, use either a USB caddy for your PATA IDE drive, or a CF adapter for your Compact Flash card to mount your drive on your host computer. Your host computer should be able to read and write FAT32 formatted drives. Format the drive for FAT32 (or FAT16 if it is quite small). Create directories that will become CP/M A:–D: (for example `SYS`, `USER`) and copy 8.3 files into them. The example [CP/M drive files](https://github.com/feilipu/CPM-IDE/tree/master/CPM%20Drives) can be unzipped on a host and their contents copied into those directories. At least a `SYS` directory with the usual utilities is a good start. You may nest those directories anywhere on the FAT volume.
 
 Connect the RC2014 hardware as shown above, and then use the commands given in the shell Command Line Interface, below.
 
@@ -242,11 +237,11 @@ When the RC2014 first boots, the z88dk provided `crt0` configures a number of it
 
 The preamble code copies the CCP/BDOS to the correct location, and then checks for the existence of the BIOS. If the BIOS exists, and a valid drive is found, then control is passed directly to the CCP. This is the usual situation when a CP/M application overwrites the CCP, and it needs to be rewritten before control can be returned to it. Otherwise control is returned to the preamble code to continue to load the CP/M BIOS, the serial drivers, and the disk drivers necessary for operation of the shell and CP/M.
 
-Control is then passed to the command shell, that provides a simple command line interface to allow arbitrary FATFS files (pre-prepared as CP/M drives) to be mounted for use within CP/M, and then CP/M booted.
+Control is then passed to the command shell, that provides a simple command line interface to mount FAT directories as CP/M A:–D: and then boot CP/M.
 
 __NOTE:__ Where the SIO Module or the UART Module is being used, on startup the shell will wait for a `:` to establish which serial port is being used and will continue to interact on this port until CP/M is loaded.
 
-CP/M can be started by command __`cpm file.a [file.b] [file.c] [file.d]`__. At least one valid file name must be provided. CP/M can be started with to up to four (4) files to be mounted on __`A:`__, __`B:`__, __`C:`__, and __`D:`__ drives, from any of the thousands of CP/M drive files you may have available. Up to 4 CP/M drive files can be concurrently mounted. Each CP/M drive file must be contiguous, but can be located anywhere on the FATFS drive (any LBA) in any directory, provided the full path is used to reference it.
+CP/M can be started by command __`cpm <dirA> [dirB] [dirC] [dirD]`__. At least one valid directory must be provided for A:. Alternatively __`cpm <parent>`__ maps `<parent>/A` … `<parent>/D` if those subdirectories exist, or __`cpm`__ with no arguments reads `CPMIDE.CFG`. Up to four FAT directories can be concurrently mounted. They can be located anywhere on the FAT volume, provided the full path is used to reference them. FAT16 volume root cannot be A: (cluster 0 means unmounted; use a subdirectory).
 
 The shell provides __`ls`__, __`cd`__, __`pwd`__, __`rm`__, __`rmdir`__, __`mkdir`__, __`type`__, __`cp`__, and __`mv`__ on the FAT volume, plus __`hload`__, __`mount`__, __`ds`__, __`dd`__, and __`md`__. __`hload`__ can be used to upload and directly run a CP/M application, rather than from a drive. __`exit`__ can be used to restart the RC2014 if desired.
 
@@ -373,7 +368,7 @@ Of course other development workflows are possible, as is simply mounting the [Z
 
 ### z88dk applications under CP/M-IDE (`-subtype=cpm`)
 
-The **CP/M-IDE ROM** is built with bare-metal serial subtypes (`-subtype=sio` / `uart` / `acia`, or the 8085 hybrids) and a **read-only** FatFs package (`ff_ro` / `ff_85_ro`) so the shell can mount `.CPM` drive files on the FAT volume. That is **firmware**, not a CP/M application.
+The **CP/M-IDE ROM** is built with bare-metal serial subtypes (`-subtype=sio` / `uart` / `acia`, or the 8085 hybrids). The ROM shell and BIOS share the in-tree mini-FAT (`common/fatfs.asm` / `common/fatfs_85.asm`); they do not link ChaN `ff_ro`. That is **firmware**, not a CP/M application.
 
 **CP/M applications** (`.COM` files you upload and run under the CCP) should be built with the RC2014 **CP/M subtype**:
 
@@ -391,7 +386,7 @@ zcc +rc2014 -subtype=cpm -clib=new app.c \
   -llib/rc2014/ff -llib/rc2014/time -o app -m
 ```
 
-Both stacks may be used in one binary (BDOS files and FatFs volumes such as `0:`). Do not use the ROM shell’s `ff_ro` package for write-capable apps.
+Both stacks may be used in one binary (BDOS files and FatFs volumes such as `0:`). The ROM mini-FAT is not the ChaN `ff` package; applications that want ChaN FatFs under CP/M should link the full `ff` as above.
 
 Policy, dual-stack rules, and fuller recipes:
 
@@ -405,29 +400,28 @@ The z88dk command lines to build the **CP/M-IDE ROM** (firmware) for Z80 CPU is 
 
 First though, refer to the library, disk and buffer configuration notes below.
 
-`zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m -llib/rc2014/ff_ro --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-pata-sio -create-app`
+Each `cpm22.lst` includes `../common/fatfs.asm` (Z80) or `../common/fatfs_85.asm` (8085). After `zcc … -create-app`, copy the `.ihx` to `.hex` and delete the leftover `.ihx` / `.bin` / `.map` files.
 
-`zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m @cpm22.lst -o ../rc2014-cpm22-z80-cf-sio -create-app`  
-(`cpm22.lst` includes `../common/fatfs.asm`. Then `cp ../rc2014-cpm22-z80-cf-sio.ihx ../rc2014-cpm22-z80-cf-sio.hex`.)
+`zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m @cpm22.lst -o ../rc2014-cpm22-z80-pata-sio -create-app`
 
-`zcc +rc2014 -subtype=uart -SO3 --opt-code-speed -m -llib/rc2014/ff_ro --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-uart -create-app`
+`zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m @cpm22.lst -o ../rc2014-cpm22-z80-cf-sio -create-app`
 
-`zcc +rc2014 -subtype=acia -SO3 --opt-code-speed -m -llib/rc2014/ff_ro --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-acia -create-app`
+`zcc +rc2014 -subtype=uart -SO3 --opt-code-speed -m @cpm22.lst -o ../rc2014-cpm22-z80-cf-uart -create-app`
+
+`zcc +rc2014 -subtype=acia -SO3 --opt-code-speed -m @cpm22.lst -o ../rc2014-cpm22-z80-cf-acia -create-app`
 
 
 Alternate z88dk command lines to build the CP/M-IDE for the 8085 CPU Module is below. The `rc2014` target and relevant subtype should be selected, from within the relevant directory. Set `Z88DK` to your z88dk install root. The `-I${Z88DK}/include` path must precede the `_DEVELOPMENT/common` include path so classic `<stdio.h>` is used (required for `stdin`/`stdout` on the hybrid 8085 CRT).
 
-`zcc +rc2014 -subtype=uart85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 -llib/rc2014/ff_85_ro @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
+`zcc +rc2014 -subtype=uart85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
 
-`zcc +rc2014 -subtype=uart85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 -llib/rc2014/ff_85_ro @cpm22.lst -o ../rc2014-cpm22-8085-cf-uart -create-app`
+`zcc +rc2014 -subtype=uart85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 @cpm22.lst -o ../rc2014-cpm22-8085-cf-uart -create-app`
 
-`zcc +rc2014 -subtype=acia85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 -llib/rc2014/ff_85_ro @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
+`zcc +rc2014 -subtype=acia85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
 
-Prior to running the above build commands, in addition to the normal z88dk provided libraries, a [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) provided by [ChaN](http://elm-chan.org/fsw/ff/00index_e.html) and customised for read-only for the RC2014 must be installed. Copy `ff_ro.lib` into `lib/clibs/sdcc_ix/lib/rc2014/` (that is the `-L` path used by both `-clib=sdcc_ix` and the default `-clib=sdcc_iy`). Copy `ff_85_ro.lib` into `lib/clibs/sccz80/lib/rc2014/` for the 8085 builds. The SDCC `ff_ro` object is built once with `-clib=sdcc_iy` (`--reserve-regs-iy`); do not keep a second copy under `sdcc_iy/`. Rebuild against your current z88dk if prebuilt binaries fail to link. (`z88dk-lib +rc2014 -f …` installs `ff.lib` into the same `lib/clibs/…` trees; `ff_ro` is copied by hand.)
+The ROM shells have FAT write (`rm`, `mkdir`, `cp`, `mv`). ChaN FatFs is not required to build the firmware. The default (read/write) version of the [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) should be installed so that applications you compile using z88dk under CP/M (`-subtype=cpm`) can read and write to the FATFS file system independently of BDOS.
 
-The SIO v3 prototype has FAT write in ROM (`rm`, `mkdir`, `cp`). The other six firmware builds still use the read-only ChaN package, so those shells cannot create drive files; prepare `.CPM` containers on a host with [cpmtools](http://www.moria.de/~michael/cpmtools/). The default (read/write) version of the [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) should be installed so that applications you compile using z88dk can read and write to the FATFS file system.
-
-Again: ROM builds use **bare** subtypes + `ff_ro`; application `.COM` builds under running CP/M use **`-subtype=cpm`** (FCB file I/O) and optional full `ff` / `time` for FatFs — see [z88dk applications under CP/M-IDE](#z88dk-applications-under-cpm-ide--subtypecpm) above.
+Again: ROM builds use **bare** subtypes and the in-tree mini-FAT; application `.COM` builds under running CP/M use **`-subtype=cpm`** (FCB file I/O) and optional full `ff` / `time` for FatFs — see [z88dk applications under CP/M-IDE](#z88dk-applications-under-cpm-ide--subtypecpm) above.
 
 The size of the serial transmit and receive buffers are set within the z88dk RC2014 target configuration files for the [ACIA](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_acia.m4), [SIO/2](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_sio.m4), and [UART](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_uart.m4) respectively.
 

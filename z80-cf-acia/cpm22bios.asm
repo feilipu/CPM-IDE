@@ -14,9 +14,7 @@ INCLUDE "config_rc2014_private.inc"
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_BIOS    ;base of bios
-defc    __COMMON_AREA_PHASE_BIOS    = 0xF300
-
-defc    __CPM_BIOS_BSS_HEAD         = 0xF800
+defc    __COMMON_AREA_PHASE_BIOS    = 0xE380    ;meets BDOS STKAREA; FAT/IDE in ROM
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -24,6 +22,14 @@ defc    __CPM_BIOS_BSS_HEAD         = 0xF800
 
 EXTERN  _cpm_ccp_head               ;base of ccp
 EXTERN  _cpm_bdos_fbase             ;entry of bdos
+
+; mini-FAT is common/fatfs.asm (ROM, no PHASE)
+EXTERN  pack_drive
+EXTERN  wrdir_cpm
+EXTERN  fat_hst_isdir
+EXTERN  fat_hst_map
+EXTERN  fat_wrual_bind
+EXTERN  synth_dir
 
 PUBLIC  _cpm_disks
 
@@ -53,8 +59,9 @@ DEFC    hstsiz  =    512        ;host disk sector size
 DEFC    hstspt  =    256        ;host disk sectors/trk
 DEFC    hstblk  =    hstsiz/128 ;CP/M sects/host buff (4)
 
+DEFC    FILE_MAX        =    64             ;FAT names packed per drive
 DEFC    cpmbls  =    4096       ;CP/M allocation block size BLS
-DEFC    cpmdir  =    2048       ;CP/M number of directory blocks (each of 32 Bytes)
+DEFC    cpmdir  =    256        ;extent slots (DRM+1); 256×32KB = 8 MB
 DEFC    cpmspt  =    hstspt * hstblk    ;CP/M sectors/track (1024 = 256 * 512 / 128)
 
 DEFC    secmsk  =    hstblk-1   ;sector mask
@@ -69,6 +76,8 @@ DEFC    secmsk  =    hstblk-1   ;sector mask
 DEFC    wrall   =    0          ;write to allocated
 DEFC    wrdir   =    1          ;write to directory
 DEFC    wrual   =    2          ;write to unallocated
+
+DEFC    FILE_SIZ        =    13             ;flags+sclust+size+first_al+n_al
 
 ;=============================================================================
 ;
@@ -237,15 +246,12 @@ diskchk_jp_addr:            ;optional SMC, to void the LBA check and directly ex
 
 diskchk:
     ld      c,a             ;send current disk number to the ccp
-    call    getLBAbase      ;get the LBA base address
-    ld      a,(hl)          ;check that the LBA is non Zero
-    inc     hl
-    or      a,(hl)
-    inc     hl
-    or      a,(hl)
-    inc     hl
-    or      a,(hl)
-    jp      NZ,_cpm_ccp_head        ;valid disk, go to ccp for further processing
+    ld      hl,_cpm_dir_sclust
+    ld      a,(hl+)
+    or      (hl+)
+    or      (hl+)
+    or      (hl)
+    jp      NZ,_cpm_ccp_head        ;valid mount, go to ccp
 
     ld      (_cpm_bios_canary),a    ;kill the canary
 ;   xor     a                       ;A = $00 ROM
@@ -374,16 +380,34 @@ seldsk:    ;select disk given by register c
     jr      NC,seldskreset  ;invalid drive will result in BDOS error
 
 chgdsk:
-    call    getLBAbase      ;get the LBA base address for disk
-    ld      a,(hl)          ;check that the LBA is non-Zero
-    inc     hl
-    or      a,(hl)
-    inc     hl
-    or      a,(hl)
-    inc     hl
-    or      a,(hl)
-    jr      Z,seldskreset   ;invalid disk LBA, so return BDOS error
+    ld      a,c
+    add     a,a
+    add     a,a
+    ld      e,a
+    ld      d,0
+    ld      hl,_cpm_dir_sclust
+    add     hl,de
+    ld      a,(hl+)
+    or      (hl+)
+    or      (hl+)
+    or      (hl)
+    jr      Z,seldskreset   ;unmounted
 
+    ld      a,c
+    ld      e,a
+    ld      d,0
+    ld      hl,drv_packed
+    add     hl,de
+    ld      a,(hl)
+    or      a
+    jr      NZ,chgdsk_packed
+    xor     a
+    out     (__IO_ROM_TOGGLE),a     ;ROM in (pack_drive)
+    ld      a,c
+    call    pack_drive
+    ld      a,$01
+    out     (__IO_ROM_TOGGLE),a     ;RAM in
+chgdsk_packed:
     ld      a,c             ;recover selected disk
     ld      (sekdsk),a      ;and set the seeked disk
     add     a,a             ;*2 calculate offset into dpbase
@@ -450,6 +474,16 @@ read:
 
 ;write the selected CP/M sector
 write:
+    ld      a,c
+    cp      wrdir
+    jp      NZ,write_data
+    xor     a
+    out     (__IO_ROM_TOGGLE),a     ;ROM in (wrdir_cpm)
+    call    wrdir_cpm
+    ld      a,$01
+    out     (__IO_ROM_TOGGLE),a     ;RAM in
+    ret
+write_data:
     xor     a               ;0 to accumulator
     ld      (readop),a      ;not a read operation
     ld      a,c             ;write type in c
@@ -490,11 +524,9 @@ chkuna:
 ;           tracks are the same
     ld      de,seksec       ;same sector?
     ld      hl,unasec
-    ld      a,(de)          ;low byte compare seksec = unasec?
-    cp      (hl)            ;same?
+    ld      a,(de+)         ;low byte compare seksec = unasec?
+    cp      (hl+)           ;same?
     jr      NZ,alloc        ;skip if not
-    inc     de
-    inc     hl
     ld      a,(de)          ;high byte compare seksec = unasec?
     cp      (hl)            ;same?
     jr      NZ,alloc        ;skip if not
@@ -574,7 +606,7 @@ nomatch:
 ;           proper disk, but not correct sector
     ld      a,(hstwrt)      ;host written?
     or      a
-    call    NZ,writehst     ;clear host buff
+    call    NZ,writehst_page    ;clear host buff (ROM)
 
 filhst:
 ;           may have to fill the host buffer
@@ -586,7 +618,7 @@ filhst:
     ld      (hstsec),a
     ld      a,(rsflag)      ;need to read?
     or      a
-    call    NZ,readhst      ;yes, if 1
+    call    NZ,readhst_page     ;yes, if 1 (ROM)
     xor     a               ;0 to accum
     ld      (hstwrt),a      ;no pending write
 
@@ -629,17 +661,7 @@ rwmove:
     call    ldi_128
 
 after_move:
-    ld      a,(wrtype)      ;write type
-    and     wrdir           ;to directory?
-    ld      a,(erflag)      ;in case of errors
-    ret     Z               ;no further processing
-
-;           clear host buffer for directory write
-    or      a               ;errors?
-    ret     NZ              ;skip if so
-    xor     a               ;0 to accum
-    ld      (hstwrt),a      ;buffer written
-    call    writehst
+    ; WRITE C=1 never reaches rwoper (it goes to wrdir_cpm).
     ld      a,(erflag)
     ret
 
@@ -689,112 +711,21 @@ ldi_31:
 
     ret
 
-;
-;*****************************************************
-;*                                                   *
-;*    WRITEHST performs the physical write to        *
-;*    the host disk, READHST reads the physical      *
-;*    disk.                                          *
-;*                                                   *
-;*****************************************************
-
-writehst:
-    ;hstdsk = host disk #, 0,1,2,3
-    ;hsttrk = host track #, 64 tracks = 6 bits
-    ;hstsec = host sect #, 256 sectors per track = 8 bits
-    ;write "hstsiz" bytes
-    ;from hstbuf and return error flag in erflag.
-    ;return erflag non-zero if error
-
-    call    setLBAaddr      ;get the required LBA into BCDE
-    ld      hl,hstbuf       ;get hstbuf address into HL
-
-    ;write a sector
-    ;specified by the 4 bytes in BCDE
-    ;the address of the origin buffer is in HL
-    ;HL is left incremented by 512 bytes
-    ;return carry on success, no carry for an error
-    call    ide_write_sector
-    ret     C
+writehst_page:
+    xor     a
+    out     (__IO_ROM_TOGGLE),a
+    call    writehst
     ld      a,$01
-    ld      (erflag),a
+    out     (__IO_ROM_TOGGLE),a
     ret
 
-readhst:
-    ;hstdsk = host disk #, 0,1,2,3
-    ;hsttrk = host track #, 64 tracks = 6 bits
-    ;hstsec = host sect #, 256 sectors per track = 8 bits
-    ;read "hstsiz" bytes
-    ;into hstbuf and return error flag in erflag.
-
-    call    setLBAaddr      ;get the required LBA into BCDE
-    ld      hl,hstbuf       ;get hstbuf address into HL
-
-    ;read a sector
-    ;LBA specified by the 4 bytes in BCDE
-    ;the address of the buffer to fill is in HL
-    ;HL is left incremented by 512 bytes
-    ;return carry on success, no carry for an error
-    call    ide_read_sector
-    ret     C
+readhst_page:
+    xor     a
+    out     (__IO_ROM_TOGGLE),a
+    call    readhst
     ld      a,$01
-    ld      (erflag),a
+    out     (__IO_ROM_TOGGLE),a
     ret
-
-;=============================================================================
-; Convert track/head/sector into LBA for physical access to the disk
-;=============================================================================
-;
-; The bios provides us with the LBA base location for each of 4 files,
-; in _cpm_dsk0_base. Each LBA is 4 bytes, total 16 bytes
-;
-; The translation activity is to set the LBA correctly, using the hstdsk, hstsec,
-; and hsttrk information.
-;
-; Since hstsec is 256 sectors per track, we need to use 8 bits for hstsec.
-; Since we never have more than 8MB, hsttrk is 6 bits.
-;
-; This also matches nicely with the calculation, where a 16 bit addition of the
-; translation can be added to the base LBA to get the sector.
-;
-
-setLBAaddr:
-    ld      a,(hstdsk)      ;get disk number (0,1,2,3)
-    call    getLBAbase      ;get the LBA base address
-                            ;HL contains address of active disk (file) LBA LSB
-
-    ld      a,(hstsec)      ;prepare the hstsec (8 bits, 256 sectors per track)
-    add     a,(hl)          ;add hstsec + LBA LSB
-    ld      e,a             ;write LBA LSB, put it in E
-
-    inc     hl
-    ld      a,(hsttrk)      ;prepare the hsttrk (6 bits, 64 tracks per disk)
-    adc     a,(hl)          ;add hsttrk + LBA 1SB, with carry
-    ld      d,a             ;write LBA 1SB, put it in D
-
-    inc     hl
-    ld      a,(hl)          ;get disk LBA 2SB
-    adc     a,$00           ;get disk LBA 2SB, with carry
-    ld      c,a             ;write LBA 2SB, put it in C
-
-    inc     hl
-    ld      a,(hl)          ;get disk LBA MSB
-    adc     a,$00           ;get disk LBA MSB, with carry
-    ld      b,a             ;write LBA MSB, put it in B
-
-    ret
-
-getLBAbase:
-    add     a,a             ;uint32_t off-set for each disk (file) LBA base address
-    add     a,a             ;so left shift 2 (x4), to create offset to disk base address
-
-    ld      hl,_cpm_dsk0_base;get the address for disk LBA base address
-    add     a,l             ;add the offset to the base address
-    ld      l,a
-    ret     NC              ;LBA base address in HL, no carry
-    inc     h
-    ret                     ;LBA base address in HL
-
 
 ;------------------------------------------------------------------------------
 ; start of common area driver - acia functions
@@ -1012,10 +943,82 @@ putc_buffer_tx:
     defc _acia1_putc = _acia_putc
     defc _acia1_pollc = _acia_pollc
 
+PUBLIC  _cpm_bios_tail
+_cpm_bios_tail:             ;tail of the RAM BIOS (FAT/IDE stay in ROM)
+
+PUBLIC  _cpm_bios_rodata_head
+_cpm_bios_rodata_head:      ;origin of the cpm bios rodata
 
 ;------------------------------------------------------------------------------
-; start of common area driver - Compact Flash & IDE functions
+; start of fixed tables - non aligned rodata
 ;------------------------------------------------------------------------------
+;
+;    fixed data tables for four-drive standard drives
+;    no translations
+;
+dpbase:
+;   disk Parameter header for disk 00
+    defw    0000h, 0000h
+    defw    0000h, 0000h
+    defw    hstbuf, dpblk
+    defw    0000h, alv00
+;   disk parameter header for disk 01
+    defw    0000h, 0000h
+    defw    0000h, 0000h
+    defw    hstbuf, dpblk
+    defw    0000h, alv01
+;   disk parameter header for disk 02
+    defw    0000h, 0000h
+    defw    0000h, 0000h
+    defw    hstbuf, dpblk
+    defw    0000h, alv02
+;   disk parameter header for disk 03
+    defw    0000h, 0000h
+    defw    0000h, 0000h
+    defw    hstbuf, dpblk
+    defw    0000h, alv03
+;
+;   disk parameter block for all disks.
+;
+dpblk:
+    defw    cpmspt      ;SPT - sectors per track
+    defb    5           ;BSH - block shift factor from BLS
+    defb    31          ;BLM - block mask from BLS
+    defb    1           ;EXM - Extent mask
+    defw    hstalb-1    ;DSM - Storage size (blocks - 1)
+    defw    cpmdir-1    ;DRM - Number of directory entries - 1
+    defb    $C0         ;AL0 - 2 directory blocks (256×32 = 8192)
+    defb    $00         ;AL1
+    defw    0           ;CKS - DIR check vector size (DRM+1)/4 (0=fixed disk) (ALLOC1)
+    defw    0           ;OFF - Reserved tracks offset
+
+;------------------------------------------------------------------------------
+; end of fixed tables
+;------------------------------------------------------------------------------
+
+ALIGN 16                    ;BSS follows DPH/DPB
+
+PUBLIC  _cpm_bios_rodata_tail
+_cpm_bios_rodata_tail:      ;tail of the cpm bios read only data
+
+PUBLIC  _cpm_bios_bss_bridge
+_cpm_bios_bss_bridge:
+
+DEPHASE
+
+;
+;*****************************************************
+;*                                                   *
+;*    Host I/O + IDE — runs in ROM.                   *
+;*                                                   *
+;*    This code is not copied to high RAM. The RAM   *
+;*    BIOS pages it in with out (toggle),0 and back  *
+;*    with out 1. Buffers stay in high RAM.          *
+;*    Serial ISRs stay in the RAM PHASE.             *
+;*    Mini-FAT is common/fatfs.asm (linked, no PHASE).*
+;*    wrdir_cpm is in that file; call writehst here. *
+;*                                                   *
+;*****************************************************
 
 ; set up the drive LBA registers
 ; Uses AF, BC, DE
@@ -1073,10 +1076,6 @@ putc_buffer_tx:
     scf                         ;set carry flag on success
     ret
 
-;------------------------------------------------------------------------------
-; Routines that talk with the IDE drive, these should not be called by
-; the main program.
-
 ; read a sector
 ; LBA specified by the 4 bytes in BCDE
 ; the address of the buffer to fill is in HL
@@ -1084,7 +1083,8 @@ putc_buffer_tx:
 ; uses AF, BC, DE, HL
 ; return carry on success
 
-.ide_read_sector
+PUBLIC  ide_read_sector
+ide_read_sector:
     call ide_wait_ready         ;make sure drive is ready
     call ide_setup_lba          ;tell it which sector we want in BCDE
 
@@ -1106,10 +1106,6 @@ putc_buffer_tx:
     scf                         ;carry = 1 on return = operation ok
     ret
 
-;------------------------------------------------------------------------------
-; Routines that talk with the IDE drive, these should not be called by
-; the main program.
-
 ; write a sector
 ; specified by the 4 bytes in BCDE
 ; the address of the origin buffer is in HL
@@ -1117,7 +1113,8 @@ putc_buffer_tx:
 ; uses AF, BC, DE, HL
 ; return carry on success
 
-.ide_write_sector
+PUBLIC  ide_write_sector
+ide_write_sector:
     call ide_wait_ready         ;make sure drive is ready
     call ide_setup_lba          ;tell it which sector we want in BCDE
 
@@ -1139,68 +1136,45 @@ putc_buffer_tx:
     scf                         ;posted write; next command waits ready
     ret
 
-PUBLIC  _cpm_bios_tail
-_cpm_bios_tail:             ;tail of the cpm bios
+; Map the host sector to an IDE LBA and transfer hstbuf (high RAM).
+; RAM deblock uses writehst_page / readhst_page (page ROM around this).
+; wrdir_cpm is already in ROM and calls writehst directly.
+PUBLIC  writehst
+writehst:
+    call    fat_hst_isdir
+    ret     C
+    call    fat_hst_map
+    jr      C,writehst_go
+    call    fat_wrual_bind
+    ret     NC
+    call    fat_hst_map
+    ret     NC
+writehst_go:
+    ld      hl,hstbuf
+    call    ide_write_sector
+    ret     C
+    ld      a,$01
+    ld      (erflag),a
+    ret
 
-PUBLIC  _cpm_bios_rodata_head
-_cpm_bios_rodata_head:      ;origin of the cpm bios rodata
-
-;------------------------------------------------------------------------------
-; start of fixed tables - non aligned rodata
-;------------------------------------------------------------------------------
-;
-;    fixed data tables for four-drive standard drives
-;    no translations
-;
-dpbase:
-;   disk Parameter header for disk 00
-    defw    0000h, 0000h
-    defw    0000h, 0000h
-    defw    hstbuf, dpblk
-    defw    0000h, alv00
-;   disk parameter header for disk 01
-    defw    0000h, 0000h
-    defw    0000h, 0000h
-    defw    hstbuf, dpblk
-    defw    0000h, alv01
-;   disk parameter header for disk 02
-    defw    0000h, 0000h
-    defw    0000h, 0000h
-    defw    hstbuf, dpblk
-    defw    0000h, alv02
-;   disk parameter header for disk 03
-    defw    0000h, 0000h
-    defw    0000h, 0000h
-    defw    hstbuf, dpblk
-    defw    0000h, alv03
-;
-;   disk parameter block for all disks.
-;
-dpblk:
-    defw    cpmspt      ;SPT - sectors per track
-    defb    5           ;BSH - block shift factor from BLS
-    defb    31          ;BLM - block mask from BLS
-    defb    1           ;EXM - Extent mask
-    defw    hstalb-1    ;DSM - Storage size (blocks - 1)
-    defw    cpmdir-1    ;DRM - Number of directory entries - 1
-    defb    $FF         ;AL0 - 1 bit set per directory block (ALLOC0)
-    defb    $FF         ;AL1 - 1 bit set per directory block (ALLOC0)
-    defw    0           ;CKS - DIR check vector size (DRM+1)/4 (0=fixed disk) (ALLOC1)
-    defw    0           ;OFF - Reserved tracks offset
-
-;------------------------------------------------------------------------------
-; end of fixed tables
-;------------------------------------------------------------------------------
-
-ALIGN __CPM_BIOS_BSS_HEAD   ;align for bss head  (fixed to access _cpm_dsk0_base)
-
-PUBLIC  _cpm_bios_rodata_tail
-_cpm_bios_rodata_tail:      ;tail of the cpm bios read only data
-
-PUBLIC  _cpm_bios_bss_bridge
-_cpm_bios_bss_bridge:
-
-DEPHASE
+PUBLIC  readhst
+readhst:
+    call    fat_hst_isdir
+    jr      NC,readhst_data
+    ld      a,(hstsec)
+    ld      l,a
+    ld      h,0
+    jp      synth_dir
+readhst_data:
+    call    fat_hst_map
+    jr      NC,readhst_err
+    ld      hl,hstbuf
+    call    ide_read_sector
+    ret     C
+readhst_err:
+    ld      a,$01
+    ld      (erflag),a
+    ret
 
 SECTION bss_driver
 
@@ -1212,15 +1186,49 @@ PHASE _cpm_bios_bss_bridge
 
 PUBLIC  _cpm_bios_bss_head
 
-PUBLIC  _cpm_dsk0_base
+PUBLIC  _cpm_dir_sclust
 PUBLIC  _cpm_bios_canary
-
 PUBLIC  _bios_iobyte
+PUBLIC  _cpm_fat_vol
+PUBLIC  fatwin
+PUBLIC  fat_winsect
+PUBLIC  fat_wflag
+PUBLIC  drv_packed
+PUBLIC  fat_files
+PUBLIC  fat_cwd
+PUBLIC  fat_found_sclust
+PUBLIC  fat_found_size
+PUBLIC  dir_ptr
+PUBLIC  dir_sclust
+PUBLIC  dir_sect
+PUBLIC  dir_ofs
+PUBLIC  fat_work
+PUBLIC  pack_sv
+PUBLIC  hstbuf
+PUBLIC  hstdsk
+PUBLIC  hsttrk
+PUBLIC  hstsec
+PUBLIC  hstwrt
+PUBLIC  wrtype
+PUBLIC  dmaadr
+PUBLIC  erflag
+PUBLIC  clst_cache_sclust
+PUBLIC  clst_cache_ci
+PUBLIC  clst_cache_clst
+PUBLIC  unamap_idx
+PUBLIC  unamap_drv
+PUBLIC  synth_fi
+PUBLIC  synth_want
+PUBLIC  synth_seen
+PUBLIC  _fat_cwd
+PUBLIC  _fat_found_sclust
+PUBLIC  _fat_found_size
+PUBLIC  _fat_dir_ptr
+PUBLIC  _fat_dir_sclust
 
 _cpm_bios_bss_head:         ;head of the cpm bios bss
 
-_cpm_dsk0_base:     defs 16 ;base 32 bit LBA of host file for disk 0 (A:) &
-                            ;3 additional LBA for host files (B:, C:, D:)
+_cpm_dir_sclust:    defs 16
 
 _cpm_bios_canary:   defw 0  ;if it matches $AA55, bios has been loaded, and CP/M is active
 
@@ -1250,12 +1258,41 @@ readop:             defs 1  ;1 if read operation
 wrtype:             defs 1  ;write operation type
 dmaadr:             defs 2  ;last direct memory address
 
+_cpm_fat_vol:       defs 28
+fatwin:             defs 512
+fat_winsect:        defs 4
+fat_wflag:          defs 1
+drv_packed:         defs 4
+_fat_dir_sclust:
+dir_sclust:         defs 4
+dir_sect:           defs 4
+dir_ofs:            defs 2
+_fat_dir_ptr:
+dir_ptr:            defs 2
+_fat_found_sclust:
+fat_found_sclust:   defs 4
+_fat_found_size:
+fat_found_size:     defs 4
+clst_cache_sclust:  defs 4
+clst_cache_ci:      defs 2
+clst_cache_clst:    defs 4
+_fat_cwd:
+fat_cwd:            defs 4
+fat_work:           defs 16
+pack_sv:            defs 16
+unamap_drv:         defs 1
+unamap_idx:         defs 1
+synth_fi:           defs 1
+synth_want:         defs 1
+synth_seen:         defs 1
+
 alv00:              defs ((hstalb-1)/8)+1   ;allocation vector 0
 alv01:              defs ((hstalb-1)/8)+1   ;allocation vector 1
 alv02:              defs ((hstalb-1)/8)+1   ;allocation vector 2
 alv03:              defs ((hstalb-1)/8)+1   ;allocation vector 3
 
 hstbuf:             defs hstsiz         ;host sector; DPH DIRBUF overlays this window
+fat_files:          defs FILE_MAX*FILE_SIZ*4
 bios_stack:                             ;temporary bios stack origin
 
 PUBLIC  _cpm_bios_bss_initialised_tail

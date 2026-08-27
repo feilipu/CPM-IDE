@@ -63,8 +63,9 @@ DEFC    hstsiz  =    512        ;host disk sector size
 DEFC    hstspt  =    256        ;host disk sectors/trk
 DEFC    hstblk  =    hstsiz/128 ;CP/M sects/host buff (4)
 
+DEFC    FILE_MAX        =    64             ;FAT names packed per drive
 DEFC    cpmbls  =    4096       ;CP/M allocation block size BLS
-DEFC    cpmdir  =    256        ;directory entries (DRM+1); 256×32KB extents = 8 MB
+DEFC    cpmdir  =    256        ;extent slots (DRM+1); 256×32KB = 8 MB
 DEFC    cpmspt  =    hstspt * hstblk    ;CP/M sectors/track (1024 = 256 * 512 / 128)
 
 DEFC    secmsk  =    hstblk-1   ;sector mask
@@ -80,7 +81,6 @@ DEFC    wrall   =    0          ;write to allocated
 DEFC    wrdir   =    1          ;write to directory
 DEFC    wrual   =    2          ;write to unallocated
 
-DEFC    FILE_MAX        =    64
 DEFC    FILE_SIZ        =    13             ;flags+sclust+size+first_al+n_al
 
 ;=============================================================================
@@ -528,11 +528,9 @@ chkuna:
 ;           tracks are the same
     ld      de,seksec       ;same sector?
     ld      hl,unasec
-    ld      a,(de)          ;low byte compare seksec = unasec?
-    cp      (hl)            ;same?
+    ld      a,(de+)         ;low byte compare seksec = unasec?
+    cp      (hl+)           ;same?
     jr      NZ,alloc        ;skip if not
-    inc     de
-    inc     hl
     ld      a,(de)          ;high byte compare seksec = unasec?
     cp      (hl)            ;same?
     jr      NZ,alloc        ;skip if not
@@ -679,7 +677,7 @@ after_move:
 ;*****************************************************
 
 PUBLIC  copy_build                  ;fill ldi_body with 16 * ldi + ret
-PUBLIC  ldi_128                   ;128-byte copy via ldi_body
+PUBLIC  ldi_128                     ;128-byte copy via ldi_body
 
 ; clobbers AF, BC, HL
 copy_build:
@@ -1423,11 +1421,9 @@ readhst:
     call    fat_hst_isdir
     jr      NC,readhst_data
     ld      a,(hstsec)
-    add     a,a
-    add     a,a                     ;host sec * 4 = first CP/M dir rec
     ld      l,a
     ld      h,0
-    jp      synth_dir               ;fills hstbuf in high RAM
+    jp      synth_dir               ;fills 512-byte hstbuf (16 dirents)
 readhst_data:
     call    fat_hst_map
     jr      NC,readhst_err
@@ -1473,6 +1469,7 @@ PUBLIC  dir_sclust
 PUBLIC  dir_sect
 PUBLIC  dir_ofs
 PUBLIC  fat_work
+PUBLIC  pack_sv
 PUBLIC  hstbuf
 PUBLIC  hstdsk
 PUBLIC  hsttrk
@@ -1563,10 +1560,11 @@ fat_cwd:            defs 4
 ; pack:    +0 table, +2 next_al, +4 nfiles, +6 ndirents, +8 n_al, +15 drive
 ; cfo/map: +0 sclust dword, +4 fptr/ci, +8 block, +14 file index
 fat_work:           defs 16
+pack_sv:            defs 16
 unamap_drv:         defs 1
 unamap_idx:         defs 1
 
-alv00:              defs ((hstalb-1)/8)+1
+alv00:              defs ((hstalb-1)/8)+1   ;DSM bitmap; 256 B × 4, not DRM
 alv01:              defs ((hstalb-1)/8)+1
 alv02:              defs ((hstalb-1)/8)+1
 alv03:              defs ((hstalb-1)/8)+1

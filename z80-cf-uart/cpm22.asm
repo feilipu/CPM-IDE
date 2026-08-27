@@ -33,7 +33,7 @@ SECTION rodata_lib           ;read only library (code)
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xDB00
+defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xCD00    ;v3: BIOS 0xE380, FAT/IDE in ROM
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -1287,10 +1287,19 @@ UNKWN2:
     LDI
     LDI
     CALL    OPENFCB        ;and open this file.
+    JP    NZ,UNKWNLD    ;found
+    LD    A,(CHGDRV)    ;nameless command: retry A:
+    OR    A
+    JP    NZ,UNKWN9
+    INC    A
+    LD    (CHGDRV),A
+    CALL    DSELECT
+    CALL    OPENFCB
     JP    Z,UNKWN9    ;not present?
 ;
 ;   Load in the program.
 ;
+UNKWNLD:
     LD    HL,TBASE    ;store the program starting here.
 UNKWN3:
     PUSH    HL
@@ -1782,10 +1791,8 @@ RDBUF2:
     CP      LF
     JP      Z,RDBUF17
     CP      BS              ;how about a backspace?
-    JP      Z,RDBUF3
-    CP      DEL             ;DEL same as BS (DRI APN 02)
-    JP      NZ,RDBUF4
-RDBUF3:
+    JP      NZ,RDBUF3
+RDBUFBS:
     LD      A,B             ;yes, but ignore at the beginning of the line.
     OR      A
     JP      Z,RDBUF1
@@ -1793,6 +1800,9 @@ RDBUF3:
     LD      A,(CURPOS)      ;if we backspace to the start of the line,
     LD      (OUTFLAG),A     ;treat as a cancel (control-x).
     JP      RDBUF10
+RDBUF3:
+    CP      DEL             ;APN 02: rubout identical to BS (not the key-swap)
+    JP      Z,RDBUFBS
 RDBUF4:
     CP      CNTRLE          ;physical end of line?
     JP      NZ,RDBUF5

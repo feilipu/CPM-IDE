@@ -1,4 +1,5 @@
 cpm22preamble
 cpm22bios
 cpm22
+../common/fatfs.asm
 main.c

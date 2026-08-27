@@ -6,12 +6,6 @@
 ; no PHASE. C calls _names (__z88dk_fastcall HL; DWORD marshals load
 ; BCDE from (HL)). Success: L=0 and carry set. Fail: L=1 and NC.
 ;
-; 8085: no ldir/djnz/srl/sbc hl,rr/res/set. Use ld a,(hl+)/ld (de+),a,
-; rl de, add hl,hl, sub hl,bc, ld de,hl+*, rra-through-A for >> .
-; Word store is ld (nn),hl only (SHLD). ld (nn),de / ld (nn),bc are
-; 5B/7B synthetics. Park the value in HL when HL is dead; store ofs/results
-; first so a later BC/DE store does not have to preserve HL.
-;
 ; Buffers (fatwin, hstbuf, fat_files, volume) stay in the BIOS BSS PHASE
 ; in high RAM. IDE transfers those RAM buffers.
 ;
@@ -20,6 +14,12 @@
 ; BCDE stays a register ABI; the _fat_next/_fat_alloc/_fat_free/
 ; _fat_clst2sect/_fat_dir_open entries load that from (HL).
 ; Success: L=0 and carry set. Fail: L=1 and carry clear.
+;
+; 8085: no ldir/djnz/srl/sbc hl,rr/res/set. Use ld a,(hl+)/ld (de+),a,
+; rl de, add hl,hl, sub hl,bc, ld de,hl+*, rra-through-A for >> .
+; Word store is ld (nn),hl only (SHLD). ld (nn),de / ld (nn),bc are
+; 5B/7B synthetics. Park the value in HL when HL is dead; store ofs/results
+; first so a later BC/DE store does not have to preserve HL.
 ;
 
 SECTION code_compiler
@@ -40,6 +40,7 @@ EXTERN  dir_sclust
 EXTERN  dir_sect
 EXTERN  dir_ofs
 EXTERN  fat_work
+EXTERN  pack_sv
 EXTERN  fat_files
 EXTERN  hstbuf
 EXTERN  hstdsk
@@ -103,6 +104,8 @@ DEFC    AM_LFN          = $0F
 DEFC    AM_VOL          = $08
 DEFC    AM_DIR          = $10
 DEFC    FILE_MAX        = 64
+DEFC    DIR_AL          = 2             ;AL 0-1 reserved; DPB AL0=$C0 (256 dirents)
+DEFC    DIR_HST         = DIR_AL*8      ;host sectors in reserved dir ALs (BLS/512)
 DEFC    wrual           = 2             ;BDOS WRITE C=2; matches BIOS wrual
 DEFC    FILE_SIZ        = 13            ;flags+sclust+size+first_al+n_al; 8.3 from FAT
 DEFC    FF_FLAGS        = 0
@@ -954,6 +957,7 @@ cfo_cached:
 cfo_have:
     ex      de,hl
     ld      (clst_cache_clst),hl
+    ex      de,hl                   ;DE = cluster low (clst2sect wants BCDE)
     ld      hl,bc
     ld      (clst_cache_clst+2),hl
     ld      hl,(fat_work)
@@ -1298,11 +1302,9 @@ df_loop:
     ld      hl,(fat_work)
     ld      b,11
 df_cmp:
-    ld      a,(de)
-    cp      (hl)
+    ld      a,(de+)
+    cp      (hl+)
     jr      NZ,df_next
-    inc     de
-    inc     hl
     dec     b
     jp      NZ,df_cmp
     ld      hl,(dir_ptr)
@@ -1443,9 +1445,9 @@ pack_drive:
     or      e
     ret     Z                       ;unmounted
     ld      hl,0
-    call    dir_sdi
+    call    pack_sdi
     ret     NC
-    ld      hl,2
+    ld      hl,DIR_AL
     ld      (fat_work+2),hl         ;next first_al (AL 0-1 are directory)
     xor     a
     ld      (fat_work+4),a          ;file count
@@ -1486,23 +1488,23 @@ pd_loop:
     ld      l,a
     ld      a,h
     adc     a,b
-    ld      h,a                     ;HLDE = size+4095
-    ld      b,4
+    ld      h,a                     ;HLDE = size+4095 (H MSB, E LSB)
+    ld      b,12
 pd_shr12:
-    ld      a,l
+    ld      a,h
     or      a
     rra
-    ld      l,a
-    ld      a,h
-    rra
     ld      h,a
+    ld      a,l
+    rra
+    ld      l,a
     ld      a,d
     rra
     ld      d,a
     ld      a,e
     rra
     ld      e,a
-    dec     b                ;DE = n_al (fits 16 bits for 8 MB)
+    dec     b                       ;DE = n_al (fits 16 bits for 8 MB)
     jp      NZ,pd_shr12
     ex      de,hl
     ld      (fat_work+8),hl          ;n_al
@@ -1538,17 +1540,17 @@ pd_nd_ceil:
 pd_nd:
     ld      a,(fat_work+6)
     add     a,l
-    jp      C,pd_done
+    jp      C,pd_done               ;256 dirents (8 MB of 32 KB extents)
     ld      (fat_work+6),a
     ; slot = base + nfiles*FILE_SIZ
     ld      a,(fat_work+4)
     call    pd_slot
-    ex      de,hl
-    ld      a,FF_USED               ;used, UU 0 (FAT has no user)
+    ex      de,hl                   ;DE = slot (keep across field copies)
+    ld      a,FF_USED
     ld      (de+),a
     ld      hl,(dir_ptr)
-    ld      de,hl+DIR_ClusLO
-    ex      de,hl
+    ld      bc,DIR_ClusLO
+    add     hl,bc
     ld      a,(hl+)
     ld      (de+),a
     ld      a,(hl)
@@ -1556,8 +1558,8 @@ pd_nd:
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
     ld      hl,(dir_ptr)
-    ld      de,hl+DIR_ClusHI
-    ex      de,hl
+    ld      bc,DIR_ClusHI
+    add     hl,bc
     jr      Z,pd_hi
     xor     a
     ld      (de+),a
@@ -1570,10 +1572,14 @@ pd_hi:
     ld      (de+),a
 pd_sz:
     ld      hl,(dir_ptr)
-    ld      de,hl+DIR_FileSize
-    ex      de,hl
-    ld      bc,4
-    call    fat_copy                            ;size
+    ld      bc,DIR_FileSize
+    add     hl,bc
+    ld      b,4
+pd_sz_lp:
+    ld      a,(hl+)
+    ld      (de+),a
+    dec     b
+    jp      NZ,pd_sz_lp
     ld      hl,(fat_work+2)         ;first_al
     ld      a,l
     ld      (de+),a
@@ -1592,7 +1598,16 @@ pd_sz:
     inc     a
     ld      (fat_work+4),a
 pd_skip:
-    call    dir_next
+    ld      hl,(dir_ofs)
+    ld      bc,32
+    add     hl,bc
+    push    hl
+    ld      hl,(dir_sclust+2)
+    ld      bc,hl
+    ld      hl,(dir_sclust)
+    ex      de,hl
+    pop     hl
+    call    pack_sdi
     jp      C,pd_loop
 pd_done:
     ld      a,(fat_work+15)
@@ -1607,6 +1622,39 @@ pd_done:
     ld      a,$FF
     ld      (synth_fi),a            ;DIR name walk cache
     scf
+    ret
+
+; dir_sdi clobbers fat_work[0..11] (clst_from_off). Keep pack_drive state.
+; BCDE+HL are dir_sdi's cluster/offset — must survive the save copy.
+pack_sdi:
+    push    bc
+    push    de
+    push    hl
+    ld      hl,fat_work
+    ld      de,pack_sv
+    ld      b,16
+pack_sv_out:
+    ld      a,(hl+)
+    ld      (de+),a
+    dec     b
+    jp      NZ,pack_sv_out
+    pop     hl
+    pop     de
+    pop     bc
+    call    dir_sdi
+    ld      a,0
+    rla                             ;A bit0 = dir_sdi carry
+    ld      c,a
+    ld      hl,pack_sv
+    ld      de,fat_work
+    ld      b,16
+pack_sv_in:
+    ld      a,(hl+)
+    ld      (de+),a
+    dec     b
+    jp      NZ,pack_sv_in
+    ld      a,c
+    rra                             ;restore carry
     ret
 
 ; A = file index, HL = table base + A*FILE_SIZ (13 = *8 + *4 + *1)
@@ -1677,13 +1725,15 @@ sfe_sk:
     ret
 
 PUBLIC  synth_dir
-; IN: HL = CP/M directory record 0-63; fill 128 bytes at hstbuf
+; IN: HL = host sector; fill 512-byte hstbuf with 16 dirents (index = hstsec*16)
 synth_dir:
     add     hl,hl
     add     hl,hl
+    add     hl,hl
+    add     hl,hl                   ;*16
     ld      (fat_work+8),hl          ;first dirent index
     ld      de,hstbuf
-    ld      b,4
+    ld      b,16
 sd_lp:
     push    bc
     push    de
@@ -1981,14 +2031,14 @@ ma_miss:
     ret
 
 PUBLIC  fat_hst_isdir
-; OUT C if host sector is in the synthesized directory (track 0, host sec 0-15)
+; OUT C if host sector is in the reserved directory ALs (track 0, hstsec < DIR_HST)
 fat_hst_isdir:
     ld      a,(hsttrk)
     or      a
     jr      NZ,fat_hst_data
     ld      a,(hstsec)
-    cp      16
-    ret                             ;C if hstsec < 16
+    cp      DIR_HST
+    ret                             ;C if hstsec < DIR_HST
 fat_hst_data:
     or      a
     ret
@@ -2301,11 +2351,9 @@ wd_ez:
     ld      de,fat_found_sclust
     ld      b,4
 wd_ezc:
-    ld      a,(de)
-    cp      (hl)
+    ld      a,(de+)
+    cp      (hl+)
     jr      NZ,wd_ezm
-    inc     de
-    inc     hl
     dec     b
     jp      NZ,wd_ezc
     pop     hl
@@ -2442,11 +2490,9 @@ wd_ps:
     ld      de,fat_found_sclust
     ld      b,4
 wd_pc:
-    ld      a,(de)
-    cp      (hl)
+    ld      a,(de+)
+    cp      (hl+)
     jr      NZ,wd_pn
-    inc     de
-    inc     hl
     dec     b
     jp      NZ,wd_pc
     pop     hl

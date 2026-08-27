@@ -39,6 +39,7 @@ EXTERN  dir_sclust
 EXTERN  dir_sect
 EXTERN  dir_ofs
 EXTERN  fat_work
+EXTERN  pack_sv
 EXTERN  fat_files
 EXTERN  hstbuf
 EXTERN  hstdsk
@@ -87,6 +88,8 @@ DEFC    AM_LFN          = $0F
 DEFC    AM_VOL          = $08
 DEFC    AM_DIR          = $10
 DEFC    FILE_MAX        = 64
+DEFC    DIR_AL          = 2             ;AL 0-1 reserved; DPB AL0=$C0 (256 dirents)
+DEFC    DIR_HST         = DIR_AL*8      ;host sectors in reserved dir ALs (BLS/512)
 DEFC    wrual           = 2             ;BDOS WRITE C=2; matches BIOS wrual
 DEFC    FILE_SIZ        = 13            ;flags+sclust+size+first_al+n_al; 8.3 from FAT
 DEFC    FF_FLAGS        = 0
@@ -1090,11 +1093,9 @@ df_loop:
     ld      hl,(fat_work)
     ld      b,11
 df_cmp:
-    ld      a,(de)
-    cp      (hl)
+    ld      a,(de+)
+    cp      (hl+)
     jr      NZ,df_next
-    inc     de
-    inc     hl
     djnz    df_cmp
     ld      hl,(dir_ptr)
     push    hl
@@ -1229,9 +1230,9 @@ pack_drive:
     or      e
     ret     Z                       ;unmounted
     ld      hl,0
-    call    dir_sdi
+    call    pack_sdi
     ret     NC
-    ld      hl,2
+    ld      hl,DIR_AL
     ld      (fat_work+2),hl         ;next first_al (AL 0-1 are directory)
     xor     a
     ld      (fat_work+4),a          ;file count
@@ -1267,11 +1268,11 @@ pd_loop:
     add     hl,de
     ex      de,hl
     ld      hl,0
-    adc     hl,bc                   ;HLDE = size+4095
-    ld      b,4
+    adc     hl,bc                   ;HLDE = size+4095 (H MSB, E LSB)
+    ld      b,12
 pd_shr12:
-    srl     l
-    rr      h
+    srl     h
+    rr      l
     rr      d
     rr      e
     djnz    pd_shr12                ;DE = n_al (fits 16 bits for 8 MB)
@@ -1294,7 +1295,7 @@ pd_nd_ceil:
 pd_nd:
     ld      a,(fat_work+6)
     add     a,l
-    jp      C,pd_done
+    jp      C,pd_done               ;256 dirents (8 MB of 32 KB extents)
     ld      (fat_work+6),a
     ; slot = base + nfiles*FILE_SIZ
     ld      a,(fat_work+4)
@@ -1347,7 +1348,12 @@ pd_sz:
     inc     a
     ld      (fat_work+4),a
 pd_skip:
-    call    dir_next
+    ld      hl,(dir_ofs)
+    ld      bc,32
+    add     hl,bc
+    ld      de,(dir_sclust)
+    ld      bc,(dir_sclust+2)
+    call    pack_sdi
     jp      C,pd_loop
 pd_done:
     ld      a,(fat_work+15)
@@ -1362,6 +1368,30 @@ pd_done:
     ld      a,$FF
     ld      (synth_fi),a            ;DIR name walk cache
     scf
+    ret
+
+; dir_sdi clobbers fat_work[0..11] (clst_from_off). Keep pack_drive state.
+; BCDE+HL are dir_sdi's cluster/offset — must survive the save copy.
+pack_sdi:
+    push    bc
+    push    de
+    push    hl
+    ld      hl,fat_work
+    ld      de,pack_sv
+    ld      bc,16
+    ldir
+    pop     hl
+    pop     de
+    pop     bc
+    call    dir_sdi
+    sbc     a,a                     ;FF if C, 00 if NC
+    push    af
+    ld      hl,pack_sv
+    ld      de,fat_work
+    ld      bc,16
+    ldir
+    pop     af
+    rlca                            ;bit 7 of cookie → carry
     ret
 
 ; A = file index, HL = table base + A*FILE_SIZ (13 = *8 + *4 + *1)
@@ -1431,13 +1461,15 @@ sfe_sk:
     ret
 
 PUBLIC  synth_dir
-; IN: HL = CP/M directory record 0-63; fill 128 bytes at hstbuf
+; IN: HL = host sector; fill 512-byte hstbuf with 16 dirents (index = hstsec*16)
 synth_dir:
     add     hl,hl
     add     hl,hl
+    add     hl,hl
+    add     hl,hl                   ;*16
     ld      (fat_work+8),hl          ;first dirent index
     ld      de,hstbuf
-    ld      b,4
+    ld      b,16
 sd_lp:
     push    bc
     push    de
@@ -1696,14 +1728,14 @@ ma_miss:
     ret
 
 PUBLIC  fat_hst_isdir
-; OUT C if host sector is in the synthesized directory (track 0, host sec 0-15)
+; OUT C if host sector is in the reserved directory ALs (track 0, hstsec < DIR_HST)
 fat_hst_isdir:
     ld      a,(hsttrk)
     or      a
     jr      NZ,fat_hst_data
     ld      a,(hstsec)
-    cp      16
-    ret                             ;C if hstsec < 16
+    cp      DIR_HST
+    ret                             ;C if hstsec < DIR_HST
 fat_hst_data:
     or      a
     ret
@@ -1991,11 +2023,9 @@ wd_ez:
     ld      de,fat_found_sclust
     ld      b,4
 wd_ezc:
-    ld      a,(de)
-    cp      (hl)
+    ld      a,(de+)
+    cp      (hl+)
     jr      NZ,wd_ezm
-    inc     de
-    inc     hl
     djnz    wd_ezc
     pop     hl
     ld      (hl),0                  ;clear used flag
@@ -2114,11 +2144,9 @@ wd_ps:
     ld      de,fat_found_sclust
     ld      b,4
 wd_pc:
-    ld      a,(de)
-    cp      (hl)
+    ld      a,(de+)
+    cp      (hl+)
     jr      NZ,wd_pn
-    inc     de
-    inc     hl
     djnz    wd_pc
     pop     hl
     jr      wd_phit
