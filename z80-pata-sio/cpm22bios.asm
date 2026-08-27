@@ -210,6 +210,8 @@ qboot:                              ;arrive from preamble
 ;=============================================================================
 
 rboot:
+    call    copy_build      ;RAM ldi unroll in ldi_body
+
     ld      a,$C3           ;C3 is a jmp instruction
     ld      ($0000),a       ;for jmp to wboot
     ld      hl,wboote       ;wboot entry point
@@ -230,7 +232,8 @@ rboot:
     ld      hl,_cpm_ccp_tfcb
     ld      de,hl
     inc     de
-    call    ldi_31          ;clear default FCB
+    ld      bc,31
+    ldir                    ;clear default FCB
 
     call    _sioa_reset     ;reset and empty the SIOA Tx & Rx buffers
     call    _siob_reset     ;reset and empty the SIOB Tx & Rx buffers
@@ -624,9 +627,10 @@ filhst:
     ld      (hstwrt),a      ;no pending write
 
 match:
-;           HL = 128-byte slice inside hstbuf. DPH DIRBUF overlays hstbuf.
-;           Directory SETDMA is inside that 512-byte window: retarget BDOS
-;           DIRBUF to this slice and skip the copy on read. User DMA still copies.
+;           HL = 128-byte slice inside hstbuf (high RAM). ROM is paged out:
+;           ldi_128 copies TPA <-> hstbuf. Directory SETDMA inside the 512-byte
+;           window: retarget BDOS DIRBUF to this slice and skip the copy on
+;           read. User DMA still copies.
     ld      a,(seksec)      ;mask buffer number LSB
     and     secmsk          ;least significant bits, shifted off in sekhst calculation
     ld      h,a             ;shift left 7, for 128 bytes x seksec LSBs
@@ -635,7 +639,7 @@ match:
     rr      l
     ld      de,hstbuf
     add     hl,de           ;HL = host slice, DE = hstbuf
-    push    hl
+    ld      bc,hl           ;park slice
     ld      hl,(dmaadr)
     or      a
     sbc     hl,de           ;dma - hstbuf
@@ -643,14 +647,12 @@ match:
     ld      a,h
     cp      2               ;512-byte window
     jr      NC,do_copy
-    pop     hl              ;HL = slice
-    ld      (DIRBUF),hl     ;BDOS FCB2HL / CHECKSUM / MOVEDIR
+    ld      (DIRBUF),bc     ;BDOS FCB2HL / CHECKSUM / MOVEDIR
     ld      a,(readop)
     or      a
     jr      NZ,after_move   ;directory read: already in place
-    push    hl              ;directory write falls through to copy
 do_copy:
-    pop     hl              ;HL = slice
+    ld      hl,bc           ;HL = slice
     ld      de,(dmaadr)
     ld      a,(readop)
     or      a
@@ -662,70 +664,66 @@ rwmove:
     call    ldi_128
 
 after_move:
-    ; WRITE C=1 never reaches rwoper (it goes to wrdir_cpm).
+    ; WRITE C=1 never reaches rwoper (it goes to wrdir_cpm). Return host status.
     ld      a,(erflag)
     ret
 
-ldi_128:
-    ld bc,ldi_32
-    push bc
-    push bc
-    push bc
 
-ldi_32:
-    ldi
-ldi_31:
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
+;
+;*****************************************************
+;*                                                   *
+;*    128-byte copy: RAM unroll, push-return grain   *
+;*                                                   *
+;*****************************************************
 
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
+PUBLIC  copy_build          ;fill ldi_body with 16 * ldi + ret
+PUBLIC  ldi_128             ;128-byte copy via ldi_body
 
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
+; clobbers AF, BC, HL
+copy_build:
+    ld      hl,$FFFF        ;invalidate FAT window (LBA 0 is valid)
+    ld      (fat_winsect),hl
+    ld      (fat_winsect+2),hl
+    ld      hl,ldi_body     ;target: ldi_body (BSS)
 
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
-    ldi
+    ld      b,16            ;16 * ldi (ED A0)
+copy_build_loop:
+    ld      (hl+),$ED       ;ldi opcode
+    ld      (hl+),$A0
+    djnz    copy_build_loop
 
+    ld      (hl),$C9        ;ret
     ret
 
+; IN:  HL = src, DE = dst
+; OUT: HL += 128, DE += 128, BC clobbered
+; 16-ldi grain: call once for 64, fall through for 64.
+ldi_128:
+    call    ldi_64
+ldi_64:
+    ld      bc,ldi_body
+    push    bc              ;16
+    push    bc              ;32
+    push    bc              ;48
+    jp      ldi_body        ;64
+
+; Page ROM ($0000–$7FFF) to run writehst/readhst. Those map the host sector
+; and call IDE; the buffers they use (hstbuf, fatwin, fat_files) stay here in
+; high RAM. Page RAM back so ldi_128 and the SIO ISRs see RAM in low memory.
 writehst_page:
     xor     a
-    out     (__IO_ROM_TOGGLE),a
+    out     (__IO_ROM_TOGGLE),a     ;ROM in (disk map + IDE)
     call    writehst
     ld      a,$01
-    out     (__IO_ROM_TOGGLE),a
+    out     (__IO_ROM_TOGGLE),a     ;RAM in (TPA copy, serial)
     ret
 
 readhst_page:
     xor     a
-    out     (__IO_ROM_TOGGLE),a
+    out     (__IO_ROM_TOGGLE),a     ;ROM in (disk map + IDE)
     call    readhst
     ld      a,$01
-    out     (__IO_ROM_TOGGLE),a
+    out     (__IO_ROM_TOGGLE),a     ;RAM in (TPA copy, serial)
     ret
 
 ;------------------------------------------------------------------------------
@@ -1259,7 +1257,7 @@ dpblk:
 ; end of fixed tables
 ;------------------------------------------------------------------------------
 
-ALIGN 16                    ;BSS follows DPH/DPB
+ALIGN 16                    ;BSS follows DPH/DPB; no fixed $E850
 
 PUBLIC  _cpm_bios_rodata_tail
 _cpm_bios_rodata_tail:      ;tail of the cpm bios read only data
@@ -1268,6 +1266,24 @@ PUBLIC  _cpm_bios_bss_bridge
 _cpm_bios_bss_bridge:
 
 DEPHASE
+
+;
+;*****************************************************
+;*                                                   *
+;*    Host I/O + IDE — runs in ROM.                   *
+;*                                                   *
+;*    This code is not copied to high RAM. The RAM   *
+;*    BIOS pages it in with out (toggle),0 and back  *
+;*    with out 1. Buffers stay in high RAM:          *
+;*      hstbuf     host 512-byte sector (deblock)    *
+;*      fatwin     FAT / directory window            *
+;*      fat_files  reverse map                       *
+;*    IDE transfers those RAM buffers; it does not   *
+;*    keep a sector in ROM. Serial ISRs stay in the  *
+;*    RAM PHASE. Mini-FAT is common/fatfs.asm        *
+;*    (linked, no PHASE). wrdir_cpm calls writehst.  *
+;*                                                   *
+;*****************************************************
 
 ;------------------------------------------------------------------------------
 ; start of common area driver - 8255 functions
@@ -1507,15 +1523,15 @@ ide_write_sector:
 PUBLIC  writehst
 writehst:
     call    fat_hst_isdir
-    ret     C
-    call    fat_hst_map
+    ret     C               ;never write synthesized directory
+    call    fat_hst_map     ;BCDE = data LBA
     jr      C,writehst_go
     call    fat_wrual_bind
     ret     NC
     call    fat_hst_map
     ret     NC
 writehst_go:
-    ld      hl,hstbuf
+    ld      hl,hstbuf       ;high RAM host sector
     call    ide_write_sector
     ret     C
     ld      a,$01
@@ -1529,11 +1545,11 @@ readhst:
     ld      a,(hstsec)
     ld      l,a
     ld      h,0
-    jp      synth_dir
+    jp      synth_dir       ;fills 512-byte hstbuf (16 dirents)
 readhst_data:
     call    fat_hst_map
     jr      NC,readhst_err
-    ld      hl,hstbuf
+    ld      hl,hstbuf       ;high RAM host sector
     call    ide_read_sector
     ret     C
 readhst_err:
@@ -1558,6 +1574,7 @@ PUBLIC  _cpm_fat_vol
 PUBLIC  fatwin
 PUBLIC  fat_winsect
 PUBLIC  fat_wflag
+PUBLIC  ldi_body
 PUBLIC  drv_packed
 PUBLIC  fat_files
 PUBLIC  fat_cwd
@@ -1623,10 +1640,25 @@ readop:             defs 1  ;1 if read operation
 wrtype:             defs 1  ;write operation type
 dmaadr:             defs 2  ;last direct memory address
 
-_cpm_fat_vol:       defs 28
+; --- mini-FAT ---
+
+_cpm_fat_vol:       defb 0  ;+0  fs_type   1   ; 2=FAT16, 3=FAT32
+                    defb 0  ;+1  csize     1
+                    defw 0  ;+2  n_rootent 2
+                    defs 4  ;+4  n_fatent  4
+                    defs 4  ;+8  fatbase   4
+                    defs 4  ;+12 dirbase   4
+                    defs 4  ;+16 database  4
+                    defs 4  ;+20 fatsz     4
+                    defb 0  ;+24 n_fats    1
+                    defs 3  ;+25 pad
+
 fatwin:             defs 512
 fat_winsect:        defs 4
 fat_wflag:          defs 1
+
+ldi_body:           defs 33 ;16 * ldi (ED A0) + ret; filled by copy_build
+
 drv_packed:         defs 4
 _fat_dir_sclust:
 dir_sclust:         defs 4

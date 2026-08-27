@@ -676,23 +676,23 @@ after_move:
 ;*                                                   *
 ;*****************************************************
 
-PUBLIC  copy_build                  ;fill ldi_body with 16 * ldi + ret
-PUBLIC  ldi_128                     ;128-byte copy via ldi_body
+PUBLIC  copy_build          ;fill ldi_body with 16 * ldi + ret
+PUBLIC  ldi_128             ;128-byte copy via ldi_body
 
 ; clobbers AF, BC, HL
 copy_build:
-    ld      hl,$FFFF                ;invalidate FAT window (LBA 0 is valid)
+    ld      hl,$FFFF        ;invalidate FAT window (LBA 0 is valid)
     ld      (fat_winsect),hl
     ld      (fat_winsect+2),hl
-    ld      hl,ldi_body             ;target: ldi_body (BSS)
+    ld      hl,ldi_body     ;target: ldi_body (BSS)
 
-    ld      b,16                    ;16 * ldi (ED A0)
+    ld      b,16            ;16 * ldi (ED A0)
 copy_build_loop:
-    ld      (hl+),$ED               ;ldi opcode
+    ld      (hl+),$ED       ;ldi opcode
     ld      (hl+),$A0
     djnz    copy_build_loop
 
-    ld      (hl),$C9                ;ret
+    ld      (hl),$C9        ;ret
     ret
 
 ; IN:  HL = src, DE = dst
@@ -702,10 +702,10 @@ ldi_128:
     call    ldi_64
 ldi_64:
     ld      bc,ldi_body
-    push    bc                      ;16
-    push    bc                      ;32
-    push    bc                      ;48
-    jp      ldi_body                ;64
+    push    bc              ;16
+    push    bc              ;32
+    push    bc              ;48
+    jp      ldi_body        ;64
 
 ; Page ROM ($0000–$7FFF) to run writehst/readhst. Those map the host sector
 ; and call IDE; the buffers they use (hstbuf, fatwin, fat_files) stay here in
@@ -1401,15 +1401,15 @@ ide_write_sector:
 PUBLIC  writehst
 writehst:
     call    fat_hst_isdir
-    ret     C                       ;never write synthesized directory
-    call    fat_hst_map             ;BCDE = data LBA
+    ret     C               ;never write synthesized directory
+    call    fat_hst_map     ;BCDE = data LBA
     jr      C,writehst_go
     call    fat_wrual_bind
     ret     NC
     call    fat_hst_map
     ret     NC
 writehst_go:
-    ld      hl,hstbuf               ;high RAM host sector
+    ld      hl,hstbuf       ;high RAM host sector
     call    ide_write_sector
     ret     C
     ld      a,$01
@@ -1423,11 +1423,11 @@ readhst:
     ld      a,(hstsec)
     ld      l,a
     ld      h,0
-    jp      synth_dir               ;fills 512-byte hstbuf (16 dirents)
+    jp      synth_dir       ;fills 512-byte hstbuf (16 dirents)
 readhst_data:
     call    fat_hst_map
     jr      NC,readhst_err
-    ld      hl,hstbuf               ;high RAM host sector
+    ld      hl,hstbuf       ;high RAM host sector
     call    ide_read_sector
     ret     C
 readhst_err:

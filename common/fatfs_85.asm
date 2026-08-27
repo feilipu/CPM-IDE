@@ -1,25 +1,41 @@
 ;
-; Mini-FAT16/32 for CP/M-IDE — 8085.
+; Mini-FAT16/32 for CP/M-IDE (8085).
 ;
 ; Same PUBLIC API, BSS names, and function contracts as fatfs.asm /
-; fatfs.h. ROM-resident,
-; no PHASE. C calls _names (__z88dk_fastcall HL; DWORD marshals load
-; BCDE from (HL)). Success: L=0 and carry set. Fail: L=1 and NC.
+; fatfs.h. ROM-resident, no PHASE. Buffers (fatwin, hstbuf, fat_files,
+; volume) stay in the BIOS BSS PHASE; IDE transfers those RAM buffers.
 ;
-; Buffers (fatwin, hstbuf, fat_files, volume) stay in the BIOS BSS PHASE
-; in high RAM. IDE transfers those RAM buffers.
-;
-; C shell calls the PUBLIC _names directly (zsdcc ABI 0). Functions that
-; take a single pointer are __z88dk_fastcall (HL). DWORD cluster/LBA in
-; BCDE stays a register ABI; the _fat_next/_fat_alloc/_fat_free/
-; _fat_clst2sect/_fat_dir_open entries load that from (HL).
+; C: PUBLIC _names, zsdcc ABI 0. Pointers are __z88dk_fastcall (HL).
+; DWORD cluster/LBA is BCDE (E LSB); _fat_next/_fat_alloc/_fat_free/
+; _fat_clst2sect/_fat_dir_open load that little-endian dword from (HL).
 ; Success: L=0 and carry set. Fail: L=1 and carry clear.
 ;
-; 8085: no ldir/djnz/srl/sbc hl,rr/res/set. Use ld a,(hl+)/ld (de+),a,
-; rl de, add hl,hl, sub hl,bc, ld de,hl+*, rra-through-A for >> .
-; Word store is ld (nn),hl only (SHLD). ld (nn),de / ld (nn),bc are
-; 5B/7B synthetics. Park the value in HL when HL is dead; store ofs/results
-; first so a later BC/DE store does not have to preserve HL.
+; FatFs R0.16 map (z88dk-libraries/ff/source/ff.c):
+;   check_fs / find_volume / mount_volume
+;   move_window / sync_window
+;   clst2sect, get_fat, put_fat, create_chain, remove_chain
+;   dir_sdi, dir_next, dir_find, dir_alloc, dir_register, dir_remove
+;
+; In scope: FAT16 and FAT32, 512-byte sectors, 8.3 SFN only.
+; Out of scope: FAT12, exFAT, LFN, GPT, FSInfo, directory stretch.
+;
+; FatFs cases we honour:
+;   cluster < 2 invalid; n_fatent = nclst + 2
+;   FAT16 EOC >= $F8; FAT32 EOC $0FFFFFF8..F (put_fat keeps bits 28-31)
+;   dirent 0x00 = end of directory; 0xE5 = deleted (reusable)
+;   skip AM_LFN ($0F) and AM_VOL; pack also skips '.' and AM_DIR
+;   FAT32 root is BPB_RootClus32; FAT16 root is static dirbase LBA
+;   SFD (VBR at LBA 0) then four MBR primary partitions
+;   1 or 2 FATs; csize power of 2; BytsPerSec == 512
+;
+; FatFs cases we skip (on purpose):
+;   JumpBoot $EB/$E9/$E8; GPT protective MBR; logical partitions
+;   mirroring a dirty FAT window into FAT #2 (ff sync_window)
+;   FAT32 FSVer==0, n_rootent==0, fatsz >= needed size
+;   dir_next stretch (create_chain + dir_clear) when a subdir hits EOC
+;   FSInfo last_clst / free_clst
+;   first-byte $05 KANJI DDEM mapping
+;   dir_zap is E5 only; chain free is wrdir_cpm ERA / _fat_free
 ;
 
 SECTION code_compiler
@@ -120,6 +136,7 @@ DEFC    AM_RDO          = $01
 
 PUBLIC  clst2sect
 
+; ff.c clst2sect: LBA = database + csize * (clst - 2).
 ; IN:  BCDE = cluster (B MSB … E LSB)
 ; OUT: C: BCDE = LBA of first sector of cluster
 ;      NC: fail (cluster < 2 or cluster >= n_fatent)
@@ -217,6 +234,8 @@ PUBLIC  fat_sync_window
 PUBLIC  _fat_sync
 _fat_sync:
 
+; ff.c sync_window. Writes fatwin if dirty. Does not copy the sector
+; into FAT #2 (ff does when winsect is in the first FAT).
 ; OUT: C: OK; NC: write failed
 ; clobbers AF, BC, DE, HL (ide_write_sector contract)
 fat_sync_window:
@@ -240,6 +259,7 @@ fat_sync_ok:
 
 PUBLIC  fat_move_window
 
+; ff.c move_window: flush if dirty, then read LBA into fatwin.
 ; IN:  BCDE = LBA (B MSB … E LSB)
 ; OUT: C: fatwin holds that sector
 ;      NC: read failed
@@ -285,7 +305,10 @@ fat_move_do:
     ret
 
 ;------------------------------------------------------------------------------
-; fat_check_vbr: fatwin is a sector. C = FAT16/32 VBR
+; fat_check_vbr — ff.c check_fs (FAT/FAT32 only)
+; Require 55AA, 512-byte sectors, csize 2^n, reserved != 0, 1 or 2 FATs.
+; No JumpBoot $EB/$E9/$E8 (ff accepts early MS-DOS VBRs without 55AA).
+; C = looks like a FAT16/32 VBR (type decided later from nclst).
 ;------------------------------------------------------------------------------
 fat_check_vbr:
     ld      a,(fatwin+BS_55AA)
@@ -324,7 +347,11 @@ fat_check_fail:
     ret
 
 ;------------------------------------------------------------------------------
-; fat_mount: discover VBR (SFD or first MBR FAT partition), fill _cpm_fat_vol
+; fat_mount — ff.c find_volume + mount_volume
+; LBA 0 as SFD VBR; else four MBR primary PTEs (no GPT, no extended).
+; nclst from (tsect - reserved - fats - rootsecs) / csize.
+; FAT12 (nclst <= $0FF5) fails; FAT16 <= $FFF5; else FAT32.
+; FAT32 dirbase = BPB_RootClus32 (cluster); FAT16 dirbase = root LBA.
 ; OUT: C OK
 ;------------------------------------------------------------------------------
 PUBLIC  fat_mount
@@ -540,7 +567,7 @@ fat_mount_ncl:
     ld      hl,de                   ;low still in DE
     ld      bc,MAX_FAT12+1
     sub     hl,bc
-    jp      C,fat_mount_fail        ;FAT12
+    jp      C,fat_mount_fail        ;FAT12 (ff MAX_FAT12 = $0FF5)
     ld      hl,de
     ld      bc,MAX_FAT16
     sub     hl,bc
@@ -672,8 +699,9 @@ fat_mount_fail:
     ret
 
 ;------------------------------------------------------------------------------
-; fat_fatent: map cluster BCDE to FAT window
-; OUT C: HL -> entry in fatwin
+; fat_fatent: map cluster BCDE onto fatwin (ff get_fat/put_fat window).
+; Byte offset = clst*2 (FAT16) or clst*4 (FAT32); LBA = fatbase + offset/512.
+; Rejects cluster < 2. OUT C: HL -> the entry in fatwin.
 ;------------------------------------------------------------------------------
 fat_fatent:
     ld      a,e                     ;reject clst < 2
@@ -736,6 +764,8 @@ fat_fatent_off:
     scf
     ret
 
+; ff.c get_fat. FAT16 word; FAT32 dword & $0FFFFFFF.
+; EOC is folded to $0FFFFFFF (FAT16 val >= $F8; FAT32 >= $0FFFFFF8).
 PUBLIC  get_fat
 get_fat:
     call    fat_fatent
@@ -746,10 +776,10 @@ get_fat:
     ld      e,(hl+)
     ld      d,(hl)
     ld      a,d
-    cp      $F8
+    cp      $F8                     ;FAT16 EOC $F8..$FF
     jr      C,get_fat16ok
     ld      de,$FFFF
-    ld      bc,$0FFF
+    ld      bc,$0FFF                ;fold to EOC32 for callers
     scf
     ret
 get_fat16ok:
@@ -780,6 +810,8 @@ get_fat32ok:
     scf
     ret
 
+; ff.c put_fat. FAT16 stores 16 bits; FAT32 stores 28 bits and keeps
+; the on-disk high nibble (bits 28-31).
 PUBLIC  put_fat
 ; IN: BCDE=cluster, HL->DWORD next (LE)
 put_fat:
@@ -807,7 +839,7 @@ put_fat32:
     ld      a,(de+)
     ld      (hl+),a
     ld      a,(de)
-    and     $0F
+    and     $0F                     ;keep FAT32 high nibble on disk
     ld      b,a
     ld      a,(hl)
     and     $F0
@@ -972,6 +1004,9 @@ cfo_bad:
     or      a
     ret
 
+; ff.c create_chain (no last_clst hint, no FSInfo).
+; clst==0: scan from 2; else from clst+1, wrap once to 2.
+; Marks the new cluster EOC ($0FFFFFFF) and links the previous if any.
 PUBLIC  create_chain
 ; IN: BCDE = last cluster or 0
 ; OUT C: BCDE = new cluster
@@ -1092,6 +1127,8 @@ cc_fail:
 cc_eoc:
     defb    $FF,$FF,$FF,$0F
 
+; ff.c remove_chain (entire chain, pclst=0). Walks until 0 or EOC,
+; putting 0 in each FAT entry. No TRIM / bitmap.
 PUBLIC  remove_chain
 ; IN: BCDE = start cluster
 remove_chain:
@@ -1143,6 +1180,10 @@ rc_done:
 cc_zero:
     defb    0,0,0,0
 
+; ff.c dir_sdi. Cluster 0 = FAT16 static root at dirbase LBA.
+; FAT32 / subdir: follow the chain (clst_from_off). Offset must be
+; 32-byte aligned by the caller. Does not replace 0 with FAT32 root
+; cluster — that lives in fat_cwd / _cpm_dir_sclust.
 PUBLIC  dir_sdi
 ; IN: BCDE = dir start cluster (0 = FAT16 root), HL = byte offset
 dir_sdi:
@@ -1254,6 +1295,8 @@ dsdi_end:
     or      a
     ret
 
+; ff.c dir_next with stretch=0. No create_chain + dir_clear when a
+; clustered directory hits EOC — the table is fixed size.
 PUBLIC  dir_next
 dir_next:
     ld      hl,(dir_ofs)
@@ -1267,6 +1310,8 @@ dir_next:
     pop     hl
     jp      dir_sdi
 
+; ff.c dir_find (no LFN). 0x00 ends the table; 0xE5 is deleted.
+; Skip AM_VOL and AM_LFN ($0F). 8.3 compare is 11 raw bytes.
 PUBLIC  dir_find
 PUBLIC  _dir_find
 ; IN: HL -> 11-byte 8.3
@@ -1285,9 +1330,9 @@ dir_find:
 df_loop:
     ld      hl,(dir_ptr)
     ld      a,(hl)
-    or      a
+    or      a                       ;0x00 = end of directory
     jr      Z,df_miss
-    cp      $E5
+    cp      $E5                     ;deleted
     jr      Z,df_next
     ld      bc,DIR_Attr
     add     hl,bc
@@ -1345,6 +1390,8 @@ df_miss:
     or      a
     ret
 
+; ff.c dir_alloc(n=1) + dir_register SFN. Reuses 0x00 or 0xE5.
+; Does not stretch the directory if the table is full.
 PUBLIC  dir_create
 PUBLIC  _dir_create
 ; IN: HL -> 11-byte 8.3
@@ -1362,7 +1409,7 @@ dir_create:
 dc_loop:
     ld      hl,(dir_ptr)
     ld      a,(hl)
-    or      a
+    or      a                       ;free: 0x00 or 0xE5
     jr      Z,dc_fill
     cp      $E5
     jr      Z,dc_fill
@@ -1391,12 +1438,13 @@ dc_z:
     scf
     ret
 
+; ff.c dir_remove (no LFN): first byte := $E5. Does not free the chain.
 PUBLIC  dir_zap
 PUBLIC  _dir_zap
 _dir_zap:
 dir_zap:
     ld      hl,(dir_ptr)
-    ld      (hl),$E5
+    ld      (hl),$E5                ;DDEM; chain free is the caller's job
     ld      a,1
     ld      (fat_wflag),a
     ld      l,0
@@ -1415,6 +1463,9 @@ fat_filebase_lp:
     jr      NZ,fat_filebase_lp
     ret
 
+; Walk the FAT directory into fat_files[drive] (FILE_MAX slots).
+; Skip 0x00 (EOT), 0xE5, '.', AM_LFN, AM_DIR|AM_VOL — same filters as
+; ff dir_read (non-LFN) plus we drop subdirectories (CP/M is flat).
 PUBLIC  pack_drive
 ; IN: A = drive 0-3
 ; OUT: C packed. Table filled in FAT directory order.
@@ -1457,9 +1508,9 @@ pd_loop:
     ld      a,(hl)
     or      a
     jp      Z,pd_done
-    cp      $E5
+    cp      $E5                     ;deleted
     jp      Z,pd_skip
-    cp      '.'
+    cp      '.'                     ;. and ..
     jp      Z,pd_skip
     ld      bc,DIR_Attr
     add     hl,bc
@@ -1724,6 +1775,8 @@ sfe_sk:
     or      a
     ret
 
+; Synthesize a 512-byte CP/M directory host sector from packed slots.
+; Each FAT name occupies ceil(n_al/8) 32-byte extents (32 KB each).
 PUBLIC  synth_dir
 ; IN: HL = host sector; fill 512-byte hstbuf with 16 dirents (index = hstsec*16)
 synth_dir:
@@ -2030,6 +2083,8 @@ ma_miss:
     or      a
     ret
 
+; Host sectors 0 .. DIR_HST-1 on track 0 are the synthesized CP/M
+; directory (AL 0-1). Data ALs start at host sector DIR_HST.
 PUBLIC  fat_hst_isdir
 ; OUT C if host sector is in the reserved directory ALs (track 0, hstsec < DIR_HST)
 fat_hst_isdir:
@@ -2043,6 +2098,9 @@ fat_hst_data:
     or      a
     ret
 
+; Map CP/M host (track, sector) to a FAT data LBA: AL = (trk:sec)>>3,
+; find the packed file whose [first_al, first_al+n_al) contains AL,
+; then clst_from_off + clst2sect + sector-in-cluster.
 PUBLIC  fat_hst_map
 ; OUT C: BCDE = IDE LBA for current hsttrk/hstsec data
 fat_hst_map:
@@ -2145,7 +2203,8 @@ fhm_ok:
     scf
     ret
 
-; Unmapped wrual: grow last dir-updated file and allocate a FAT cluster.
+; Unmapped wrual (BDOS WRITE C=2): grow the last dir-updated file
+; (unamap_*) and allocate a FAT cluster (ff create_chain).
 PUBLIC  fat_wrual_bind
 fat_wrual_bind:
     ld      a,(wrtype)
@@ -2235,6 +2294,8 @@ fwb_fail:
     or      a
     ret
 
+; BIOS WRITE C=1: four CP/M dirents at DMA. ERA = remove_chain + E5
+; (ff unlink). Else find/create 8.3, copy size/RO, refresh the packed slot.
 PUBLIC  wrdir_cpm
 wrdir_cpm:
     ld      a,(hstwrt)
@@ -2264,7 +2325,7 @@ wd_lp:
     ld      (erflag),a
     ret
 
-; HL -> CP/M dirent. ERA unlinks; else find/create 8.3, T1', size, pack slot.
+; HL -> one CP/M 32-byte dirent. ERA unlinks; else find/create 8.3.
 wrdir_slot:
     ld      a,(hl)
     or      a
@@ -2529,6 +2590,8 @@ wd_phit:
 ;*****************************************************
 ;*    C DWORD marshals: HL -> little-endian dword    *
 ;*    loaded into BCDE (BIOS register ABI).          *
+;*    _fat_dir_read copies 32 bytes at dir_ptr; 0x00 *
+;*    first byte is EOT (ff dir_read).               *
 ;*****************************************************
 
 PUBLIC  _fat_dir_open
