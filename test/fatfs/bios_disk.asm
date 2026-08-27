@@ -202,6 +202,16 @@ match:
     rr      l
     ld      de,hstbuf
     add     hl,de
+IFDEF FORCE_COPY
+    ; pre-8b0c1e7: always copy 128 bytes
+    ld      de,(dmaadr)
+    ld      a,(readop)
+    or      a
+    jr      NZ,rwmove
+    inc     a
+    ld      (hstwrt),a
+    ex      de,hl
+ELSE
     push    hl
     ld      hl,(dmaadr)
     or      a
@@ -225,6 +235,7 @@ do_copy:
     inc     a
     ld      (hstwrt),a
     ex      de,hl
+ENDIF
 rwmove:
     call    ldi_128
 after_move:
