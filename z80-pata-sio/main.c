@@ -436,7 +436,9 @@ static uint8_t read_cfg(void)
     }
     if (fat_found_sclust < 2)
         return 1;
-    lba = cpm_fat_vol.database + (fat_found_sclust - 2) * (uint32_t)cpm_fat_vol.csize;
+    lba = fat_found_sclust;
+    if (fat_clst2sect(&lba))
+        return 1;
     if (disk_read(0, buffer, lba, 1) != 0)
         return 1;
     ((uint8_t *)buffer)[511] = 0;

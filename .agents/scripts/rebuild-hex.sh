@@ -2,6 +2,8 @@
 # Rebuild all seven CP/M-IDE ROM HEX products (README zcc lines).
 # One zcc per firmware tree; isolated TMPDIR. Parallel zcc in one cwd corrupts
 # zcc_opt.def.
+# Fail-closed: zcc or missing/empty .ihx/.hex fails the job. Job-dir rm is not
+# success. After wait_all, every listed product must exist and be non-empty.
 #
 # Env: Z88DK, ZCCCFG, PATH, MAXJOBS (default 2), WORK (log dir).
 set -euo pipefail
@@ -46,15 +48,29 @@ reap() {
 }
 wait_all() { while (( running > 0 )); do reap; done; }
 
+HEX_OUTS=(
+  rc2014-cpm22-8085-cf-acia
+  rc2014-cpm22-8085-cf-uart
+  rc2014-cpm22-8085-pata-uart
+  rc2014-cpm22-z80-cf-acia
+  rc2014-cpm22-z80-cf-uart
+  rc2014-cpm22-z80-cf-sio
+  rc2014-cpm22-z80-pata-sio
+)
+
 finish_hex() {
   local out=$1
   local base="$ROOT/$out"
-  if [[ ! -f "${base}.ihx" ]]; then
+  if [[ ! -s "${base}.ihx" ]]; then
     echo "missing ${base}.ihx" >&2
     ls -l "$ROOT/${out}".* >&2 || true
     return 1
   fi
   cp -f "${base}.ihx" "${base}.hex"
+  if [[ ! -s "${base}.hex" ]]; then
+    echo "empty ${base}.hex" >&2
+    return 1
+  fi
   rm -f "${base}.ihx" "${base}.bin" "${base}.map" "${base}.rom" \
         "${base}.def" "${base}.reloc" "${base}.sym" \
         "${base}_CODE.bin" "${base}_DATA.bin" "${base}_BSS.bin"
@@ -72,8 +88,8 @@ build_z80() {
     cd "$ROOT/$dir"
     zcc +rc2014 -subtype="$sub" -SO3 --opt-code-speed -m \
       @cpm22.lst -o "../$out" -create-app
-  )
-  finish_hex "$out"
+  ) || return 1
+  finish_hex "$out" || return 1
   rm -rf "$tmp"
 }
 
@@ -90,8 +106,8 @@ build_8085() {
       -I"${Z88DK}/include/_DEVELOPMENT/common" \
       -I"${Z88DK}/libsrc/target/rc2014" \
       @cpm22.lst -o "../$out" -create-app
-  )
-  finish_hex "$out"
+  ) || return 1
+  finish_hex "$out" || return 1
   rm -rf "$tmp"
 }
 
@@ -108,6 +124,7 @@ spawn() {
       echo "$(date +%H:%M:%S)  DONE  $name" >>"$LOG/summary.txt"
     else
       echo "$(date +%H:%M:%S)  FAIL  $name  exit=$st  log=$LOG/${name}.log" >>"$LOG/summary.txt"
+      tail -n 40 "$LOG/${name}.log" >>"$LOG/summary.txt" || true
     fi
     exit "$st"
   ) &
@@ -128,6 +145,22 @@ spawn z80-cf-sio   build_z80 z80-cf-sio   sio  rc2014-cpm22-z80-cf-sio
 spawn z80-pata-sio build_z80 z80-pata-sio sio  rc2014-cpm22-z80-pata-sio
 wait_all
 
+if (( fail != 0 )); then
+  say "FAIL  ok=$ok fail=$fail  (logs $LOG)"
+  exit 1
+fi
+
+missing=0
+for f in "${HEX_OUTS[@]}"; do
+  if [[ ! -s "$ROOT/${f}.hex" ]]; then
+    say "FAIL  missing $f.hex"
+    missing=1
+  fi
+done
+if (( missing != 0 )); then
+  exit 1
+fi
+
 say "ALL OK  ok=$ok fail=$fail"
 echo
 echo "=== hex ==="
@@ -136,7 +169,8 @@ md5sum "$ROOT"/rc2014-cpm22-*.hex
 echo
 echo "=== vs HEAD ==="
 cd "$ROOT"
-for f in rc2014-cpm22-*.hex; do
+for f in "${HEX_OUTS[@]}"; do
+  f="${f}.hex"
   if git cat-file -e "HEAD:$f" 2>/dev/null; then
     old=$(git show "HEAD:$f" | md5sum | awk '{print $1}')
     new=$(md5sum "$f" | awk '{print $1}')
@@ -150,5 +184,7 @@ for f in rc2014-cpm22-*.hex; do
   fi
 done
 echo
-echo "*.hex is gitignored: git add -f rc2014-cpm22-*.hex"
+echo "*.hex is gitignored (often assume-unchanged H):"
+echo "  git update-index --no-assume-unchanged rc2014-cpm22-*.hex"
+echo "  git add -f rc2014-cpm22-*.hex"
 exit 0

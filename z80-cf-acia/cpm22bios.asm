@@ -1209,6 +1209,7 @@ PUBLIC  hstdsk
 PUBLIC  hsttrk
 PUBLIC  hstsec
 PUBLIC  hstwrt
+PUBLIC  hstact
 PUBLIC  wrtype
 PUBLIC  dmaadr
 PUBLIC  erflag
