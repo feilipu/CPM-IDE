@@ -38,7 +38,7 @@
 ;   dir_zap is E5 only; chain free is wrdir_cpm ERA / _fat_free
 ;
 
-SECTION code_compiler
+SECTION code_lib
 
 EXTERN  ide_read_sector
 EXTERN  ide_write_sector
@@ -79,6 +79,40 @@ EXTERN  synth_seen
 
 ; writehst lives in the BIOS ROM (next to IDE) and is called from wrdir_cpm
 EXTERN  writehst
+
+PUBLIC  clst2sect           ;cluster -> first sector LBA
+PUBLIC  fat_sync_window     ;write fatwin if dirty (no FAT#2)
+PUBLIC  _fat_sync           ;C: fat_sync_window
+PUBLIC  fat_move_window     ;flush dirty, read LBA into fatwin
+PUBLIC  fat_mount           ;mount FAT16/32 from LBA 0 or MBR
+PUBLIC  _fat_mount          ;C: fat_mount
+PUBLIC  get_fat             ;next cluster from FAT entry
+PUBLIC  put_fat             ;store next cluster in FAT
+PUBLIC  clst_from_off       ;cluster containing file offset
+PUBLIC  create_chain        ;allocate and link a new cluster
+PUBLIC  remove_chain        ;free a cluster chain
+PUBLIC  dir_sdi             ;seek directory to byte offset
+PUBLIC  dir_next            ;next 32-byte dirent (no stretch)
+PUBLIC  dir_find            ;find 8.3 in current directory
+PUBLIC  _dir_find           ;C: dir_find
+PUBLIC  dir_create          ;alloc/register 8.3 (no stretch)
+PUBLIC  _dir_create         ;C: dir_create
+PUBLIC  dir_zap             ;mark dirent deleted (E5)
+PUBLIC  _dir_zap            ;C: dir_zap
+PUBLIC  pack_drive          ;walk FAT dir into fat_files[drive]
+PUBLIC  synth_dir           ;synthesize 512-byte CP/M dir sector
+PUBLIC  map_al              ;AL -> packed file index + block
+PUBLIC  fat_hst_isdir       ;carry if host sector is reserved dir
+PUBLIC  fat_hst_map         ;host track/sec -> FAT data LBA
+PUBLIC  fat_wrual_bind      ;wrual: grow last dir-updated file
+PUBLIC  wrdir_cpm           ;BIOS WRITE C=1: create/ERA 8.3
+PUBLIC  _fat_dir_open       ;C: open dir from sclust dword
+PUBLIC  _fat_dir_read       ;C: copy 32-byte dirent; 0x00 = EOT
+PUBLIC  _fat_next           ;C: get_fat of dword at (HL)
+PUBLIC  _fat_alloc          ;C: create_chain of dword at (HL)
+PUBLIC  _fat_free           ;C: remove_chain of dword at (HL)
+PUBLIC  _fat_clst2sect      ;C: clst2sect of dword at (HL)
+
 
 ; HL = src, DE = dst, BC = count. Advances HL/DE. Clobbers AF, BC.
 fat_copy:
@@ -135,7 +169,6 @@ DEFC    EOC32           = $0FFFFFFF
 
 DEFC    AM_RDO          = $01
 
-PUBLIC  clst2sect
 
 ; ff.c clst2sect: LBA = database + csize * (clst - 2).
 ; IN:  BCDE = cluster (B MSB … E LSB)
@@ -231,8 +264,6 @@ clst2sect_fail:
     or      a
     ret
 
-PUBLIC  fat_sync_window
-PUBLIC  _fat_sync
 _fat_sync:
 
 ; ff.c sync_window. Writes fatwin if dirty. Does not copy the sector
@@ -258,7 +289,6 @@ fat_sync_ok:
     scf
     ret
 
-PUBLIC  fat_move_window
 
 ; ff.c move_window: flush if dirty, then read LBA into fatwin.
 ; IN:  BCDE = LBA (B MSB … E LSB)
@@ -355,8 +385,6 @@ fat_check_fail:
 ; FAT32 dirbase = BPB_RootClus32 (cluster); FAT16 dirbase = root LBA.
 ; OUT: C OK
 ;------------------------------------------------------------------------------
-PUBLIC  fat_mount
-PUBLIC  _fat_mount
 _fat_mount:
 fat_mount:
     xor     a
@@ -767,7 +795,6 @@ fat_fatent_off:
 
 ; ff.c get_fat. FAT16 word; FAT32 dword & $0FFFFFFF.
 ; EOC is folded to $0FFFFFFF (FAT16 val >= $F8; FAT32 >= $0FFFFFF8).
-PUBLIC  get_fat
 get_fat:
     call    fat_fatent
     ret     NC
@@ -813,7 +840,6 @@ get_fat32ok:
 
 ; ff.c put_fat. FAT16 stores 16 bits; FAT32 stores 28 bits and keeps
 ; the on-disk high nibble (bits 28-31).
-PUBLIC  put_fat
 ; IN: BCDE=cluster, HL->DWORD next (LE)
 put_fat:
     push    hl
@@ -848,7 +874,6 @@ put_fat32:
     ld      (hl),a
     jr      put_fat_dirty
 
-PUBLIC  clst_from_off
 ; IN: HL -> {sclust:4, fptr:4} LE
 ; OUT C: BCDE = cluster containing fptr
 ; Sequential CP/M I/O hits clst_cache_* so we do not re-walk from sclust.
@@ -1008,7 +1033,6 @@ cfo_bad:
 ; ff.c create_chain (no last_clst hint, no FSInfo).
 ; clst==0: scan from 2; else from clst+1, wrap once to 2.
 ; Marks the new cluster EOC ($0FFFFFFF) and links the previous if any.
-PUBLIC  create_chain
 ; IN: BCDE = last cluster or 0
 ; OUT C: BCDE = new cluster
 create_chain:
@@ -1130,7 +1154,6 @@ cc_eoc:
 
 ; ff.c remove_chain (entire chain, pclst=0). Walks until 0 or EOC,
 ; putting 0 in each FAT entry. No TRIM / bitmap.
-PUBLIC  remove_chain
 ; IN: BCDE = start cluster
 remove_chain:
     ld      a,b
@@ -1185,7 +1208,6 @@ cc_zero:
 ; FAT32 / subdir: follow the chain (clst_from_off). Offset must be
 ; 32-byte aligned by the caller. Does not replace 0 with FAT32 root
 ; cluster — that lives in fat_cwd / _cpm_dir_sclust.
-PUBLIC  dir_sdi
 ; IN: BCDE = dir start cluster (0 = FAT16 root), HL = byte offset
 dir_sdi:
     ld      (dir_ofs),hl
@@ -1298,7 +1320,6 @@ dsdi_end:
 
 ; ff.c dir_next with stretch=0. No create_chain + dir_clear when a
 ; clustered directory hits EOC — the table is fixed size.
-PUBLIC  dir_next
 dir_next:
     ld      hl,(dir_ofs)
     ld      bc,32
@@ -1313,8 +1334,6 @@ dir_next:
 
 ; ff.c dir_find (no LFN). 0x00 ends the table; 0xE5 is deleted.
 ; Skip AM_VOL and AM_LFN ($0F). 8.3 compare is 11 raw bytes.
-PUBLIC  dir_find
-PUBLIC  _dir_find
 ; IN: HL -> 11-byte 8.3
 ; OUT C and L=0: HL = dir_ptr, fat_found_* filled
 _dir_find:
@@ -1393,8 +1412,6 @@ df_miss:
 
 ; ff.c dir_alloc(n=1) + dir_register SFN. Reuses 0x00 or 0xE5.
 ; Does not stretch the directory if the table is full.
-PUBLIC  dir_create
-PUBLIC  _dir_create
 ; IN: HL -> 11-byte 8.3
 _dir_create:
 dir_create:
@@ -1440,8 +1457,6 @@ dc_z:
     ret
 
 ; ff.c dir_remove (no LFN): first byte := $E5. Does not free the chain.
-PUBLIC  dir_zap
-PUBLIC  _dir_zap
 _dir_zap:
 dir_zap:
     ld      hl,(dir_ptr)
@@ -1467,7 +1482,6 @@ fat_filebase_lp:
 ; Walk the FAT directory into fat_files[drive] (FILE_MAX slots).
 ; Skip 0x00 (EOT), 0xE5, '.', AM_LFN, AM_DIR|AM_VOL — same filters as
 ; ff dir_read (non-LFN) plus we drop subdirectories (CP/M is flat).
-PUBLIC  pack_drive
 ; IN: A = drive 0-3
 ; OUT: C packed. Table filled in FAT directory order.
 pack_drive:
@@ -1778,7 +1792,6 @@ sfe_sk:
 
 ; Synthesize a 512-byte CP/M directory host sector from packed slots.
 ; Each FAT name occupies ceil(n_al/8) 32-byte extents (32 KB each).
-PUBLIC  synth_dir
 ; IN: HL = host sector; fill 512-byte hstbuf with 16 dirents (index = hstsec*16)
 synth_dir:
     add     hl,hl
@@ -2029,7 +2042,6 @@ sd_rc0:
     xor     a
     ret
 
-PUBLIC  map_al
 ; IN: DE = AL
 ; OUT C: A = file index, HL = block-within-file
 map_al:
@@ -2088,7 +2100,6 @@ ma_miss:
 
 ; Host sectors 0 .. DIR_HST-1 on track 0 are the synthesized CP/M
 ; directory (AL 0-1). Data ALs start at host sector DIR_HST.
-PUBLIC  fat_hst_isdir
 ; OUT C if host sector is in the reserved directory ALs (track 0, hstsec < DIR_HST)
 fat_hst_isdir:
     ld      a,(hsttrk)
@@ -2104,7 +2115,6 @@ fat_hst_data:
 ; Map CP/M host (track, sector) to a FAT data LBA: AL = (trk:sec)>>3,
 ; find the packed file whose [first_al, first_al+n_al) contains AL,
 ; then clst_from_off + clst2sect + sector-in-cluster.
-PUBLIC  fat_hst_map
 ; OUT C: BCDE = IDE LBA for current hsttrk/hstsec data
 fat_hst_map:
     ld      a,(hsttrk)
@@ -2208,7 +2218,6 @@ fhm_ok:
 
 ; Unmapped wrual (BDOS WRITE C=2): grow the last dir-updated file
 ; (unamap_*) and allocate a FAT cluster (ff create_chain).
-PUBLIC  fat_wrual_bind
 fat_wrual_bind:
     ld      a,(wrtype)
     cp      wrual
@@ -2299,7 +2308,6 @@ fwb_fail:
 
 ; BIOS WRITE C=1: four CP/M dirents at DMA. ERA = remove_chain + E5
 ; (ff unlink). Else find/create 8.3, copy size/RO, refresh the packed slot.
-PUBLIC  wrdir_cpm
 wrdir_cpm:
     ld      a,(hstwrt)
     or      a
@@ -2598,7 +2606,6 @@ wd_phit:
 ;*    first byte is EOT (ff dir_read).               *
 ;*****************************************************
 
-PUBLIC  _fat_dir_open
 _fat_dir_open:
     ld      e,(hl+)
     ld      d,(hl+)
@@ -2611,7 +2618,6 @@ _fat_dir_open:
     inc     l
     ret
 
-PUBLIC  _fat_dir_read
 _fat_dir_read:
     push    hl
     ld      hl,(dir_ptr)
@@ -2631,7 +2637,6 @@ fat_dir_read_end:
     ret
 
 ; HL -> DWORD cluster (LE). Write next cluster back. L=0 success.
-PUBLIC  _fat_next
 _fat_next:
     ld      e,(hl+)
     ld      d,(hl+)
@@ -2652,7 +2657,6 @@ fat_next_fail:
     ret
 
 ; HL -> DWORD last cluster (0 = new chain). Write new cluster back.
-PUBLIC  _fat_alloc
 _fat_alloc:
     ld      e,(hl+)
     ld      d,(hl+)
@@ -2673,7 +2677,6 @@ fat_alloc_fail:
     ret
 
 ; HL -> DWORD start cluster.
-PUBLIC  _fat_free
 _fat_free:
     ld      e,(hl+)
     ld      d,(hl+)
@@ -2686,7 +2689,6 @@ _fat_free:
     ret
 
 ; HL -> DWORD cluster in, LBA out.
-PUBLIC  _fat_clst2sect
 _fat_clst2sect:
     ld      e,(hl+)
     ld      d,(hl+)

@@ -1436,7 +1436,7 @@ readhst_err:
     ld      (erflag),a
     ret
 
-; Mini-FAT code is common/fatfs.asm (SECTION code_compiler, no PHASE).
+; Mini-FAT code is common/fatfs.asm (SECTION code_lib, no PHASE).
 
 SECTION bss_driver
 
