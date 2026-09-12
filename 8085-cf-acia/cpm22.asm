@@ -33,7 +33,7 @@ SECTION rodata_lib           ;read only library (code)
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xDB00
+defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xDAE0  ; 0x20 below 0xDB00 so BDOS stays at 0xE300
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -1461,6 +1461,8 @@ _cpm_ccp_data_tail:         ;tail of the cpm ccp
 ;*
 ;**************************************************************
 ;
+; Page-align FBASE at 0xE300. CCP origin is 0xDAE0 so data_tail
+; lands on 0xE300 after the A: search growth (was 0xE320 at 0xDB00).
 
 ALIGN       0x100           ;ALIGN the FBASE to a page
 

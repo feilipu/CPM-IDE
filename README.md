@@ -213,7 +213,7 @@ Directory I/O is different. BDOS snapshots DPH `DIRBUF` at `SELDSK` and then `SE
 - Directory `WRITE` still copies the record into the slice (then `WRITE` C=1 flushes the host sector immediately).
 - CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, BDOS function 10 treats `DEL` as backspace (DRI APN 02), and a nameless `.COM` missing on the current drive is retried on A: (explicit `d:` does not fall back).
 
-The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that path uses `ld bc,de` / `sub hl,bc`, and `sra hl` for the slice shift.
+The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that path uses `ld bc,de` / `sub hl,bc`, and `sra hl` for the slice shift. `sra hl` is pastraiser `-----0C` (Z unchanged). Do not follow it with `jp z`.
 
 `z88dk-ticks` with stub `ide_read_sector` / `ide_write_sector` (`z80-cf-sio/deblock-eval`) on 32 sequential directory records:
 

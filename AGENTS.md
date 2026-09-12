@@ -28,7 +28,7 @@ Entry files in those trees (index only; do not ingest every skill they list):
 | Task | Skill (`SKILL.md`) |
 |------|--------------------|
 | Z80 BIOS / deblock / serial rings | `cpu-z80` |
-| 8085 BIOS / deblock | `cpu-8085` |
+| 8085 BIOS / deblock | `cpu-8085` (pastraiser: `rl de` `-----VC`, `sra hl` `-----0C` — neither writes Z) |
 | Assembler, synthetics, listings | `tool-z80asm` |
 | `zcc` flags, subtypes, parallel cwd | `tool-zcc` |
 | sccz80 (8085 ROM, `+test`) | `compiler-sccz80` |
@@ -55,7 +55,7 @@ export Z88DK=/data/z88dk
 2. **Synthetics.** Prefer `ld a,(hl+)` and `ld (hl+),a` for byte streams (z80asm expands to `ld` + `inc hl`). Other registers: `ld r,(hl+)`, not `ld rr,(hl+)`. Last byte of a field with no post-increment stays `ld r,(hl)`. `ld (rr),r` / `dec rr` is `ld (rr-),r`. Prefer `ex de,hl` over `ld de,hl` when old DE belongs in HL (or HL is dead). Serial ring wrap stays `inc l` (size-1 mask), never `inc hl`. `ld (de+),a` is cheap (`12 13`) on both CPUs.
 3. **DRI CCP/BDOS.** Unmodified except `DIRBUF` `PUBLIC`, APN 02 `DEL`=BS, CCP A: `.COM` fallback, BDOS stack `ALIGN $20` (not `$100`).
 4. **Deblock.** 512-byte `hstbuf`, 4×128 CP/M records. DPH `DIRBUF` overlays `hstbuf`. Directory `READ` skips the 128-byte copy when DMA is in that window and retargets BDOS `DIRBUF`. User DMA (file copy, TPA) still copies. `WRITE` C=1 still copies then `writehst`. No CP/M 3 MULTIO/FLUSH. LBA in BCDE with E as LSB.
-5. **Rebuild.** zcc lines are in `README.md`. Use `.agents/scripts/rebuild-hex.sh` and `rebuild-ff.sh` (`tool-rebuild`). `cd` into each firmware tree. Parallel `zcc` only in **different** cwds (shared `zcc_opt.def`). Copy `.ihx` → `.hex`, delete leftovers. `*.hex` is gitignored → `git add -f`.
+5. **Rebuild.** zcc lines are in `README.md`. Use `.agents/scripts/rebuild-hex.sh` and `rebuild-ff.sh` (`tool-rebuild`). `cd` into each firmware tree. Parallel `zcc` only in **different** cwds (shared `zcc_opt.def`). Copy `.ihx` → `.hex`, delete leftovers. Scripts fail-closed: zcc or missing/empty product (`.ihx`/`.hex`/`.lib`) fails the job; job-dir `rm` is not success. `*.hex` is gitignored and often assume-unchanged (`git ls-files -v` **H**) → `git update-index --no-assume-unchanged` then `git add -f`.
 6. **Commit** only when asked; never push unasked. One subject line, no body, no attribution trailers.
 
 ## Local `.agents/`

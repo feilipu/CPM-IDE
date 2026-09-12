@@ -3,6 +3,8 @@
 # z88dk-libraries package tree, then install into z88dk.
 # Isolated workdir/TMPDIR per zcc job. Parallel zcc in one cwd corrupts
 # zcc_opt.def.
+# Fail-closed: zcc or missing/empty out.lib fails the job. Job-dir rm is not
+# success.
 #
 # Env: Z88DK, ZCCCFG, Z88DK_LIBRARIES, PATH, MAXJOBS (default 2), WORK.
 set -euo pipefail
@@ -89,7 +91,8 @@ spawn() {
     if (( st == 0 )); then
       echo "$(date +%H:%M:%S)  DONE  $name" >>"$LOG/summary.txt"
     else
-      echo "$(date +%H:%M:%S)  FAIL  $name  exit=$st" >>"$LOG/summary.txt"
+      echo "$(date +%H:%M:%S)  FAIL  $name  exit=$st  log=$LOG/${name//\//_}.log" >>"$LOG/summary.txt"
+      tail -n 40 "$LOG/${name//\//_}.log" >>"$LOG/summary.txt" || true
     fi
     exit "$st"
   ) &
@@ -109,8 +112,8 @@ build_ff() {
     cd "$job"
     # shellcheck disable=SC2086
     zcc +"$target" $clibflags "$@" @ff.lst -o "$job/out"
-  )
-  if [[ ! -f "$job/out.lib" ]]; then
+  ) || return 1
+  if [[ ! -s "$job/out.lib" ]]; then
     echo "missing $job/out.lib" >&2
     return 1
   fi
@@ -202,6 +205,11 @@ for t in rc2014 yaz180 scz180 hbios; do
     say "COPY  $t/sdcc_iy/ff_ro.lib → sdcc_ix (removed sdcc_iy install)"
   fi
 done
+
+if (( fail != 0 )); then
+  say "FAIL  ok=$ok fail=$fail  (see $LOG)"
+  exit 1
+fi
 
 say "ALL OK  ok=$ok fail=$fail"
 echo
