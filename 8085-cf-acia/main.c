@@ -1179,44 +1179,64 @@ int8_t ya_execute(char ** args)
 
 
 /**
-   @brief Split a line into tokens (very naively).
-   @param tokens, null terminated array of token pointers.
-   @param line, the line.
+   @brief Read a line of input, echo it, bound BS/DEL to the prompt.
  */
 void ya_getline(char * line, uint16_t len)
 {
-    char c;
+    static uint8_t last_eol;
+    int c;
     uint16_t position = 0;
 
-    while (--len) {
+    if (line == NULL || len == 0) {
+        return;
+    }
 
-        // Read a character
+    for (;;) {
+
         c = fgetc(input);
 
-        // If we hit EOF, replace it with a null character and return.
-        if (c == EOF || c == KEY_LF || c == KEY_CR) {
+        if (c == EOF) {
             line[position] = '\0';
-            // Echo the character
-            fputc(c, output);
             return;
         }
 
-        else if ((c == KEY_BS || c == KEY_DEL) && position > 0) {
-            line[--position] = '\0';
-            ++len;
-            // Remove the character
-            fputc(KEY_BS, output);
-            fputc(KEY_SPACE, output);
-            fputc(KEY_BS, output);
+        /* Do not echo BS/DEL at column 0: a serial terminal wraps. */
+        if (c == KEY_BS || c == KEY_DEL) {
+            if (position > 0) {
+                line[--position] = '\0';
+                fputc(KEY_BS, output);
+                fputc(KEY_SPACE, output);
+                fputc(KEY_BS, output);
+            }
+            continue;
         }
 
-        else {
-            line[position++] = c;
-            // Echo the character
-            fputc(c, output);
+        if (c == KEY_LF || c == KEY_CR) {
+            /* CR+LF (or LF+CR) is one terminator; the sibling would
+               otherwise become an empty next command. */
+            if (position == 0 && last_eol != 0 && (uint8_t)c != last_eol) {
+                last_eol = 0;
+                continue;
+            }
+            last_eol = (uint8_t)c;
+            line[position] = '\0';
+            fputc('\n', output);
+            return;
         }
+
+        /* Drop NUL / XON / CSI / other non-text. A pending 0 sits at
+           line[0] and strtok treats the whole command as empty. */
+        if (c < KEY_SPACE || c > 126) {
+            continue;
+        }
+
+        if (position >= len) {
+            continue;
+        }
+
+        line[position++] = (char)c;
+        fputc(c, output);
     }
-    line[position] = '\0';
 }
 
 void ya_split_line(char ** tokens, char * line)

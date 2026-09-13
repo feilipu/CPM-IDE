@@ -283,8 +283,7 @@ const:      ;console status, return 0ffh if character ready, 00h if not
     jr      Z,const1
 
     rrca                    ;manage remaining console bit
-    jr      C,const0        ;------x1b CRT:
-    jr      const1          ;------x0b TTY:
+    jr      NC,const1       ;------x0b TTY:
 
 const0:
     call    _acia0_pollc    ;check whether any characters are in CRT (RxA) buffer
@@ -307,8 +306,7 @@ conin:      ;console character into register a
     jr      Z,reader
 
     rrca                    ;manage remaining console bit
-    jr      C,conin0        ;------x1b CRT:
-    jr      conin1          ;------x0b TTY:
+    jr      NC,conin1       ;------x0b TTY:
 
 conin0:     ;------01b CRT:
    call     _acia0_getc     ;check whether any characters are in CRT RxA buffer
@@ -749,8 +747,6 @@ readhst_page:
 PUBLIC acia_interrupt
 
 PUBLIC _acia_reset
-PUBLIC _acia_getc
-PUBLIC _acia_putc
 PUBLIC _acia_pollc
 
 PUBLIC _acia0_reset

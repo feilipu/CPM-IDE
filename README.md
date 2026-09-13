@@ -211,6 +211,30 @@ Rather than spend time on long written descriptions, one picture is worth 2kByte
 
 The CP/M-IDE is built using the z88dk compilers and libraries, including a simple boot monitor or shell for the RC2014, together with the standard DRI CP/M CCP/BDOS, and a CP/M BIOS constructed specifically for the RC2014 in the above hardware configurations. The DRI CCP and BDOS have been optimised for performance using Z80 CPU extended instructions and 8085 CPU extended instructions, where possible. For example the Z80 `LDI` instructions have been used to improve buffer copy performance.
 
+### CP/M-IDE v3 (this branch)
+
+v3 mounts FAT directories as CP/M A:–D:. Mini-FAT and IDE stay in ROM. CCP is `$CD00` and BIOS is `$E380` on every port. TPA is 51.00 KB. `REGISTER_SP` sits at the CCP origin.
+
+Shell (`ya_getline`):
+
+- Backspace and DEL do not erase past the prompt.
+- CR+LF (or LF+CR) is one end of line. The second byte does not start an empty command.
+- Bytes below space or above 126 are dropped.
+- `cpm` takes FAT directories (or `CPMIDE.CFG`), not `.CPM` drive files.
+
+BDOS: function 10 treats DEL as backspace (DRI APN 02). A nameless `.COM` missing on the current drive is retried on `A:`. `DIRBUF` is `PUBLIC`.
+
+BIOS: DPH `DIRBUF` overlays `hstbuf`. After IDE/PPIDE, wait for DRQ only. Do not export `_acia_putc` / `_acia_getc`. See [CP/M deblocking](#cpm-deblocking).
+
+#### PATA versus Compact Flash
+
+Mini-FAT still uses the z88dk IDE driver. Set `__IO_CF_8_BIT` in `config_target.m4`, then rebuild the rc2014 libraries, then build the HEX.
+
+- PATA (IDE Hard Drive Module, 8255 at `$20`–`$23`): `__IO_CF_8_BIT = 0`.
+- Compact Flash Module (ports `$10`–`$17`): `__IO_CF_8_BIT = 1`.
+
+A PATA ROM linked with the CF 8-bit library returns `FR_NOT_READY` on `ls` and `mount 1`. Delayed `mount` still prints `FR_OK` because it does not talk to the disk. Do not run `rebuild-hex.sh` for all seven in one library state.
+
 ### CP/M deblocking
 
 CP/M 2.2 always transfers **128-byte** records through `SETDMA` / `READ` / `WRITE`. The host disk is **512-byte** IDE/CF sectors, so the BIOS deblocks four CP/M records per host sector in `hstbuf`. File I/O (default DMA `0x80`, TPA) still copies 128 bytes between that host slice and the caller's DMA. That copy is required: the program looks at the address it passed to `SETDMA`, and a 512-byte IDE transfer cannot be aimed at a 128-byte hole in a `.COM` (or at `0x80`). Z80 builds use unrolled `LDI`; 8085 builds use `ld a,(hl+)` / `ld (de+),a`.
@@ -219,7 +243,7 @@ Directory records are synthesized from the four resident FAT file maps (8.3 name
 
 DPH `DIRBUF` overlays `hstbuf`. When DMA already lies in the 512-byte host window, `READ` does not copy; the BIOS writes the active 128-byte slice address into the BDOS `DIRBUF` word so `FCB2HL` / `CHECKSUM` / `MOVEDIR` see the record in place. User DMA still copies.
 
-CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, BDOS function 10 treats `DEL` as backspace (DRI APN 02), and a nameless `.COM` missing on the current drive is retried on A: (explicit `d:` does not fall back).
+CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, BDOS function 10 treats `DEL` as backspace (DRI APN 02), and a nameless `.COM` missing on the current drive is retried on A: (explicit `d:` does not fall back). CCP origin is `$CD00`; BIOS is `$E380` (FAT/IDE in ROM).
 
 The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that path uses `ld bc,de` / `sub hl,bc`, and `sra hl` for the slice shift.
 
@@ -425,7 +449,7 @@ Again: ROM builds use **bare** subtypes and the in-tree mini-FAT; application `.
 
 The size of the serial transmit and receive buffers are set within the z88dk RC2014 target configuration files for the [ACIA](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_acia.m4), [SIO/2](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_sio.m4), and [UART](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_uart.m4) respectively.
 
-The disk access configuration, for either 16-bit PPIDE or 8-bit CF IDE, is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_target.m4#L22). And the availability of the shadow RAM for 128kB RAM systems ([SC108](https://smallcomputercentral.com/rcbus/sc100-series/sc108-z80-processor-rc2014/), etc) is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_ram.m4#L10). Following changes to any of the configurations the z88dk libraries for RC2014 should be rebuilt.
+The disk access configuration, for either 16-bit PPIDE or 8-bit CF IDE, is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_target.m4#L22). PATA HEX files in this tree were built with `__IO_CF_8_BIT = 0`. CF HEX files were built with `__IO_CF_8_BIT = 1`. Rebuild the rc2014 libraries when you change that flag. Do not mix a PATA HEX with a CF library. The availability of the shadow RAM for 128kB RAM systems ([SC108](https://smallcomputercentral.com/rcbus/sc100-series/sc108-z80-processor-rc2014/), etc) is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_ram.m4#L10). Following changes to any of the configurations the z88dk libraries for RC2014 should be rebuilt.
 
 
 ## Licence

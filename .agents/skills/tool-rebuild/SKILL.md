@@ -14,7 +14,7 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 | Script | What |
 |--------|------|
 | `rebuild-ff.sh` | ChaN `ff` RW+RO, Z80 all FatFs targets + rc2014 `ff_85` / `ff_85_ro`. Installs into `$ZCCCFG/../clibs`. |
-| `rebuild-hex.sh` | All seven `rc2014-cpm22-*.hex`. Copies `.ihx` → `.hex`, deletes leftovers. |
+| `rebuild-hex.sh` | All seven `rc2014-cpm22-*.hex` in **one** library state. Copies `.ihx` → `.hex`, deletes leftovers. Do not use it for mixed PATA+CF in one run. |
 
 ```bash
 # from repo root
@@ -30,6 +30,19 @@ git add -f rc2014-cpm22-*.hex
 v3 ROM links in-tree mini-FAT (`common/fatfs.asm` / `fatfs_85.asm` via `cpm22.lst`). Do **not** pass `-llib/rc2014/ff_ro` / `ff_85_ro` on HEX builds. `rebuild-ff.sh` still installs ChaN `ff` for CP/M applications (`-subtype=cpm`).
 
 Scripts fail-closed: zcc or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). Job-dir `rm` is not success. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`); `reap` exits on the first non-zero child. After HEX `wait_all`, all seven `rc2014-cpm22-*.hex` must exist and be non-empty or the script exits 1.
+
+## CF vs PATA (before any ROM `zcc`)
+
+Mini-FAT still calls the z88dk IDE driver. `__IO_CF_8_BIT` in `$Z88DK/libsrc/target/rc2014/config/config_target.m4` selects it.
+
+| HEX | Flag | Ports |
+|-----|------|-------|
+| `*-pata-*` | `0` | 8255 PPIDE `$20`–`$23` |
+| `*-cf-*` | `1` | CF 8-bit `$10`–`$17` |
+
+After a flag change: `make -C $Z88DK/libsrc/newlib rc2014-clean rc2014`. Remove `rc2014-8085_clib.lib` then `make -C $Z88DK/libsrc rc2014-8085_clib.lib` and copy it to `$Z88DK/lib/clibs/`. Include-only changes do not rebuild with `z80asm -d`.
+
+Build PATA HEX files, then set the flag to `1`, rebuild both libraries, then build CF HEX files. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls` / `mount 1`. Delayed `mount` can still print `FR_OK`.
 
 ## Pitfalls
 
