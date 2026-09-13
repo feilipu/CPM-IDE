@@ -259,8 +259,6 @@ Directory I/O is different. BDOS snapshots DPH `DIRBUF` at `SELDSK` and then `SE
 - Directory `WRITE` still copies the record into the slice (then `WRITE` C=1 flushes the host sector immediately).
 - `DIRBUF` is `PUBLIC` so the BIOS can retarget it. BDOS function 10 treats `DEL` as backspace (DRI APN 02). A nameless `.COM` missing on the current drive is retried on `A:` (explicit `d:` does not fall back). CCP origins moved in v2.5 so BDOS stays on a page.
 
-The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that path uses `ld bc,de` / `sub hl,bc`, and `sra hl` for the slice shift. `sra hl` is pastraiser `-----0C` (Z unchanged). Do not follow it with `jp z`.
-
 `z88dk-ticks` with stub `ide_read_sector` / `ide_write_sector` (`z80-cf-sio/deblock-eval`) on 32 sequential directory records:
 
 | Path | 128-byte copies | IDE 512-byte reads | T-states (I/O loop) |
@@ -356,7 +354,7 @@ end
 
 ### Shell Command Interface
 
-The shell command line interface is implemented in C, with the underlying functions either in C or in assembly. Version 2.5 uses `ya_getline` for echo, backspace, and CR/LF. See [CP/M-IDE v2.5](#cpm-ide-v25). The serial interfaces (ACIA, SIO/2, UART, and 8085 SOD) are configured for __115200 baud 8n2__.
+The shell command line interface is implemented in C, with the underlying functions either in C or in assembly. The serial interfaces (ACIA, SIO/2, UART, and 8085 SOD) are configured for __115200 baud 8n2__.
 
 Again, here is a view of what success looks like.
 
