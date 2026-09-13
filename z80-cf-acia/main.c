@@ -24,7 +24,7 @@
 #include <arch/rc2014/diskio.h>
 
 // PRAGMA DEFINES
-#pragma output REGISTER_SP = 0xDC00     // below the CP/M CCP
+#pragma output REGISTER_SP = 0xDBE0     // below the CP/M CCP
 #pragma output CRT_ITERM_TERMINAL_FLAGS = 0  // raw: ya_getline is the only cook/echo
 #pragma printf = "%c %s %d %u %lu %X"   // enables %c, %s, %d, %u, %lu, %X only
 
