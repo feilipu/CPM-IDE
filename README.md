@@ -202,6 +202,52 @@ Rather than spend time on long written descriptions, one picture is worth 2kByte
 
 The CP/M-IDE is built using the z88dk compilers and libraries, including a simple boot monitor or shell for the RC2014, together with the standard DRI CP/M CCP/BDOS, and a CP/M BIOS constructed specifically for the RC2014 in the above hardware configurations. The DRI CCP and BDOS have been optimised for performance using Z80 CPU extended instructions and 8085 CPU extended instructions, where possible. For example the Z80 `LDI` instructions have been used to improve buffer copy performance.
 
+### CP/M-IDE v2.5
+
+Version 2.5 is the current ROM. The shell, BDOS, and BIOS changes apply to Compact Flash and PATA builds.
+
+#### Shell (`main.c`)
+
+- Backspace and DEL do not erase past the prompt.
+- CR+LF (or LF+CR) is one end of line. The second byte does not start an empty command.
+- Bytes below space or above 126 are dropped. A NUL at `line[0]` made `strtok` see an empty command.
+- `cpm` accepts 1 to 4 contiguous `.CPM` files as `A:` to `D:`.
+
+`REGISTER_SP` sits at the CCP origin so the shell stack stays below CCP.
+
+#### BDOS and CCP
+
+BDOS starts on a 256-byte page (`_cpm_bdos_head`). CCP starts earlier where needed so BDOS BSS ends at the BIOS origin.
+
+| ROM | CCP | BDOS | BIOS | Disk |
+|-----|-----|------|------|------|
+| z80-pata-sio | `$D9E0` | `$E200` | `$F100` | PATA 16-bit |
+| z80-cf-acia | `$DBE0` | `$E400` | `$F300` | CF 8-bit |
+| z80-cf-sio | `$DAE0` | `$E300` | `$F200` | CF 8-bit |
+| z80-cf-uart | `$DAE0` | `$E300` | `$F200` | CF 8-bit |
+| 8085-cf-acia | `$DAE0` | `$E300` | `$F200` | CF 8-bit |
+| 8085-cf-uart | `$DAE0` | `$E300` | `$F200` | CF 8-bit |
+| 8085-pata-uart | `$DAE0` | `$E300` | `$F200` | PATA 16-bit |
+
+`_cpm_dsk0_base` stays at `$F800` on every port.
+
+BDOS function 10 treats DEL as backspace (DRI APN 02). A nameless `.COM` that is not on the current drive is retried on `A:`. An explicit `d:` does not fall back. `DIRBUF` is `PUBLIC` so the BIOS can retarget it.
+
+#### BIOS (CF and PATA)
+
+DPH `DIRBUF` overlays `hstbuf`. Directory `READ` does not copy 128 bytes when DMA is already in the host window. File I/O still copies. See [CP/M deblocking](#cpm-deblocking).
+
+After an IDE or PPIDE command, the BIOS waits for DRQ. It does not wait for ready after the transfer. A posted write waits on the next command. This is the same for Compact Flash 8-bit and PATA 16-bit.
+
+#### PATA versus Compact Flash
+
+The shell FatFs path uses the z88dk IDE driver. Set `__IO_CF_8_BIT` in `config_target.m4`, then rebuild the rc2014 libraries, then build the HEX.
+
+- PATA (IDE Hard Drive Module, 8255 at `$20`–`$23`): `__IO_CF_8_BIT = 0`.
+- Compact Flash Module (ports `$10`–`$17`): `__IO_CF_8_BIT = 1`.
+
+A PATA ROM linked with the CF 8-bit library returns `FR_NOT_READY` on `ls` and `mount 1`. Delayed `mount` still prints `FR_OK` because it does not talk to the disk.
+
 ### CP/M deblocking
 
 CP/M 2.2 always transfers **128-byte** records through `SETDMA` / `READ` / `WRITE`. The host disk is **512-byte** IDE/CF sectors, so the BIOS deblocks four CP/M records per host sector in `hstbuf`. File I/O (default DMA `0x80`, TPA) still copies 128 bytes between that host slice and the caller's DMA. That copy is required: the program looks at the address it passed to `SETDMA`, and a 512-byte IDE transfer cannot be aimed at a 128-byte hole in a `.COM` (or at `0x80`). Z80 builds use unrolled `LDI`; 8085 builds use `ld a,(hl+)` / `ld (de+),a`.
@@ -211,7 +257,7 @@ Directory I/O is different. BDOS snapshots DPH `DIRBUF` at `SELDSK` and then `SE
 - DPH `DIRBUF` overlays `hstbuf` (the separate 128-byte `dirbf` is gone: **128 bytes of BIOS RAM recovered**).
 - When DMA already lies in the 512-byte host window, `READ` does not copy. The BIOS writes the active 128-byte slice address into the BDOS `DIRBUF` word so `FCB2HL` / `CHECKSUM` / `MOVEDIR` see the record in place.
 - Directory `WRITE` still copies the record into the slice (then `WRITE` C=1 flushes the host sector immediately).
-- CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, BDOS function 10 treats `DEL` as backspace (DRI APN 02), and a nameless `.COM` missing on the current drive is retried on A: (explicit `d:` does not fall back).
+- `DIRBUF` is `PUBLIC` so the BIOS can retarget it. BDOS function 10 treats `DEL` as backspace (DRI APN 02). A nameless `.COM` missing on the current drive is retried on `A:` (explicit `d:` does not fall back). CCP origins moved in v2.5 so BDOS stays on a page.
 
 The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that path uses `ld bc,de` / `sub hl,bc`, and `sra hl` for the slice shift. `sra hl` is pastraiser `-----0C` (Z unchanged). Do not follow it with `jp z`.
 
@@ -225,7 +271,7 @@ The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that pa
 
 That is **65 600 T-states saved** per 32 directory records (~2 050 T each, about 0.28 ms at 7.372 MHz), with the same number of CF/IDE reads. Open, search, rename, and other directory-heavy calls benefit; `PIP` / `MBASIC` / `.COM` load to TPA do not.
 
-TPA is unchanged (CCP origins are unchanged, ~56 KB). `_cpm_dsk0_base` (the four mounted-drive LBA words) stays at **`0xF800` on every port** so it can be found with a memory dump. The recovered `dirbf` is 128 bytes, which is not a full page, and moving that array to `0xF900` would run `hstbuf` into the serial rings (`0xFEC0` SIO/ACIA, `0xFEE0`/`0xFF00` UART). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`). This overlay has **not** been run on hardware yet.
+TPA remains about 56 kB. CCP origins moved down in v2.5 so BDOS stays on a page. See [CP/M-IDE v2.5](#cpm-ide-v25). `_cpm_dsk0_base` stays at `$F800` on every port. The recovered `dirbf` is 128 bytes, which is not a full page. Moving that array to `$F900` would run `hstbuf` into the serial rings (`$FEC0` SIO/ACIA, `$FEE0`/`$FF00` UART). Serial rings stay at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`). The overlay is in the v2.5 HEX files.
 
 ### Installation
 
@@ -310,7 +356,7 @@ end
 
 ### Shell Command Interface
 
-The shell command line interface is implemented in C, with the underlying functions either in C or in assembly. The serial interfaces (ACIA, SIO/2, UART, and 8085 SOD) are configured for __115200 baud 8n2__.
+The shell command line interface is implemented in C, with the underlying functions either in C or in assembly. Version 2.5 uses `ya_getline` for echo, backspace, and CR/LF. See [CP/M-IDE v2.5](#cpm-ide-v25). The serial interfaces (ACIA, SIO/2, UART, and 8085 SOD) are configured for __115200 baud 8n2__.
 
 Again, here is a view of what success looks like.
 
@@ -424,7 +470,7 @@ Again: ROM builds use **bare** subtypes + `ff_ro`; application `.COM` builds und
 
 The size of the serial transmit and receive buffers are set within the z88dk RC2014 target configuration files for the [ACIA](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_acia.m4), [SIO/2](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_sio.m4), and [UART](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_uart.m4) respectively.
 
-The disk access configuration, for either 16-bit PPIDE or 8-bit CF IDE, is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_target.m4#L22). And the availability of the shadow RAM for 128kB RAM systems ([SC108](https://smallcomputercentral.com/rcbus/sc100-series/sc108-z80-processor-rc2014/), etc) is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_ram.m4#L10). Following changes to any of the configurations the z88dk libraries for RC2014 should be rebuilt.
+The disk access configuration, for either 16-bit PPIDE or 8-bit CF IDE, is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_target.m4#L22). PATA HEX files in this tree were built with `__IO_CF_8_BIT = 0`. CF HEX files were built with `__IO_CF_8_BIT = 1`. Rebuild the rc2014 libraries when you change that flag. Do not mix a PATA HEX with a CF library. The availability of the shadow RAM for 128kB RAM systems ([SC108](https://smallcomputercentral.com/rcbus/sc100-series/sc108-z80-processor-rc2014/), etc) is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_ram.m4#L10). Following changes to any of the configurations the z88dk libraries for RC2014 should be rebuilt.
 
 
 ## Licence
