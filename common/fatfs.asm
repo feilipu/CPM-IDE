@@ -56,6 +56,7 @@ EXTERN  fat_found_sclust
 EXTERN  fat_found_size
 EXTERN  dir_ptr
 EXTERN  dir_sclust
+EXTERN  dir_clust               ;cluster of the current directory sector
 EXTERN  dir_sect
 EXTERN  dir_ofs
 EXTERN  fat_work
@@ -709,27 +710,38 @@ fat_fatent:
     ld      a,b
     sbc     a,(hl)
     ret     NC                      ;clst >= n_fatent
-    sla     e
-    rl      d
-    rl      c
-    rl      b                       ;FAT16: byte offset = clst*2
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
-    jr      NZ,fat_fatent_off
+    jr      Z,fat_fatent32
+    ; FAT16: ff get_fat WORD array. sect = fatbase + clst/256; off = clst*2 % 512
+    ld      l,e
+    ld      h,0
+    add     hl,hl                   ;off = (BYTE)clst * 2  (< 512)
+    push    hl
+    ld      e,d
+    ld      d,c
+    ld      c,b
+    ld      b,0                     ;BCDE = clst >> 8
+    jr      fat_fatent_sec
+fat_fatent32:
     sla     e
     rl      d
     rl      c
-    rl      b                       ;FAT32: *4
+    rl      b
+    sla     e
+    rl      d
+    rl      c
+    rl      b                       ;byte offset = clst*4
     jr      C,fat_fatent_bad
-fat_fatent_off:
     push    de                      ;offset low (for &511)
     ld      e,d
     ld      d,c
     ld      c,b
-    ld      b,0                     ;BCDE = offset>>8
+    ld      b,0                     ;offset>>8
     srl     c
     rr      d
-    rr      e                       ;BCDE = offset>>9
+    rr      e                       ;offset>>9
+fat_fatent_sec:
     ld      hl,_cpm_fat_vol+8       ;+ fatbase
     ld      a,(hl+)
     add     a,e
@@ -744,11 +756,15 @@ fat_fatent_off:
     adc     a,b
     ld      b,a
     call    fat_move_window
-    pop     de                      ;offset low
+    pop     de                      ;offset in sector (FAT16 already <512)
     ret     NC
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      NZ,fat_fatent_ptr
     ld      a,d
     and     1
-    ld      d,a                     ;DE = offset & 0x1FF
+    ld      d,a                     ;FAT32: offset & 0x1FF
+fat_fatent_ptr:
     ld      hl,fatwin
     add     hl,de
     scf
@@ -841,7 +857,8 @@ put_fat32:
 
 ; IN: HL -> {sclust:4, fptr:4} LE
 ; OUT C: BCDE = cluster containing fptr
-; Sequential CP/M I/O hits clst_cache_* so we do not re-walk from sclust.
+; Cluster index is (fptr >> 9) / csize. Sequential CP/M I/O hits
+; clst_cache_* so we do not re-walk from sclust.
 clst_from_off:
     ld      e,(hl+)
     ld      d,(hl+)
@@ -853,18 +870,14 @@ clst_from_off:
     ld      d,(hl+)
     ld      c,(hl+)
     ld      b,(hl)                   ;fptr
-    ; cluster index = (fptr >> 9) / csize
-    srl     b
-    rr      c
-    rr      d
-    rr      e
+    ; cluster index = (fptr >> 9) / csize. >>8 is a byte slide; >>1 after that.
     ld      e,d
     ld      d,c
     ld      c,b
-    ld      b,0
+    ld      b,0                     ;fptr >> 8
     srl     c
     rr      d
-    rr      e                       ;sector index in CDE (B=0)
+    rr      e                       ;fptr >> 9 = sector index in CDE
     ld      a,(_cpm_fat_vol+1)
     ld      b,0
 cfo_log:
@@ -1139,6 +1152,11 @@ dir_sdi:
     ld      (dir_sclust+2),bc
     jr      dsdi_chain
 dsdi_root16:
+    push    hl                      ;ofs
+    ld      hl,0
+    ld      (dir_clust),hl          ;static FAT16 root
+    ld      (dir_clust+2),hl
+    pop     hl
     ld      de,(_cpm_fat_vol+2)     ;n_rootent, whole sectors only
     ex      de,hl                   ;HL = n_rootent; DE = dir_ofs
     ld      a,l
@@ -1149,13 +1167,11 @@ dsdi_root16:
     add     hl,hl
     add     hl,hl
     add     hl,hl                   ;*32
-    ex      de,hl                   ;DE = max byte size of root; HL = dir_ofs
-    ld      a,h
-    cp      d
-    jr      C,dsdi_root
-    jp      NZ,dsdi_end
-    ld      a,l
-    cp      e
+    ex      de,hl                   ;DE = max; HL = dir_ofs
+    push    hl
+    or      a
+    sbc     hl,de                   ;unsigned ofs >= max
+    pop     hl
     jp      NC,dsdi_end
 dsdi_root:
     ld      a,h                     ;offset >> 9
@@ -1193,6 +1209,8 @@ dsdi_chain:
     ld      hl,fat_work
     call    clst_from_off
     ret     NC
+    ld      (dir_clust),de          ;cluster containing ofs
+    ld      (dir_clust+2),bc
     call    clst2sect
     ret     NC
     ; add sector-in-cluster: (dir_ofs >> 9) % csize
@@ -1229,14 +1247,106 @@ dsdi_end:
 
 ; ff.c dir_next with stretch=0. No create_chain + dir_clear when a
 ; clustered directory hits EOC — the table is fixed size.
+; Same-sector: pointer walk (SZDIRE). Sector change: sect++.
+; Cluster change: get_fat(dir_clust) then clst2sect (no stretch).
 dir_next:
     ld      hl,(dir_ofs)
     ld      bc,32
     add     hl,bc
-    jr      C,dir_next_end          ;ofs wrap: 2048 dirents (LFN-heavy dirs)
-    ld      de,(dir_sclust)
-    ld      bc,(dir_sclust+2)
-    jp      dir_sdi
+    jp      C,dir_next_end          ;ofs wrap: 2048 dirents (LFN-heavy dirs)
+    ld      a,l
+    or      a
+    jr      NZ,dir_next_same        ;ofs % 512 != 0
+    ld      a,h
+    and     1
+    jr      Z,dir_next_sect
+dir_next_same:
+    ld      (dir_ofs),hl
+    ld      hl,(dir_ptr)
+    ld      de,32
+    add     hl,de
+    ld      (dir_ptr),hl
+    scf
+    ret
+dir_next_sect:
+    ld      (dir_ofs),hl
+    ld      hl,(dir_clust)
+    ld      a,h
+    or      l
+    ld      hl,(dir_clust+2)
+    or      h
+    or      l
+    jr      NZ,dir_next_dyn
+    ld      hl,(_cpm_fat_vol+2)     ;n_rootent * 32 (whole sectors)
+    ld      a,l
+    and     $F0
+    ld      l,a
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl
+    ex      de,hl                   ;DE = max
+    ld      hl,(dir_ofs)
+    or      a
+    sbc     hl,de
+    jp      NC,dir_next_end         ;unsigned ofs >= max
+dir_next_inc:
+    ld      hl,(dir_sect)
+    inc     hl
+    ld      (dir_sect),hl
+    ld      a,h
+    or      l
+    jr      NZ,dir_next_win
+    ld      hl,(dir_sect+2)
+    inc     hl
+    ld      (dir_sect+2),hl
+    jr      dir_next_win
+dir_next_dyn:
+    ld      a,(dir_ofs+1)
+    srl     a                       ;ofs / 512
+    ld      hl,_cpm_fat_vol+1
+    ld      l,(hl)                  ;csize
+    dec     l
+    and     l                       ;(ofs/512) & (csize-1)
+    jr      NZ,dir_next_inc         ;still in this cluster
+    ld      de,(dir_clust)
+    ld      bc,(dir_clust+2)
+    call    get_fat
+    jp      NC,dir_next_end
+    ld      a,b
+    cp      $0F
+    jr      NZ,dir_next_got
+    ld      a,c
+    and     d
+    and     e
+    inc     a
+    jp      Z,dir_next_end          ;EOC
+dir_next_got:
+    ld      a,e
+    sub     2
+    ld      a,d
+    sbc     a,0
+    ld      a,c
+    sbc     a,0
+    ld      a,b
+    sbc     a,0
+    jp      C,dir_next_end          ;cluster < 2
+    ld      (dir_clust),de
+    ld      (dir_clust+2),bc
+    call    clst2sect
+    jp      NC,dir_next_end
+    ld      (dir_sect),de
+    ld      (dir_sect+2),bc
+dir_next_win:
+    ld      de,(dir_sect)
+    ld      bc,(dir_sect+2)
+    call    fat_move_window
+    ret     NC
+    ld      hl,fatwin               ;ofs % 512 == 0
+    ld      (dir_ptr),hl
+    scf
+    ret
 dir_next_end:
     or      a
     ret
@@ -1450,13 +1560,16 @@ pd_loop:
     ex      de,hl
     ld      hl,0
     adc     hl,bc                   ;HLDE = size+4095 (H MSB, E LSB)
-    ld      b,12
+    ld      e,d
+    ld      d,l
+    ld      l,h
+    ld      h,0                     ;>>8 byte slide
+    ld      b,4
 pd_shr12:
-    srl     h
-    rr      l
+    srl     l
     rr      d
     rr      e
-    djnz    pd_shr12                ;DE = n_al (low 16); HL leftover
+    djnz    pd_shr12                ;>>12; DE = n_al (low 16)
     ld      (fat_work+8),de
     ld      (fat_work+10),hl
     xor     a
@@ -1600,14 +1713,9 @@ pd_stop:
     ld      (fat_work+4),a
     jp      pd_done
 pd_skip:
-    ld      hl,(dir_ofs)
-    ld      bc,32
-    add     hl,bc
-    jp      C,pd_done               ;2048 dirents
-    ld      de,(dir_sclust)
-    ld      bc,(dir_sclust+2)
-    call    pack_sdi
+    call    dir_next
     jp      C,pd_loop
+    jp      pd_done
 pd_done:
     ld      a,(fat_work+15)
     ld      e,a

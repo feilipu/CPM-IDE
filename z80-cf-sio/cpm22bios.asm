@@ -1465,6 +1465,7 @@ PUBLIC  fat_found_sclust
 PUBLIC  fat_found_size
 PUBLIC  dir_ptr
 PUBLIC  dir_sclust
+PUBLIC  dir_clust
 PUBLIC  dir_sect
 PUBLIC  dir_ofs
 PUBLIC  fat_work
@@ -1542,11 +1543,12 @@ ldi_body:           defs 33 ;16 * ldi (ED A0) + ret; filled by copy_build
 drv_packed:         defs 4
 
 _fat_dir_sclust:
-dir_sclust:         defs 4  ;current dir start cluster; 0 = FAT16 root
-dir_sect:           defs 4
-dir_ofs:            defs 2
+dir_sclust:         defs 4  ;directory start cluster; 0 = FAT16 static root
+dir_clust:          defs 4  ;cluster of the current directory sector
+dir_sect:           defs 4  ;LBA of the current directory sector
+dir_ofs:            defs 2  ;byte offset in the directory
 _fat_dir_ptr:
-dir_ptr:            defs 2
+dir_ptr:            defs 2  ;current 32-byte dirent in fatwin
 _fat_found_sclust:
 fat_found_sclust:   defs 4
 _fat_found_size:
