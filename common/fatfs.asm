@@ -713,7 +713,7 @@ fat_fatent:
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
     jr      Z,fat_fatent32
-    ; FAT16: ff get_fat WORD array. sect = fatbase + clst/256; off = clst*2 % 512
+    ; FAT16: pff/ff WORD array. sect = fatbase + clst/256; off = (BYTE)clst*2
     ld      l,e
     ld      h,0
     add     hl,hl                   ;off = (BYTE)clst * 2  (< 512)
@@ -724,23 +724,24 @@ fat_fatent:
     ld      b,0                     ;BCDE = clst >> 8
     jr      fat_fatent_sec
 fat_fatent32:
-    sla     e
-    rl      d
-    rl      c
-    rl      b
-    sla     e
-    rl      d
-    rl      c
-    rl      b                       ;byte offset = clst*4
-    jr      C,fat_fatent_bad
-    push    de                      ;offset low (for &511)
+    ; FAT32: pff DWORD array. sect = fatbase + clst/128; off = (clst%128)*4
+    ld      a,e
+    and     127
+    add     a,a
+    add     a,a
+    ld      l,a
+    ld      h,0
+    push    hl                      ;off 0..508
+    ld      a,e
+    rla                             ;C = clst bit 7
     ld      e,d
     ld      d,c
     ld      c,b
-    ld      b,0                     ;offset>>8
-    srl     c
-    rr      d
-    rr      e                       ;offset>>9
+    ld      b,0                     ;clst >> 8
+    rl      e
+    rl      d
+    rl      c
+    rl      b                       ;clst >> 7
 fat_fatent_sec:
     ld      hl,_cpm_fat_vol+8       ;+ fatbase
     ld      a,(hl+)
@@ -756,22 +757,11 @@ fat_fatent_sec:
     adc     a,b
     ld      b,a
     call    fat_move_window
-    pop     de                      ;offset in sector (FAT16 already <512)
+    pop     de                      ;offset in sector (< 512)
     ret     NC
-    ld      a,(_cpm_fat_vol)
-    cp      FS_FAT32
-    jr      NZ,fat_fatent_ptr
-    ld      a,d
-    and     1
-    ld      d,a                     ;FAT32: offset & 0x1FF
-fat_fatent_ptr:
     ld      hl,fatwin
     add     hl,de
     scf
-    ret
-
-fat_fatent_bad:
-    or      a
     ret
 
 ; ff.c get_fat. FAT16 word; FAT32 dword & $0FFFFFFF.
