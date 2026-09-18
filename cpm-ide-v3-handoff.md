@@ -1,9 +1,9 @@
 # CP/M-IDE v3 — handoff
 
-**Date:** 2026-08-24  
+**Date:** 2026-09-18  
 **Repo (Ubuntu):** `/data/CPM-IDE` (`feilipu/CPM-IDE`)  
 **Same bytes on macOS:** `/Users/phillip/Container/ubuntu-data/CPM-IDE`  
-**Branch:** `cpm-ide-v3` (ahead of origin; staged, not necessarily committed)  
+**Branch:** `cpm-ide-v3`  
 **Plan:** `cpm-ide-v3-plan.md`  
 **Original notes:** `cpm-ide-v3.md`
 
@@ -30,13 +30,13 @@ When leaving Ubuntu for oMLX: `container stop ubuntu` then `container system sto
 
 BIOS presents FAT **directories** as CP/M A:–D:. Files are native 8.3 FAT files. DRI CCP/BDOS stay unmodified except CCP origin, BDOS stack `ALIGN $20`, `DIRBUF` PUBLIC, and APN 02 (DEL=BS in function 10). Physical I/O is 512-byte `ide_read_sector` / `ide_write_sector`.
 
-v2 `cpm file.a …` + `_cpm_dsk0_base[]` is **gone on the SIO prototype**. Shell `cpm` writes directory start clusters to `_cpm_dir_sclust[4]`; BIOS packs those directories into a reverse map (`FILE_MAX` 64, 13-byte rows, no cached 8.3).
+v2 `cpm file.a …` + `_cpm_dsk0_base[]` is **gone**. Shell `cpm` writes directory start clusters to `_cpm_dir_sclust[4]`; BIOS packs those directories into a reverse map (`FILE_MAX` 64, 13-byte rows, no cached 8.3).
 
 ---
 
 ## Where we stopped
 
-SIO prototype **assembles, links, and the HEX is current**. It has **not** been run on hardware. ticks cannot debug CF.
+All seven v3 HEX products assemble and are on the branch. They have **not** been run on hardware. ticks cannot debug CF.
 
 Last product decisions:
 
@@ -62,7 +62,7 @@ cp ../rc2014-cpm22-z80-cf-sio.ihx ../rc2014-cpm22-z80-cf-sio.hex
 
 `cpm22.lst`: `cpm22preamble`, `cpm22bios`, `cpm22`, `sio_init_async_rodata`, `../common/fatfs.asm`, `main.c`. Parallel `zcc` in one cwd corrupts `zcc_opt.def`. `*.hex` is gitignored: `git add -f`.
 
-Gate: boot image **≤ 32768**. Linked CODE **27399** (slack **5369**). HEX copied from ihx. `fat_mount` links at `$1779` (ROM `code_compiler`), not inside the BIOS PHASE.
+Gate: boot image **≤ 32768**. HEX copied from ihx. Mini-FAT (`SECTION code_lib`) is ROM-resident, not inside the BIOS PHASE.
 
 SIO TX is **8** via `UNDEFINE __IO_SIO_TX_SIZE` / `defc = 0x08` in `cpm22bios.asm` (not a z88dk `config_sio.m4` change). Rings are in this BIOS file. Do not shrink RX.
 
@@ -78,10 +78,10 @@ SIO TX is **8** via `UNDEFINE __IO_SIO_TX_SIZE` / `defc = 0x08` in `cpm22bios.as
 | `z80-cf-sio/cpm22bios.asm` | Serial + CF IDE; RAM PHASE + BSS PHASE; IDE/`writehst` in ROM after `DEPHASE` |
 | `z80-cf-sio/cpm22.asm` | CCP origin `$CD00`; BDOS stack `ALIGN $20`; APN 02 already in |
 | `z80-cf-sio/main.c` | Shell on mini-FAT; `REGISTER_SP 0xCD00`; `ff_ro` / `frag` gone |
-| `z80-cf-acia/`, `z80-cf-uart/`, `z80-pata-sio/` | `frag` out, `md` kept; **still v2 BIOS** |
-| `8085-*` | same: shell only; no 8085 FAT twin |
+| `z80-cf-acia/`, `z80-cf-uart/`, `z80-pata-sio/` | Same mini-FAT via `cpm22.lst` → `../common/fatfs.asm` |
+| `8085-*` | Same API via `../common/fatfs_85.asm` |
 
-**Layout rule:** `PHASE` / `DEPHASE` only wrap code that is LDIR’d to high RAM (BIOS, CCP/BDOS). Mini-FAT is **`common/fatfs.asm`**, `SECTION code_compiler`, linked from `cpm22.lst`. Labels are storage addresses so it runs in ROM. Porting other trees adds that one file to the lst; IDE stays per-tree.
+**Layout rule:** `PHASE` / `DEPHASE` only wrap code that is LDIR’d to high RAM (BIOS, CCP/BDOS). Mini-FAT is **`common/fatfs.asm`** / **`fatfs_85.asm`**, `SECTION code_lib`, linked from `cpm22.lst`. Labels are storage addresses so it runs in ROM. IDE stays per-tree.
 
 ---
 
@@ -236,7 +236,7 @@ PUBLIC for the shell (in `common/fatfs.asm`, called directly — no extra CALL/R
 - `WRITE C=1` → `wrdir_cpm` (does **not** IDE-write the synth dir). ERA unlinks (`remove_chain` + `dir_zap`); create/update copies 8.3, T1′ ↔ FAT R/O, size, pack slot.
 - `readhst` dir region (track 0, host sec 0–15) → `synth_dir` (EXM=1, RC + AL clipped to `n_al`); data → `fat_hst_map`.
 - `writehst` skips dir region; data via `fat_hst_map`.
-- Cluster cache in `clst_from_off`; unrolled `<<12` / `<<9` in the data map.
+- Cluster cache in `clst_from_off`; cluster index is `(fptr >> 9) / csize`. Pack `(size+4095)>>12` is a `>>8` byte slide then four `>>1`. `dir_next` walks the sector, then `sect++` / `get_fat` on cluster change.
 - `fat_filebase` is `A × FILE_MAX×FILE_SIZ`.
 - `rwoper` does **not** flush on `wrtype=wrdir` (that path is `WRITE C=1` → `wrdir_cpm`).
 - Shell as above. Names stay out of the maps.
@@ -256,10 +256,8 @@ Do **not** change `cpm22.asm` BDOS unless a proven DRI bug is called out. APN 02
 
 ## Next work (order)
 
-1. **Hardware test** of SIO v3: shell `ls`/`mkdir`/`cp`/`mv`/`rm`/`rmdir`/`type`, then `cpm <dir>`, `ERA`, `SAVE`, `PIP` across A:/B:, one 8 MB-scale file as many extents, `USER` filter, R/O T1′. ticks cannot do this.
-2. **Port G** — copy the SIO FAT+IDE+`writehst` block + origins (`0xCD00` / `0xE380` / `0xE8F0`) + ROM `out` around host I/O + `FILE_MAX` 64 into `z80-cf-acia`, `z80-cf-uart`, `z80-pata-sio`. Do not INCLUDE. Keep each chip’s serial ALIGN/wrap identical. PATA: PPIDE sector I/O in ROM (same RAM BIOS size).
-3. **Port H** — 8085 twin after G (no `ldi`/`ldir`/`inir`/`exx`; copy unroll is `ld a,(hl+)`).
-4. README other builds still describe v2 until G lands. SIO README already says 51.00 KB TPA / 64 names.
+1. **Hardware test** of v3 HEX: shell `ls`/`mkdir`/`cp`/`mv`/`rm`/`rmdir`/`type`, then `cpm <dir>`, `ERA`, `SAVE`, `PIP` across A:/B:, one 8 MB-scale file as many extents, `USER` filter, R/O T1′. ticks cannot do this.
+2. Port G (other Z80 trees) and Port H (8085 mini-FAT) **landed** — all seven products link `common/fatfs.asm` or `fatfs_85.asm`. Do not treat those trees as v2.
 
 Manual CP/M checklist stays in the plan §8.
 

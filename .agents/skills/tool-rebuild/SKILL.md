@@ -48,7 +48,7 @@ Build PATA HEX files, then set the flag to `1`, rebuild both libraries, then bui
 
 - `cd` into the firmware tree before `zcc` (`@cpm22.lst` is relative).
 - HEX flags are the README lines: Z80 `-SO3 --opt-code-speed`; 8085 `-O2 --opt-code-speed=all` plus the classic `-I` paths. No FatFs library on the ROM link.
-- Each product BIOS must `PUBLIC hstact` (mini-FAT `EXTERN`). Missing it: `undefined symbol: hstact`.
+- Each product BIOS must `PUBLIC hstact` (next to `hstwrt`) and `PUBLIC dir_clust` (next to `dir_sclust`). Mini-FAT `EXTERN` both. Missing: `undefined symbol: hstact` / `dir_clust`.
 - `z88dk-lib +rc2014 ff` installs basename `ff` only. Copy `ff_ro` / `ff_85*` by hand (the ff script does this).
 - SDCC `ff_ro` is one `-clib=sdcc_iy` object, installed as `lib/clibs/sdcc_ix/lib/<target>/ff_ro.lib`. Do not leave a second copy under `sdcc_iy/`.
 - Restore `FF_FS_READONLY` to `0` after an RO build (`rebuild-ff.sh` traps this).
