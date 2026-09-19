@@ -1122,6 +1122,57 @@ int8_t ya_mount(char ** args)    /* mount a FAT file system */
     return 1;
 }
 
+int8_t ya_frag(char ** args)
+{
+    uint32_t parent, cl, prev, ncl, nfrag;
+    uint8_t n[11];
+
+    if (need_args(args, 1, "frag"))
+        return 1;
+    if (put_fail(open_leaf(args[1], &parent, n)))
+        return 1;
+    if (fat_dir_ptr[11] & AM_DIR) {
+        put_rc(FR_DENIED);
+        return 1;
+    }
+    cl = fat_found_sclust;
+    ncl = 0;
+    nfrag = 0;
+    prev = 0;
+    if (cl >= 2) {
+        nfrag = 1;
+        while (is_eoc(cl) == 0) {
+            ncl++;
+            if (prev && cl != prev + 1)
+                nfrag++;
+            prev = cl;
+            if (put_fail(fat_next(&cl)))
+                return 1;
+        }
+    }
+    fprintf(output, "%lu cluster(s), %lu run(s), %lu bytes\n",
+            ncl, nfrag, fat_found_size);
+    return 1;
+}
+
+int8_t ya_free(char ** args)
+{
+    uint32_t ncl, nbytes;
+
+    (void *)args;
+    if (cpm_fat_vol.fs_type == 0) {
+        put_rc(fat_mount());
+        if (cpm_fat_vol.fs_type == 0)
+            return 1;
+    }
+    ncl = 0;
+    if (put_fail(fat_getfree(&ncl)))
+        return 1;
+    nbytes = ncl * (uint32_t)cpm_fat_vol.csize * 512;
+    fprintf(output, "%lu cluster(s) free, %lu bytes\n", ncl, nbytes);
+    return 1;
+}
+
 
 /*
   disk related functions
@@ -1351,59 +1402,6 @@ void ya_split_line(char ** tokens, char * line)
 /**
    @brief Loop getting input and executing it.
  */
-
-
-int8_t ya_frag(char ** args)
-{
-    uint32_t parent, cl, prev, ncl, nfrag;
-    uint8_t n[11];
-
-    if (need_args(args, 1, "frag"))
-        return 1;
-    if (put_fail(open_leaf(args[1], &parent, n)))
-        return 1;
-    if (fat_dir_ptr[11] & AM_DIR) {
-        put_rc(FR_DENIED);
-        return 1;
-    }
-    cl = fat_found_sclust;
-    ncl = 0;
-    nfrag = 0;
-    prev = 0;
-    if (cl >= 2) {
-        nfrag = 1;
-        while (is_eoc(cl) == 0) {
-            ncl++;
-            if (prev && cl != prev + 1)
-                nfrag++;
-            prev = cl;
-            if (put_fail(fat_next(&cl)))
-                return 1;
-        }
-    }
-    fprintf(output, "%lu cluster(s), %lu run(s), %lu bytes\n",
-            ncl, nfrag, fat_found_size);
-    return 1;
-}
-
-int8_t ya_free(char ** args)
-{
-    uint32_t ncl, nbytes;
-
-    (void *)args;
-    if (cpm_fat_vol.fs_type == 0) {
-        put_rc(fat_mount());
-        if (cpm_fat_vol.fs_type == 0)
-            return 1;
-    }
-    ncl = 0;
-    if (put_fail(fat_getfree(&ncl)))
-        return 1;
-    nbytes = ncl * (uint32_t)cpm_fat_vol.csize * 512;
-    fprintf(output, "%lu cluster(s) free, %lu bytes\n", ncl, nbytes);
-    return 1;
-}
-
 void ya_loop(void)
 {
     int8_t status;

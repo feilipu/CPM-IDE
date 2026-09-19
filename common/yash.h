@@ -29,7 +29,9 @@ extern FILE *error;
 /* Per-tree: pick stdin/tty and set bios_iobyte. */
 void select_console(void);
 
+/* Named FatFs FRESULT (ChaN). rc=0 is silent. */
 void put_rc(uint8_t rc);
+
 int8_t ya_mkcpm(char **args);
 int8_t ya_hload(char **args);
 int8_t ya_md(char **args);
