@@ -48,7 +48,7 @@ int main(int argc, char ** argv)
 
     buffer = (char *)malloc(BUFFER_SIZE * sizeof(char));
 
-    fprintf(stdout, "\n\nRC2014 - CP/M-IDE - CF - ACIA\nfeilipu 2025\n\n> :-)\n");
+    fprintf(stdout, "\n\nRC2014 - CP/M-IDE - CF - ACIA\nfeilipu 2026\n\n> :-)\n");
 
     if (buffer) {
         put_rc(fat_mount());
