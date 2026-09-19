@@ -66,6 +66,9 @@ struct Builtin builtins[] = {
     { "exit", &ya_exit, "- exit and restart"}
 };
 
+/**
+   @brief Number of built-in commands.
+ */
 uint8_t ya_num_builtins(void) {
     return sizeof(builtins) / sizeof(struct Builtin);
 }
@@ -583,6 +586,11 @@ void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt)
   Builtin function implementations (CLI user functions, ya_*).
 */
 
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "cpm". Optional dirs, a parent, or CPMIDE.CFG.
+   @return Always returns 1, to continue executing.
+ */
 int8_t ya_mkcpm(char ** args)   /* initialise CP/M with up to 4 directory mounts */
 {
     uint8_t i;
@@ -647,6 +655,7 @@ cpm_go:
     return 1;
 }
 
+
 /**
    @brief Builtin command:
    @param args List of args.  args[0] is "hload".
@@ -667,7 +676,7 @@ int8_t ya_hload(char ** args)   /* load an Intel HEX CP/M file and run it */
 
 /**
    @brief Builtin command:
-   @param args List of args.  args[0] is "md". args[1] is the origin address.
+   @param args List of args.  args[0] is "md". args[1] is an optional origin.
    @return Always returns 1, to continue executing.
  */
 int8_t ya_md(char ** args)      /* dump RAM contents from nominated origin. */
@@ -726,7 +735,7 @@ int8_t ya_exit(char ** args)    /* exit and restart */
 
 /**
    @brief Builtin command:
-   @param args List of args.  args[0] is "ls".  args[1] is the path.
+   @param args List of args.  args[0] is "ls". args[1] is an optional path.
    @return Always returns 1, to continue executing.
  */
 int8_t ya_ls(char ** args)      /* print directory contents */
@@ -806,7 +815,7 @@ int8_t ya_cd(char ** args)
    @param args List of args.  args[0] is "pwd".
    @return Always returns 1, to continue executing.
  */
-int8_t ya_pwd(char ** args)     /* show the current working directory */
+int8_t ya_pwd(char ** args)     /* print the current directory cluster */
 {
     (void *)args;
     fprintf(output, "cluster %lu\n", fat_cwd);
@@ -1122,7 +1131,13 @@ int8_t ya_mount(char ** args)    /* mount a FAT file system */
     return 1;
 }
 
-int8_t ya_frag(char ** args)
+
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "frag". args[1] is the file.
+   @return Always returns 1, to continue executing.
+ */
+int8_t ya_frag(char ** args)    /* cluster-run count for a file */
 {
     uint32_t parent, cl, prev, ncl, nfrag;
     uint8_t n[11];
@@ -1155,7 +1170,13 @@ int8_t ya_frag(char ** args)
     return 1;
 }
 
-int8_t ya_free(char ** args)
+
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "free".
+   @return Always returns 1, to continue executing.
+ */
+int8_t ya_free(char ** args)    /* free clusters on the volume */
 {
     uint32_t ncl, nbytes;
 
@@ -1231,6 +1252,11 @@ int8_t ya_ds(char ** args)      /* disk status */
 }
 
 
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "dd". args[1] is an optional sector.
+   @return Always returns 1, to continue executing.
+ */
 int8_t ya_dd(char ** args)      /* disk dump */
 {
     DRESULT res;
@@ -1282,7 +1308,9 @@ int8_t ya_execute(char ** args)
 
 
 /**
-   @brief Read a line of input, echo it, bound BS/DEL to the prompt.
+   @brief Read a line of input. Echo printable keys, BS/DEL edit, up/down history.
+   @param line Destination buffer.
+   @param len Maximum characters stored.
  */
 void ya_getline(char * line, uint16_t len)
 {
@@ -1381,6 +1409,12 @@ void ya_getline(char * line, uint16_t len)
     }
 }
 
+
+/**
+   @brief Split a line into tokens. strtok mutates the line.
+   @param tokens Destination NULL-terminated list.
+   @param line Line to split.
+ */
 void ya_split_line(char ** tokens, char * line)
 {
     uint16_t position = 0;
@@ -1400,7 +1434,7 @@ void ya_split_line(char ** tokens, char * line)
 
 
 /**
-   @brief Loop getting input and executing it.
+   @brief Allocate buffers, then loop getting input and executing it.
  */
 void ya_loop(void)
 {
