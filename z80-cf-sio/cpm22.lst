@@ -2,4 +2,5 @@ cpm22preamble
 cpm22bios
 cpm22
 sio_init_async_rodata
+../common/fatfs.asm
 main.c

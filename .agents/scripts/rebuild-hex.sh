@@ -87,7 +87,6 @@ build_z80() {
     export TMPDIR="$tmp"
     cd "$ROOT/$dir"
     zcc +rc2014 -subtype="$sub" -SO3 --opt-code-speed -m \
-      -llib/rc2014/ff_ro --max-allocs-per-node400000 \
       @cpm22.lst -o "../$out" -create-app
   ) || return 1
   finish_hex "$out" || return 1
@@ -106,8 +105,6 @@ build_8085() {
       -I"${Z88DK}/include" \
       -I"${Z88DK}/include/_DEVELOPMENT/common" \
       -I"${Z88DK}/libsrc/target/rc2014" \
-      -L"${Z88DK}/lib/clibs/sccz80" \
-      -llib/rc2014/ff_85_ro \
       @cpm22.lst -o "../$out" -create-app
   ) || return 1
   finish_hex "$out" || return 1
@@ -134,10 +131,8 @@ spawn() {
   running=$((running + 1))
 }
 
-say "BEGIN  root=$ROOT  ZCCCFG=$ZCCCFG"
+say "BEGIN  root=$ROOT  ZCCCFG=$ZCCCFG  (v3 mini-FAT, no ff_ro)"
 say "       zcc=$(zcc 2>&1 | sed -n 's/.*\(v[0-9].*\)/\1/p' | head -1)"
-say "       ff_ro=$(ls -l "$Z88DK/lib/clibs/sdcc_ix/lib/rc2014/ff_ro.lib" | awk '{print $5,$6,$7,$8}')"
-say "       ff_85_ro=$(ls -l "$Z88DK/lib/clibs/sccz80/lib/rc2014/ff_85_ro.lib" | awk '{print $5,$6,$7,$8}')"
 
 spawn 8085-cf-acia   build_8085 8085-cf-acia   acia85 rc2014-cpm22-8085-cf-acia
 spawn 8085-cf-uart   build_8085 8085-cf-uart   uart85 rc2014-cpm22-8085-cf-uart

@@ -4,7 +4,7 @@ SECTION bss_compiler
 
 PUBLIC _cpm_fat_vol, fatwin, _fatwin, fat_winsect, fat_wflag
 PUBLIC fat_cwd, fat_found_sclust, fat_found_size
-PUBLIC dir_ptr, dir_sclust, dir_sect, dir_ofs
+PUBLIC dir_ptr, dir_sclust, dir_clust, dir_sect, dir_ofs
 PUBLIC fat_work, pack_sv, fat_files, _fat_files, _cpm_dir_sclust
 PUBLIC hstbuf, _hstbuf, hstdsk, _hstdsk, hsttrk, _hsttrk, hstsec, _hstsec
 PUBLIC hstwrt, _hstwrt
@@ -19,6 +19,7 @@ PUBLIC sekdsk, sektrk, seksec, sekhst, hstact
 PUBLIC unacnt, unadsk, unatrk, unasec
 PUBLIC rsflag, readop
 PUBLIC DIRBUF, _dirbuf
+PUBLIC ldi_body, _ldi_body
 
 _cpm_dir_sclust:        defs 16
 _cpm_fat_vol:           defs 28
@@ -27,17 +28,18 @@ fatwin:                 defs 512
 fat_winsect:            defs 4
 fat_wflag:              defs 1
 _fat_dir_sclust:
-dir_sclust:             defs 4
-dir_sect:               defs 4
-dir_ofs:                defs 2
+dir_sclust:             defs 4  ;directory start cluster; 0 = FAT16 static root
+dir_clust:              defs 4  ;cluster of the current directory sector
+dir_sect:               defs 4  ;LBA of the current directory sector
+dir_ofs:                defs 2  ;byte offset in the directory
 _fat_dir_ptr:
-dir_ptr:                defs 2
+dir_ptr:                defs 2  ;current 32-byte dirent in fatwin
 _fat_found_sclust:
 fat_found_sclust:       defs 4
 _fat_found_size:
 fat_found_size:         defs 4
 clst_cache_sclust:      defs 4
-clst_cache_ci:          defs 2
+clst_cache_ci:          defs 2  ;cluster index from start
 clst_cache_clst:        defs 4
 _fat_cwd:
 fat_cwd:                defs 4
@@ -49,7 +51,7 @@ synth_fi:               defs 1
 synth_want:             defs 1
 synth_seen:             defs 1
 _fat_files:
-fat_files:              defs 64*13
+fat_files:              defs 64*13*4        ;FILE_MAX * FILE_SIZ * 4 drives
 
 ; CP/M deblock (same names as cpm22bios.asm BSS)
 _cpm_dsk0_base:         defs 16     ; 4 x 32-bit LBA bases
@@ -81,3 +83,5 @@ rsflag:                 defs 1
 readop:                 defs 1
 DIRBUF:
 _dirbuf:                defs 2
+_ldi_body:
+ldi_body:               defs 65     ;Z80 33; 8085 65; copy_build fills this

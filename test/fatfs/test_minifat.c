@@ -7,6 +7,15 @@
 uint8_t ram_image[48 * 512];
 uint8_t ram_nsect = 48;
 
+static int fails;
+
+static void expect(const char *name, int ok)
+{
+    printf("minifat_%s %s\n", name, ok ? "PASS" : "FAIL");
+    if (!ok)
+        ++fails;
+}
+
 static void put_le16(uint8_t *p, uint16_t v)
 {
     p[0] = (uint8_t)v;
@@ -47,7 +56,7 @@ int main(void)
     ram_nsect = 48;
 
     rc = fat_mount();
-    printf("minifat_mount_small %u fs_type %u\n", rc, cpm_fat_vol.fs_type);
+    expect("mount_small_fail", rc == 1 && cpm_fat_vol.fs_type == 0);
 
     /* Inject a FAT16 window: 8 data clusters, 16-bit FAT, root at LBA 2. */
     memset(ram_image, 0, sizeof ram_image);
@@ -71,27 +80,27 @@ int main(void)
     memcpy(n, "HELLO   TXT", 11);
     parent = 0;
     rc = fat_dir_open(&parent);
-    printf("minifat_dir_open_root %u\n", rc);
+    expect("dir_open_root", rc == 0);
     rc = dir_find(n);
-    printf("minifat_find_missing %u\n", rc);
+    expect("find_missing", rc == 1);
     rc = dir_create(n);
-    printf("minifat_create HELLO.TXT %u\n", rc);
+    expect("create_hello", rc == 0);
     clst = 0;
     rc = fat_alloc(&clst);
-    printf("minifat_alloc %u clst %lu\n", rc, (unsigned long)clst);
+    expect("alloc", rc == 0 && clst == 2);
     rc = dir_find(n);
-    printf("minifat_find_hello %u ptr %u\n", rc, fat_dir_ptr ? fat_dir_ptr[0] : 0);
+    expect("find_hello", rc == 0 && fat_dir_ptr && fat_dir_ptr[0] == 'H');
 
     {
         uint32_t nxt = clst;
         rc = fat_next(&nxt);
-        printf("minifat_next_eoc %u nxt %lu\n", rc, (unsigned long)nxt);
+        expect("next_eoc", rc == 0 && nxt == 0x0FFFFFFFul);
     }
 
     {
         uint32_t lba = clst;
         rc = fat_clst2sect(&lba);
-        printf("minifat_clst2sect %u lba %lu\n", rc, (unsigned long)lba);
+        expect("clst2sect", rc == 0 && lba == 3);
     }
 
     /* dir_zap uses dir_ptr in fatwin: re-find so the window is the directory. */
@@ -100,14 +109,15 @@ int main(void)
     rc |= dir_find(n);
     rc |= dir_zap();
     rc |= fat_sync();
-    printf("minifat_zap_sync %u\n", rc);
+    expect("zap_sync", rc == 0);
     parent = 0;
     fat_dir_open(&parent);
     rc = dir_find(n);
-    printf("minifat_find_after_zap %u\n", rc);
+    expect("find_after_zap", rc == 1);
 
     rc = fat_free(&clst);
     rc |= fat_sync();
-    printf("minifat_free %u\n", rc);
-    return 0;
+    expect("free", rc == 0);
+    puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");
+    return fails ? 1 : 0;
 }
