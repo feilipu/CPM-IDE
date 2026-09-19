@@ -7,7 +7,7 @@ Always-on rules, PHASE/synthetics, and the z88dk / 8085-skills lookup: repo-root
   README.md
   scripts/
     rebuild-ff.sh     # ff, ff_ro, ff_85, ff_85_ro → z88dk clibs
-    rebuild-hex.sh    # seven rc2014-cpm22-*.hex (README zcc; v3 mini-FAT, no ff_ro)
+    rebuild-hex.sh    # seven rc2014-cpm22-*.hex (README zcc; mini-FAT, no ff_ro)
   skills/
     tool-rebuild/SKILL.md
 ```

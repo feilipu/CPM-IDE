@@ -188,8 +188,8 @@ cboot:
     xor     a                       ;zero in the accum
     ld      (_cpm_cdisk),a          ;select disk zero
 
-    ld      a,$81
-    ld      (_cpm_iobyte),a         ;set cpm iobyte to CRT: plus LPT: ($81)
+    ld      a,(_bios_iobyte)        ;get bios iobyte from shell
+    ld      (_cpm_iobyte),a         ;set cpm iobyte to that selected by bios shell CRT: plus LPT:
 
     ld      hl,$AA55                ;enable the canary, to show CP/M bios alive
     ld      (_cpm_bios_canary),hl
@@ -1350,7 +1350,9 @@ _cpm_fat_vol:       defb 0  ;+0  fs_type   1   ; 2=FAT16, 3=FAT32
                     defs 4  ;+16 database  4
                     defs 4  ;+20 fatsz     4
                     defb 0  ;+24 n_fats    1
-                    defs 3  ;+25 pad
+                    defb 0  ;+25 free_valid
+                    defs 2  ;+26 pad
+                    defs 4  ;+28 free_clst
 
 fatwin:             defs 512
 fat_winsect:        defs 4

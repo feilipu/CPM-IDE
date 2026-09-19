@@ -1421,7 +1421,9 @@ _cpm_fat_vol:       defb 0  ;+0  fs_type   1   ; 2=FAT16, 3=FAT32
                     defs 4  ;+16 database  4
                     defs 4  ;+20 fatsz     4
                     defb 0  ;+24 n_fats    1
-                    defs 3  ;+25 pad
+                    defb 0  ;+25 free_valid
+                    defs 2  ;+26 pad
+                    defs 4  ;+28 free_clst
 
 fatwin:             defs 512
 fat_winsect:        defs 4

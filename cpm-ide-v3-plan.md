@@ -1,5 +1,7 @@
 # CP/M-IDE v3 — Implementation Plan
 
+**Status:** Implemented and merged to `master` as v3. **v2.x** lives on `cpm-ide-v2.5`. This document is the original plan.
+
 Convert CP/M-IDE from **contiguous 8 MB `.CPM` drive images** on FAT to **native FAT 8.3 files in ordinary directories**, while keeping DRI CCP/BDOS unchanged. Physical disk I/O stays 512-byte IDE/CF sectors via the existing `ide_read_sector` / `ide_write_sector` path.
 
 This plan is for examination, edit, and approval before any code is written. Build proceeds as **micro-slices** (§12): one function per job, orchestrated from this session, for a small local model.
@@ -542,7 +544,7 @@ No hardware-in-loop is assumed in CI. Gates:
 ## 9. Documentation
 
 - Rewrite README Concept / Installation / `cpm` command: directories not `.CPM` files.
-- Provide an example SD/CF layout (`SYS/`, `USER/`, `ZORK/`, `CPMIDE.CFG`) instead of (or beside) 8 MB zip images. Keep `CPM Drives/*.CPM.zip` until v3 is default, marked legacy.
+- Provide an example SD/CF layout (`SYS/`, `USER/`, `ZORK/`, `CPMIDE.CFG`) instead of (or beside) 8 MB zip images. Keep `CPM Drives/*.CPM.zip` as v2.x archives; v3 extracts their files into FAT directories.
 - Blog-level description can wait; in-tree README is part of the last PR.
 - Comment in BIOS the AL packing and 512-byte path so the next port does not re-invent it.
 

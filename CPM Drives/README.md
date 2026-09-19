@@ -1,12 +1,14 @@
-# CP/M-IDE Drive Files
+# CP/M-IDE example files
 
-This directory contains example CP/M drives stored as compressed zip files. The files can be extracted and stored on a PATA or CF disk formatted with FAT32 (or FAT16 if quite small).
+This directory contains example CP/M file collections stored as compressed zip files. Each zip holds a v2.x 8 MB `.CPM` container.
 
-When in the CP/M-IDE shell each resulting file (example listing below) should be checked to confirm it has not been fragmented using __`frag`__. This check needs to be done only once on creation.
+**v3 (`master`):** unzip the archive, then extract the CP/M files out of the `.CPM` image onto a FAT directory (`cpmtools` `cpmcp`, or another host tool). Copy those 8.3 files onto the card and `cpm SYS` (or `ZORK`, …). Do not mount the `.CPM` file as a drive.
 
-Using __`ls`__ a listing of the available CP/M drive files in each directory can be generated. __`cd`__ and __`pwd`__ can be used to move freely within sub-directories as desired.
+**v2.x (`cpm-ide-v2.5`):** extract the `.CPM` file onto a FAT32 (or FAT16) disk, check it once with __`frag`__, and pass it to __`cpm`__. That check needs to be done only once on creation.
 
-CP/M-IDE can be started with the __`cpm`__ command with fully qualified paths to up to four (4) files, from any of the thousands of CP/M drives you may have stored.
+Using __`ls`__ a listing of the available files in each directory can be generated. __`cd`__ and __`pwd`__ can be used to move freely within sub-directories as desired.
+
+On v3, __`cpm`__ takes FAT directories. On v2.x, it takes fully qualified paths to up to four `.CPM` files.
 
 
 ```
@@ -48,7 +50,7 @@ ZEXDOC  .COM  12k : ZSID    .COM  12k : ZTRAN   .COM   4k
 ```
 The [NGS Microshell](http://www.z80.eu/microshell.html) can be very useful for those familiar with unix-like shells, so it has been added to the example [system disk](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/SYS.CPM.zip) too. There is no need to replace the DRI CCP with Microshell. In fact, adding it permanently would remove the special `EXIT` function built into the DRI CCP to provide a clean return to the CP/M-IDE shell. It can be launched with __`SH`__.
 
-The __`YASH`__ application can be used to modify the files from the underlying FAT32 drive from within CP/M. Capabilities include creating CP/M drive files. Listing, copying and deleting files. And mounting additional CP/M drive files from within CP/M.
+The __`YASH`__ application can be used to modify files on the underlying FAT32 drive from within CP/M. Listing, copying, and deleting files still apply on v3. Creating and mounting additional `.CPM` drive files (`mkdrv`, `dmount`) is the v2.x container workflow.
 
 ```
 > help

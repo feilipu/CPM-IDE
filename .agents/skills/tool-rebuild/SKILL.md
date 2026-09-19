@@ -27,7 +27,7 @@ git add -f rc2014-cpm22-*.hex
 
 `MAXJOBS` default 2. Each job has its own cwd and `TMPDIR` — **never** parallel bare `zcc` in one directory (`zcc_opt.def`).
 
-v3 ROM links in-tree mini-FAT (`common/fatfs.asm` / `fatfs_85.asm` via `cpm22.lst`). Do **not** pass `-llib/rc2014/ff_ro` / `ff_85_ro` on HEX builds. `rebuild-ff.sh` still installs ChaN `ff` for CP/M applications (`-subtype=cpm`).
+This tree (v3 / `master`) links in-tree mini-FAT (`common/fatfs.asm` / `fatfs_85.asm` via `cpm22.lst`). Do **not** pass `-llib/rc2014/ff_ro` / `ff_85_ro` on HEX builds. `rebuild-ff.sh` still installs ChaN `ff` for CP/M applications (`-subtype=cpm`). v2.x (`cpm-ide-v2.5`) still links `ff_ro`.
 
 Scripts fail-closed: zcc or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). Job-dir `rm` is not success. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`); `reap` exits on the first non-zero child. After HEX `wait_all`, all seven `rc2014-cpm22-*.hex` must exist and be non-empty or the script exits 1.
 

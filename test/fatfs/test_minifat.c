@@ -66,15 +66,19 @@ int main(void)
     cpm_fat_vol.n_rootent = 16;
     cpm_fat_vol.n_fatent = 10;
     cpm_fat_vol.fatbase = 1;
-    cpm_fat_vol.dirbase = 2;
-    cpm_fat_vol.database = 3;
+    cpm_fat_vol.dirbase = 3;
+    cpm_fat_vol.database = 4;
     cpm_fat_vol.fatsz = 1;
-    cpm_fat_vol.n_fats = 1;
+    cpm_fat_vol.n_fats = 2;
     fat_cwd = 0;
     ram_image[512] = 0xF8;
     ram_image[513] = 0xFF;
     ram_image[514] = 0xFF;
     ram_image[515] = 0xFF;
+    ram_image[1024] = 0xF8;
+    ram_image[1025] = 0xFF;
+    ram_image[1026] = 0xFF;
+    ram_image[1027] = 0xFF;
 
     memset(n, ' ', 11);
     memcpy(n, "HELLO   TXT", 11);
@@ -100,7 +104,22 @@ int main(void)
     {
         uint32_t lba = clst;
         rc = fat_clst2sect(&lba);
-        expect("clst2sect", rc == 0 && lba == 3);
+        expect("clst2sect", rc == 0 && lba == 4);
+    }
+
+    rc = fat_sync();
+    expect("sync_alloc", rc == 0);
+    expect("fat2_mirror",
+           ram_image[512 + 4] == ram_image[1024 + 4] &&
+           ram_image[512 + 5] == ram_image[1024 + 5] &&
+           ram_image[512 + 4] == 0xFF && ram_image[512 + 5] == 0xFF);
+    {
+        uint32_t nfree = 0, n2 = 0;
+        rc = fat_getfree(&nfree);
+        expect("getfree_after_alloc", rc == 0 && nfree == 7);
+        rc = fat_getfree(&n2);
+        expect("getfree_cached", rc == 0 && n2 == 7 &&
+               cpm_fat_vol.free_valid == 1 && cpm_fat_vol.free_clst == 7);
     }
 
     /* dir_zap uses dir_ptr in fatwin: re-find so the window is the directory. */
@@ -118,6 +137,14 @@ int main(void)
     rc = fat_free(&clst);
     rc |= fat_sync();
     expect("free", rc == 0);
+    expect("fat2_after_free",
+           ram_image[512 + 4] == 0 && ram_image[1024 + 4] == 0);
+    {
+        uint32_t nfree = 0;
+        rc = fat_getfree(&nfree);
+        expect("getfree_after_free", rc == 0 && nfree == 8 &&
+               cpm_fat_vol.free_clst == 8);
+    }
     puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");
     return fails ? 1 : 0;
 }

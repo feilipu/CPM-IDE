@@ -3,7 +3,8 @@
 **Date:** 2026-09-18  
 **Repo (Ubuntu):** `/data/CPM-IDE` (`feilipu/CPM-IDE`)  
 **Same bytes on macOS:** `/Users/phillip/Container/ubuntu-data/CPM-IDE`  
-**Branch:** `cpm-ide-v3`  
+**Branch:** `master` (v3; written on `cpm-ide-v3` before merge)  
+**v2.x maintenance:** `cpm-ide-v2.5` (tag `cpm-ide-v2.5`)  
 **Plan:** `cpm-ide-v3-plan.md`  
 **Original notes:** `cpm-ide-v3.md`
 
@@ -36,7 +37,7 @@ v2 `cpm file.a …` + `_cpm_dsk0_base[]` is **gone**. Shell `cpm` writes directo
 
 ## Where we stopped
 
-All seven v3 HEX products assemble and are on the branch. They have **not** been run on hardware. ticks cannot debug CF.
+All seven v3 HEX products assemble and are on `master`. They have **not** been run on hardware. ticks cannot debug CF.
 
 Last product decisions:
 

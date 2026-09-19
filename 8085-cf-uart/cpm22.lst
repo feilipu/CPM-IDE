@@ -2,4 +2,5 @@ cpm22preamble
 cpm22bios
 cpm22
 ../common/fatfs_85.asm
+../common/yash.c
 main.c

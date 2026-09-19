@@ -42,7 +42,7 @@ The IDE Hard Drive Module interface driver is optimised for performance and can 
 
 The IDE Hard Drive Module supports both PATA hard drives (including 3 1/2" magnetic platter, SSD, and DOM storage) and Compact Flash cards in their native 16-bit PATA mode, with buffered I/O provided by the 82C55 device. The IDE Hard Drive Module is the ideal way to attach "spinning rust" to your RC2014. Attaching one physical Master drive is supported.
 
-**v3** (this branch) mounts **FAT directories** as CP/M A:–D:. Files in those directories are native 8.3 FAT files (`FOO.COM`). The host USB/CF caddy and CP/M see the same names. **v2.5** (`master`) instead mounted opaque 8 MB `.CPM` container files via a ChaN `ff_ro` shell. How that works, and what changed, is under [CP/M-IDE v3](#cpm-ide-v3-this-branch).
+**v3** (`master`) mounts **FAT directories** as CP/M A:–D:. Files in those directories are native 8.3 FAT files (`FOO.COM`). The host USB/CF caddy and CP/M see the same names. **v2.x** (`cpm-ide-v2.5` branch and tag) instead mounted opaque 8 MB `.CPM` container files via a ChaN `ff_ro` shell. How that works, and what changed, is under [CP/M-IDE v3](#cpm-ide-v3).
 
 All seven firmware builds provide **51.00 KB** of TPA (BIOS origin `0xE380`, CCP `0xCD00`). Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). Four live drives maximum. 8.3 names are walked from the FAT directory on `DIR` rather than cached in the BIOS maps. Mini-FAT, IDE, and host sector I/O run from ROM (the RAM BIOS pages ROM in on disk I/O; serial ISRs stay in high RAM). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
 
@@ -202,13 +202,13 @@ Rather than spend time on long written descriptions, one picture is worth 2kByte
 
 The CP/M-IDE is built using the z88dk compilers and libraries, including a simple boot monitor or shell for the RC2014, together with the standard DRI CP/M CCP/BDOS, and a CP/M BIOS constructed specifically for the RC2014 in the above hardware configurations. The DRI CCP and BDOS have been optimised for performance using Z80 CPU extended instructions and 8085 CPU extended instructions, where possible. For example the Z80 `LDI` instructions have been used to improve buffer copy performance.
 
-### CP/M-IDE v3 (this branch)
+### CP/M-IDE v3
 
-v3 stops treating the FAT volume as a bag of opaque 8 MB `.CPM` disk images. CP/M A:–D: are ordinary FAT directories of native 8.3 files.
+v3 is `master`. It stops treating the FAT volume as a bag of opaque 8 MB `.CPM` disk images. CP/M A:–D: are ordinary FAT directories of native 8.3 files.
 
 #### How the FAT disk is used
 
-**v2.5 (`master`)** keeps a ChaN `ff_ro` shell in ROM. The user picks up to four CP/M *drive files* (8 MB containers). The BIOS deblocks those files as CP/M disks. The host cannot list what is inside them without `cpmtools` / `yash` / `mkdrv`.
+**v2.x** (`cpm-ide-v2.5`) keeps a ChaN `ff_ro` shell in ROM. The user picks up to four CP/M *drive files* (8 MB containers). The BIOS deblocks those files as CP/M disks. The host cannot list what is inside them without `cpmtools` / `yash` / `mkdrv`.
 
 **v3** drops `ff_ro` from the ROM. Shell and BIOS share one in-tree mini-FAT (`common/fatfs.asm` / `fatfs_85.asm`). `cpm SYS USER` (or a parent with `A`/`B`/`C`/`D`, or `CPMIDE.CFG`) binds those FAT directories to A:–D:. Directory `READ` synthesizes CP/M dirents in RAM; data `READ`/`WRITE` still deblock 512-byte IDE sectors to 128-byte BDOS records (see [CP/M deblocking](#cpm-deblocking)). Directory `WRITE` (`C=1`) updates the FAT 8.3 entry; the synthesized CP/M directory is never written back to the card.
 
@@ -324,7 +324,7 @@ A new empty “drive” is a new FAT directory (`mkdir` on the host or in the RO
 
 The [CP/M Drives directory](https://github.com/feilipu/CPM-IDE/tree/master/CPM%20Drives) still ships zips of commonly used applications, such as the [Zork Series](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/ZORK.CPM.zip), [BBC Basic](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/BBCBASIC.CPM.zip), [Hi-Tech C v3.09-15](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/HITECHC.CPM.zip), and [MS BASIC Compiler v5.3](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/MSBASCOM.CPM.zip). MS Basic `mbasic` (Interpreter) 5.21 is in the [SYS zip](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/SYS.CPM.zip). Unzip each archive into its own FAT directory (`ZORK`, `HITECHC`, …) and pass that directory to `cpm`.
 
-The empty [TEMPLATE.CPM.zip](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/TEMPLATE.CPM.zip) is a leftover v2.5 container. Under v3, `mkdir USER` on the host (or `mkdir` in the ROM shell) is enough. Each CP/M drive can still present up to 64 FAT names (many extents per name, packed size capped around 8 MB).
+The empty [TEMPLATE.CPM.zip](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/TEMPLATE.CPM.zip) is a leftover v2.x container. Under v3, `mkdir USER` on the host (or `mkdir` in the ROM shell) is enough. Each CP/M drive can still present up to 64 FAT names (many extents per name, packed size capped around 8 MB).
 
 FAT32 supports over 65,000 files in each directory. v3 only packs 64 names per live drive; extra files stay on the FAT volume and are skipped at pack.
 

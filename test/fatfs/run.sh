@@ -39,46 +39,6 @@ z88dk-ticks -m8085 "$HERE/out/biosdisk85.bin" -x "$HERE/out/biosdisk85.map" \
     -counter 999999999 | tee "$HERE/out/biosdisk85.txt"
 grep -q 'bios_fails 0' "$HERE/out/biosdisk85.txt"
 
-echo "=== master tree BIOS deblock (setLBAaddr -> ram IDE) ==="
-run_master_disk() {
-    tree="$1"
-    cpu="$2"
-    out="$HERE/out/master_${tree}"
-    ( cd "$ROOT" && python3 "$HERE/extract_master_disk.py" "$tree" ) > "${out}.asm"
-    grep -q '^setLBAaddr' "${out}.asm"
-    if grep -q 'copy_build' "${out}.asm"; then
-        echo "extract $tree used v3 BIOS (copy_build); want master setLBAaddr" >&2
-        exit 1
-    fi
-    if [ "$cpu" = "8085" ]; then
-        ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
-            -I"$HERE" \
-            "$HERE/test_bios_disk.c" "$HERE/wrap_master.asm" "${out}.asm" \
-            "$HERE/ide_ram_8085.asm" "$HERE/bss_ram.asm" \
-            -o "${out}.bin" -lndos )
-        z88dk-ticks -m8085 "${out}.bin" -x "${out}.map" \
-            -counter 999999999 | tee "${out}.txt"
-    else
-        ( cd /tmp && zcc +test -vn -m \
-            -I"$HERE" \
-            "$HERE/test_bios_disk.c" "$HERE/wrap_master.asm" "${out}.asm" \
-            "$HERE/ide_ram.asm" "$HERE/bss_ram.asm" \
-            -o "${out}.bin" -lndos )
-        z88dk-ticks "${out}.bin" -x "${out}.map" \
-            -counter 999999999 | tee "${out}.txt"
-    fi
-    grep -q 'bios_fails 0' "${out}.txt"
-    echo "master $tree OK"
-}
-
-run_master_disk z80-cf-uart z80
-run_master_disk z80-cf-acia z80
-run_master_disk z80-cf-sio z80
-run_master_disk z80-pata-sio z80
-run_master_disk 8085-cf-uart 8085
-run_master_disk 8085-cf-acia 8085
-run_master_disk 8085-pata-uart 8085
-
 echo "=== v3 tree BIOS disk (copy_build + mini-FAT + ram IDE) ==="
 run_v3_disk() {
     tree="$1"

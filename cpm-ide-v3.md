@@ -1,4 +1,6 @@
-The CP/M-IDE is an implementation of CP/M for the RC2014 platform. It supports a variety of hardware using different drivers for the underlying hardware
+The CP/M-IDE is an implementation of CP/M for the RC2014 platform. It supports a variety of hardware using different drivers for the underlying hardware.
+
+Original project brief. Implemented as **v3** on `master`. **v2.x** is `cpm-ide-v2.5`. The “current situation” below describes the pre-v3 tree.
 
 ## current situation
 
@@ -37,7 +39,7 @@ There is also a shadow ram setting for the z80 processor where a 128kB RAM card 
 ## project references
 
 See the readme file in the project directory.
-https://github.com/feilipu/CPM-IDE/blob/cpm-ide-v3/README.md
+https://github.com/feilipu/CPM-IDE/blob/master/README.md
 This provides connection to hardware information on the RC2014 web site, which can be evaluated for details on hardware.
 
 It further refers to a blog post that give more detail.
