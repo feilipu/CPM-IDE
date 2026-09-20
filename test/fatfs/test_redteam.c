@@ -66,14 +66,6 @@ static void wipe(void)
     rt_invalidate();
 }
 
-static void put11(uint8_t *p, const char *n11)
-{
-    uint8_t i;
-
-    for (i = 0; i < 11; ++i)
-        p[i] = (uint8_t)n11[i];
-}
-
 static void put_dirent(uint8_t *p, const char *n11, uint8_t attr, uint32_t cl, uint32_t sz)
 {
     memcpy(p, n11, 11);
@@ -257,13 +249,12 @@ static void case_nroot_overread(void)
     wipe();
     inject_fat16(32);
     ram_image[1024] = 'A';
-    put11(ram_image + 1536, "OVERREADTXT");
-    ram_image[1536 + 11] = 0x20;
     parent = 0;
-    if (fat_dir_open(&parent)) {
-        report("nrootent_overread", "SKIP");
+    rc = fat_dir_open(&parent);
+    report("nroot32_A_open", rc == 0 ? "SAFE" : "FAIL");
+    if (rc)
         return;
-    }
+    put_dirent(ram_image + 1536, "OVERREADTXT", 0x20, 5, 1);
     saw = 0;
     for (i = 0; i < 20; ++i) {
         rc = fat_dir_read(ent);
@@ -279,28 +270,25 @@ static void case_fat32_clst0(void)
 {
     uint32_t z;
     uint8_t ent[32];
+    uint8_t rc;
 
     wipe();
     inject_fat16(16);
     cpm_fat_vol.fs_type = 3;
     cpm_fat_vol.n_rootent = 0;
-    ram_image[512 + 8] = 0xFF;
-    ram_image[512 + 9] = 0xFF;
-    ram_image[512 + 10] = 0xFF;
-    ram_image[512 + 11] = 0x0F;
-    put11(ram_image + 2 * 512, "FATASDIR   ");
-    ram_image[2 * 512 + 11] = 0x20;
-    put11(ram_image + 3 * 512, "REALROOT   ");
-    ram_image[3 * 512 + 11] = AM_DIR;
+    put_le16(ram_image + 512 + 8, 0xFFFF);
+    put_le16(ram_image + 512 + 10, 0x0FFF);
+    put_dirent(ram_image + 2 * 512, "FATASDIR   ", 0x20, 9, 1);
+    put_dirent(ram_image + 3 * 512, "REALROOT   ", AM_DIR, 2, 0);
     z = 0;
-    if (fat_dir_open(&z)) {
-        report("fat32_clst0_nroot0", "SKIP");
+    rc = fat_dir_open(&z);
+    report("fat32_clst0_open", rc == 0 ? "SAFE" : "FAIL");
+    if (rc)
         return;
-    }
-    if (fat_dir_read(ent)) {
-        report("fat32_clst0_nroot0", "SKIP");
+    rc = fat_dir_read(ent);
+    report("fat32_clst0_read", rc == 0 ? "SAFE" : "FAIL");
+    if (rc)
         return;
-    }
     report("fat32_clst0_nroot0",
            memcmp(ent, "REALROOT   ", 11) == 0 ? "SAFE" : "HIT");
 }

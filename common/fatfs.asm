@@ -966,19 +966,20 @@ fat_nfree_dec_lo:
     ret
 
 ; ff.c ld_32 / st_32 as *(DWORD *). Byte stream through HL (no ld hl,(de)
-; on Z80). OUT HL += 4. BCDE is E LSB.
+; on Z80). Last byte has no post-increment: HL at offset +3. Streamed
+; callers inc hl to the next dword. BCDE is E LSB.
 fat_ld32:
     ld      e,(hl+)
     ld      d,(hl+)
     ld      c,(hl+)
-    ld      b,(hl+)
+    ld      b,(hl)
     ret
 
 fat_st32:
     ld      (hl+),e
     ld      (hl+),d
     ld      (hl+),c
-    ld      (hl+),b
+    ld      (hl),b
     ret
 
 ; IN: HL -> {sclust:4, fptr:4} LE
@@ -989,6 +990,7 @@ clst_from_off:
     call    fat_ld32
     ld      (fat_work),de            ;sclust
     ld      (fat_work+2),bc
+    inc     hl
     call    fat_ld32                 ;fptr
     ; cluster index = (fptr >> 9) / csize. >>8 is a byte slide; >>1 after that.
     ld      e,d

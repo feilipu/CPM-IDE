@@ -137,7 +137,8 @@ fat_copy_lp:
     ret
 
 ; ff.c ld_32 / st_32 as *(DWORD *). Word cursor DE, native ld hl,(de) /
-; ld (de),hl. OUT HL += 4. BCDE is E LSB.
+; ld (de),hl. Last byte has no post-increment: HL at offset +3. Streamed
+; callers inc hl to the next dword. BCDE is E LSB.
 fat_ld32:
     ex      de,hl
     ld      hl,(de)
@@ -145,7 +146,6 @@ fat_ld32:
     inc     de
     push    hl
     ld      hl,(de)
-    inc     de
     inc     de
     ld      bc,hl
     pop     hl
@@ -160,7 +160,6 @@ fat_st32:
     inc     de
     pop     hl
     ld      (de),hl
-    inc     de
     inc     de
     ex      de,hl
     ret
@@ -1152,6 +1151,7 @@ clst_from_off:
     ld      hl,bc
     ld      (fat_work+2),hl
     pop     hl
+    inc     hl
     call    fat_ld32                 ;fptr
     ; cluster index = (fptr >> 9) / csize. >>8 is a byte slide; >>1 after that.
     ld      e,d
