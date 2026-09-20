@@ -250,10 +250,10 @@ static void case_nroot_overread(void)
     inject_fat16(32);
     ram_image[1024] = 'A';
     parent = 0;
-    rc = fat_dir_open(&parent);
-    report("nroot32_A_open", rc == 0 ? "SAFE" : "FAIL");
-    if (rc)
+    if (fat_dir_open(&parent)) {
+        report("nrootent_overread", "FAIL");
         return;
+    }
     put_dirent(ram_image + 1536, "OVERREADTXT", 0x20, 5, 1);
     saw = 0;
     for (i = 0; i < 20; ++i) {
@@ -270,7 +270,6 @@ static void case_fat32_clst0(void)
 {
     uint32_t z;
     uint8_t ent[32];
-    uint8_t rc;
 
     wipe();
     inject_fat16(16);
@@ -281,14 +280,14 @@ static void case_fat32_clst0(void)
     put_dirent(ram_image + 2 * 512, "FATASDIR   ", 0x20, 9, 1);
     put_dirent(ram_image + 3 * 512, "REALROOT   ", AM_DIR, 2, 0);
     z = 0;
-    rc = fat_dir_open(&z);
-    report("fat32_clst0_open", rc == 0 ? "SAFE" : "FAIL");
-    if (rc)
+    if (fat_dir_open(&z)) {
+        report("fat32_clst0_nroot0", "FAIL");
         return;
-    rc = fat_dir_read(ent);
-    report("fat32_clst0_read", rc == 0 ? "SAFE" : "FAIL");
-    if (rc)
+    }
+    if (fat_dir_read(ent)) {
+        report("fat32_clst0_nroot0", "FAIL");
         return;
+    }
     report("fat32_clst0_nroot0",
            memcmp(ent, "REALROOT   ", 11) == 0 ? "SAFE" : "HIT");
 }
