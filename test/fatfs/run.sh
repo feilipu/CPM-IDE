@@ -133,8 +133,9 @@ echo "=== red-team wrap/mount/pack ==="
     -o "$HERE/out/redteam.bin" -lndos )
 z88dk-ticks "$HERE/out/redteam.bin" -x "$HERE/out/redteam.map" \
     -counter 999999999 | tee "$HERE/out/redteam.txt"
-grep -q 'REDTEAM_FAILS' "$HERE/out/redteam.txt" && exit 1
-grep -q 'REDTEAM_DONE' "$HERE/out/redteam.txt"
+if grep -q 'REDTEAM_FAILS' "$HERE/out/redteam.txt"; then exit 1; fi
+if grep -q 'REDTEAM_HITS' "$HERE/out/redteam.txt"; then exit 1; fi
+grep -q 'REDTEAM_CLEAN' "$HERE/out/redteam.txt"
 echo "=== red-team 8085 ==="
 ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
     -I"$ROOT/common" -I"$HERE" \
@@ -144,8 +145,9 @@ echo "=== red-team 8085 ==="
     -o "$HERE/out/redteam85.bin" -lndos )
 z88dk-ticks -m8085 "$HERE/out/redteam85.bin" -x "$HERE/out/redteam85.map" \
     -counter 999999999 | tee "$HERE/out/redteam85.txt"
-grep -q 'REDTEAM_FAILS' "$HERE/out/redteam85.txt" && exit 1
-grep -q 'REDTEAM_DONE' "$HERE/out/redteam85.txt"
+if grep -q 'REDTEAM_FAILS' "$HERE/out/redteam85.txt"; then exit 1; fi
+if grep -q 'REDTEAM_HITS' "$HERE/out/redteam85.txt"; then exit 1; fi
+grep -q 'REDTEAM_CLEAN' "$HERE/out/redteam85.txt"
 
 echo "=== compare mount-fail on small image ==="
 # ChaN may still mount nclst=100 as FAT12; mini-FAT must reject FAT12.

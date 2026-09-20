@@ -8,6 +8,8 @@ uint8_t ram_image[48 * 512];
 uint8_t ram_nsect = 48;
 
 extern void rt_invalidate(void);
+extern uint8_t rt_dir_ofs_wrap(void);
+extern uint8_t rt_wflag(void);
 
 static int fails;
 
@@ -197,6 +199,150 @@ int main(void)
 
         rc = fat_getfree(&nfree);
         expect("getfree_fat32_nibble", rc == 0 && nfree == 3);
+    }
+
+    /* FAT32 put_fat keeps bits 28-31 (0xA0000000 -> EOC is 0xAFFFFFFF). */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 3;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_fatent = 6;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0x0F;
+    ram_image[516] = 0xFF;
+    ram_image[517] = 0xFF;
+    ram_image[518] = 0xFF;
+    ram_image[519] = 0x0F;
+    ram_image[523] = 0xA0;          /* cluster 2: 0xA0000000 */
+    clst = 0;
+    rc = fat_alloc(&clst);
+    expect("alloc_fat32_nibble", rc == 0 && clst == 2);
+    expect("put_fat32_nibble",
+           ram_image[512 + 8] == 0xFF && ram_image[512 + 9] == 0xFF &&
+           ram_image[512 + 10] == 0xFF && ram_image[512 + 11] == 0xAF);
+
+    expect("dir_next_wrap", rt_dir_ofs_wrap() == 1);
+
+    /* FAT#2 at LBA 3 is past ram_nsect=3: sync must fail and keep wflag. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    ram_nsect = 3;
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 16;
+    cpm_fat_vol.n_fatent = 10;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 0;
+    cpm_fat_vol.database = 2;
+    cpm_fat_vol.fatsz = 2;
+    cpm_fat_vol.n_fats = 2;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0xFF;
+    clst = 0;
+    rc = fat_alloc(&clst);
+    expect("alloc_fat2_short", rc == 0 && clst == 2);
+    rc = fat_sync();
+    expect("sync_fat2_fail", rc != 0);
+    expect("wflag_sticky", rt_wflag() != 0);
+    expect("fat1_eoc", ram_image[512 + 4] == 0xFF && ram_image[512 + 5] == 0xFF);
+    expect("fat2_unwritten", ram_image[1536 + 4] == 0);
+    ram_nsect = 48;
+
+    /* FAT32 cluster 0 is dirbase as a cluster (LBA 3), not as an LBA. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 3;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 0;
+    cpm_fat_vol.n_fatent = 16;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 2;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512 + 8] = 0xFF;
+    ram_image[512 + 9] = 0xFF;
+    ram_image[512 + 10] = 0xFF;
+    ram_image[512 + 11] = 0x0F;
+    {
+        uint8_t ent[32];
+        uint32_t z;
+
+        memcpy(ram_image + 2 * 512, "FATASDIR   ", 11);
+        ram_image[2 * 512 + 11] = 0x20;
+        memcpy(ram_image + 3 * 512, "REALROOT   ", 11);
+        ram_image[3 * 512 + 11] = AM_DIR;
+        z = 0;
+        rc = fat_dir_open(&z);
+        expect("fat32_clst0_open", rc == 0);
+        rc = fat_dir_read(ent);
+        expect("fat32_clst0_ent", rc == 0 && memcmp(ent, "REALROOT   ", 11) == 0);
+    }
+
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 16;
+    cpm_fat_vol.n_fatent = 16;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 2;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0xFF;
+    ram_image[516] = 2;             /* FAT[2] = 2 */
+    ram_image[517] = 0;
+    clst = 2;
+    rc = fat_next(&clst);
+    expect("fat_self_loop", rc != 0);
+
+    /* FAT16 root must not walk into database (n_rootent=32, dirbase=2, data=3). */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 32;
+    cpm_fat_vol.n_fatent = 16;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 2;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[1024] = 'A';
+    memcpy(ram_image + 1536, "OVERREADTXT", 11);
+    ram_image[1536 + 11] = 0x20;
+    parent = 0;
+    rc = fat_dir_open(&parent);
+    expect("nroot32_overlap_open", rc == 0);
+    {
+        uint8_t ent[32], i, saw;
+
+        saw = 0;
+        for (i = 0; i < 20; ++i) {
+            rc = fat_dir_read(ent);
+            if (rc || ent[0] == 0)
+                break;
+            if (memcmp(ent, "OVERREADTXT", 11) == 0)
+                saw = 1;
+        }
+        expect("nroot32_overlap_read", saw == 0);
     }
 
     puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");

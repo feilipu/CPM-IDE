@@ -28,6 +28,8 @@ extern uint8_t  hstdsk, hsttrk, hstsec;
 extern void     rt_invalidate(void);
 
 static int hits, safes, fails;
+static uint32_t rt_dword;
+static uint8_t rt_ent[32];
 
 static void put_le16(uint8_t *p, uint16_t v)
 {
@@ -62,6 +64,14 @@ static void wipe(void)
     memset(cpm_dir_sclust, 0, sizeof cpm_dir_sclust);
     fat_cwd = 0;
     rt_invalidate();
+}
+
+static void put11(uint8_t *p, const char *n11)
+{
+    uint8_t i;
+
+    for (i = 0; i < 11; ++i)
+        p[i] = (uint8_t)n11[i];
 }
 
 static void put_dirent(uint8_t *p, const char *n11, uint8_t attr, uint32_t cl, uint32_t sz)
@@ -243,11 +253,12 @@ static void case_nroot_overread(void)
     report("nroot32_empty_open", fat_dir_open(&parent) == 0 ? "SAFE" : "FAIL");
 
     /* 32 root ents = 2 sectors. dirbase=2, so the second "root" sector is
-     * LBA 3 = database. Mini-FAT does not check rootsecs vs n_rootent. */
+     * LBA 3 = database. Clamp so the root does not extend into data. */
     wipe();
     inject_fat16(32);
     ram_image[1024] = 'A';
-    put_dirent(ram_image + 1536, "OVERREADTXT", 0x20, 5, 1);
+    put11(ram_image + 1536, "OVERREADTXT");
+    ram_image[1536 + 11] = 0x20;
     parent = 0;
     if (fat_dir_open(&parent)) {
         report("nrootent_overread", "SKIP");
@@ -273,14 +284,20 @@ static void case_fat32_clst0(void)
     inject_fat16(16);
     cpm_fat_vol.fs_type = 3;
     cpm_fat_vol.n_rootent = 0;
-    put_le16(ram_image + 512 + 8, 0xFFFF);
-    put_le16(ram_image + 512 + 10, 0x0FFF);
-    put_dirent(ram_image + 2 * 512, "FATASDIR   ", 0x20, 9, 1);
-    put_dirent(ram_image + 3 * 512, "REALROOT   ", AM_DIR, 2, 0);
-
+    ram_image[512 + 8] = 0xFF;
+    ram_image[512 + 9] = 0xFF;
+    ram_image[512 + 10] = 0xFF;
+    ram_image[512 + 11] = 0x0F;
+    put11(ram_image + 2 * 512, "FATASDIR   ");
+    ram_image[2 * 512 + 11] = 0x20;
+    put11(ram_image + 3 * 512, "REALROOT   ");
+    ram_image[3 * 512 + 11] = AM_DIR;
     z = 0;
-    /* FAT32 cluster 0 follows dirbase as a cluster (LBA 3), not as an LBA. */
-    if (fat_dir_open(&z) || fat_dir_read(ent)) {
+    if (fat_dir_open(&z)) {
+        report("fat32_clst0_nroot0", "SKIP");
+        return;
+    }
+    if (fat_dir_read(ent)) {
         report("fat32_clst0_nroot0", "SKIP");
         return;
     }
@@ -290,20 +307,20 @@ static void case_fat32_clst0(void)
 
 static void case_cycle(void)
 {
-    uint32_t cl;
     uint8_t i, stuck;
 
     wipe();
     inject_fat16(16);
     put_le16(ram_image + 512 + 4, 2);   /* FAT[2] = 2 */
-    cl = 2;
-    if (fat_next(&cl)) {
-        report("fat_self_loop", "SKIP");
+    rt_dword = 2;
+    rt_invalidate();
+    if (fat_next(&rt_dword)) {
+        report("fat_self_loop", "SAFE");
         return;
     }
-    stuck = (cl == 2);
+    stuck = (rt_dword == 2);
     for (i = 0; i < 7 && stuck; ++i) {
-        if (fat_next(&cl) || cl != 2)
+        if (fat_next(&rt_dword) || rt_dword != 2)
             stuck = 0;
     }
     report("fat_self_loop", stuck ? "HIT" : "SAFE");
