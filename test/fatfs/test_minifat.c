@@ -7,6 +7,8 @@
 uint8_t ram_image[48 * 512];
 uint8_t ram_nsect = 48;
 
+extern void rt_invalidate(void);
+
 static int fails;
 
 static void expect(const char *name, int ok)
@@ -85,6 +87,21 @@ int main(void)
     parent = 0;
     rc = fat_dir_open(&parent);
     expect("dir_open_root", rc == 0);
+
+    {
+        uint32_t lba;
+
+        lba = 0;
+        expect("clst2sect_clst0", fat_clst2sect(&lba) != 0);
+        lba = 1;
+        expect("clst2sect_clst1", fat_clst2sect(&lba) != 0);
+        lba = 10;                   /* n_fatent */
+        expect("clst2sect_nfatent", fat_clst2sect(&lba) != 0);
+        lba = 9;
+        rc = fat_clst2sect(&lba);
+        expect("clst2sect_last", rc == 0 && lba == 11);
+    }
+
     rc = dir_find(n);
     expect("find_missing", rc == 1);
     rc = dir_create(n);
@@ -96,15 +113,23 @@ int main(void)
     expect("find_hello", rc == 0 && fat_dir_ptr && fat_dir_ptr[0] == 'H');
 
     {
-        uint32_t nxt = clst;
-        rc = fat_next(&nxt);
-        expect("next_eoc", rc == 0 && nxt == 0x0FFFFFFFul);
+        uint32_t box[2];
+
+        box[0] = clst;
+        box[1] = 0xA5A5A5A5ul;
+        rc = fat_next(&box[0]);
+        expect("next_eoc", rc == 0 && box[0] == 0x0FFFFFFFul);
+        expect("next_neighbor", box[1] == 0xA5A5A5A5ul);
     }
 
     {
-        uint32_t lba = clst;
-        rc = fat_clst2sect(&lba);
-        expect("clst2sect", rc == 0 && lba == 4);
+        uint32_t box[2];
+
+        box[0] = clst;
+        box[1] = 0xA5A5A5A5ul;
+        rc = fat_clst2sect(&box[0]);
+        expect("clst2sect", rc == 0 && box[0] == 4);
+        expect("clst2sect_neighbor", box[1] == 0xA5A5A5A5ul);
     }
 
     rc = fat_sync();
@@ -145,6 +170,35 @@ int main(void)
         expect("getfree_after_free", rc == 0 && nfree == 8 &&
                cpm_fat_vol.free_clst == 8);
     }
+
+    /* FAT32: high nibble 0xF0000000 is free; 0x00000001 is used. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 3;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_fatent = 6;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0x0F;
+    ram_image[516] = 0xFF;
+    ram_image[517] = 0xFF;
+    ram_image[518] = 0xFF;
+    ram_image[519] = 0x0F;
+    ram_image[523] = 0xF0;          /* cluster 2: 0xF0000000 */
+    ram_image[524] = 0x01;          /* cluster 3: 1 */
+    {
+        uint32_t nfree = 0;
+
+        rc = fat_getfree(&nfree);
+        expect("getfree_fat32_nibble", rc == 0 && nfree == 3);
+    }
+
     puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");
     return fails ? 1 : 0;
 }

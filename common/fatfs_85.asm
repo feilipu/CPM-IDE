@@ -136,6 +136,35 @@ fat_copy_lp:
     jp      NZ,fat_copy_lp
     ret
 
+; ff.c ld_32 / st_32 as *(DWORD *). Word cursor DE, native ld hl,(de) /
+; ld (de),hl. OUT HL += 4. BCDE is E LSB.
+fat_ld32:
+    ex      de,hl
+    ld      hl,(de)
+    inc     de
+    inc     de
+    push    hl
+    ld      hl,(de)
+    inc     de
+    inc     de
+    ld      bc,hl
+    pop     hl
+    ex      de,hl
+    ret
+
+fat_st32:
+    push    bc
+    ex      de,hl
+    ld      (de),hl
+    inc     de
+    inc     de
+    pop     hl
+    ld      (de),hl
+    inc     de
+    inc     de
+    ex      de,hl
+    ret
+
 
 DEFC    FS_FAT16        = 2
 DEFC    FS_FAT32        = 3
@@ -179,12 +208,23 @@ DEFC    EOC32           = $0FFFFFFF
 DEFC    AM_RDO          = $01
 
 
-; ff.c clst2sect: LBA = database + csize * (clst - 2).
+; ff.c clst2sect: if (clst < 2 || clst >= n_fatent) fail;
+; clst -= 2; return database + csize * clst. csize is 2^n.
 ; IN:  BCDE = cluster (B MSB … E LSB)
 ; OUT: C: BCDE = LBA of first sector of cluster
-;      NC: fail (cluster < 2 or cluster >= n_fatent)
+;      NC: fail
 ; clobbers AF, HL
 clst2sect:
+    ld      hl,_cpm_fat_vol+4       ;n_fatent, little-endian
+    ld      a,e
+    sub     (hl+)
+    ld      a,d
+    sbc     a,(hl+)
+    ld      a,c
+    sbc     a,(hl+)
+    ld      a,b
+    sbc     a,(hl)
+    ret     NC                      ;cluster >= n_fatent
     ld      a,e
     sub     2
     ld      e,a
@@ -197,46 +237,7 @@ clst2sect:
     ld      a,b
     sbc     a,0
     ld      b,a
-    ret     C                       ;cluster < 2
-
-    push    bc
-    push    de                      ;save clst-2
-
-    ld      hl,_cpm_fat_vol+4       ;n_fatent, little-endian
-    ld      a,(hl+)
-    sub     e                       ;n_fatent - (clst-2)
-    ld      e,a
-    ld      a,(hl+)
-    sbc     a,d
-    ld      d,a
-    ld      a,(hl+)
-    sbc     a,c
-    ld      c,a
-    ld      a,(hl)
-    sbc     a,b
-    ld      b,a
-    jr      C,clst2sect_fail        ;n_fatent < clst-2
-    ld      a,e                     ;still need orig >= n_fatent?
-    sub     2                       ;n_fatent - orig = (n_fatent-(clst-2))-2
-    ld      e,a
-    ld      a,d
-    sbc     a,0
-    ld      d,a
-    ld      a,c
-    sbc     a,0
-    ld      c,a
-    ld      a,b
-    sbc     a,0
-    ld      b,a
-    jr      C,clst2sect_fail        ;orig > n_fatent
-    ld      a,b
-    or      c
-    or      d
-    or      e
-    jr      Z,clst2sect_fail        ;orig == n_fatent
-
-    pop     de
-    pop     bc                      ;BCDE = clst-2
+    jr      C,clst2sect_ov          ;cluster < 2
     ld      hl,de                   ;DEHL = clst-2
     ld      de,bc
     ld      a,(_cpm_fat_vol+1)      ;csize is 2^n
@@ -270,12 +271,6 @@ clst2sect_base:
     ret
 
 clst2sect_ov:
-    or      a
-    ret
-
-clst2sect_fail:
-    pop     de
-    pop     bc
     or      a
     ret
 
@@ -1073,7 +1068,8 @@ put_fat32:
     ld      (hl),a
     jr      put_fat_wrote
 
-; Z if FAT entry at HL is free. Preserves HL.
+; Z if FAT entry at HL is free (ff ld_16==0 / ld_32&0x0FFFFFFF==0).
+; Preserves HL. put_fat cache and f_getfree window scan.
 fat_win_is_free:
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
@@ -1084,6 +1080,7 @@ fat_win_is_free:
     dec     hl
     ret
 fat_win_free32:
+    push    bc
     ld      a,(hl)
     inc     hl
     or      (hl)
@@ -1097,6 +1094,7 @@ fat_win_free32:
     dec     hl
     dec     hl
     or      b
+    pop     bc
     ret
 
 ; Z if LE dword at DE is a free next-cluster. Preserves DE, HL.
@@ -1147,19 +1145,14 @@ fat_nfree_dec_lo:
 ; Cluster index is (fptr >> 9) / csize. Sequential CP/M I/O hits
 ; clst_cache_* so we do not re-walk from sclust.
 clst_from_off:
-    ld      e,(hl+)
-    ld      d,(hl+)
-    ld      c,(hl+)
-    ld      b,(hl+)
+    call    fat_ld32
+    push    hl
     ex      de,hl
     ld      (fat_work),hl            ;sclust
     ld      hl,bc
     ld      (fat_work+2),hl
-    ex      de,hl                    ;HL -> fptr
-    ld      e,(hl+)
-    ld      d,(hl+)
-    ld      c,(hl+)
-    ld      b,(hl)                   ;fptr
+    pop     hl
+    call    fat_ld32                 ;fptr
     ; cluster index = (fptr >> 9) / csize. >>8 is a byte slide; >>1 after that.
     ld      e,d
     ld      d,c
@@ -3056,10 +3049,7 @@ wd_phit:
 ;*****************************************************
 
 _fat_dir_open:
-    ld      e,(hl+)
-    ld      d,(hl+)
-    ld      c,(hl+)
-    ld      b,(hl)
+    call    fat_ld32
     ld      hl,0
     call    dir_sdi
     ld      l,0
@@ -3087,18 +3077,12 @@ fat_dir_read_end:
 
 ; HL -> DWORD cluster (LE). Write next cluster back. L=0 success.
 _fat_next:
-    ld      e,(hl+)
-    ld      d,(hl+)
-    ld      c,(hl+)
-    ld      b,(hl)
     push    hl
+    call    fat_ld32
     call    get_fat
     pop     hl
     jr      NC,fat_next_fail
-    ld      (hl-),b
-    ld      (hl-),c
-    ld      (hl-),d
-    ld      (hl),e
+    call    fat_st32
     ld      l,0
     ret
 fat_next_fail:
@@ -3107,18 +3091,12 @@ fat_next_fail:
 
 ; HL -> DWORD last cluster (0 = new chain). Write new cluster back.
 _fat_alloc:
-    ld      e,(hl+)
-    ld      d,(hl+)
-    ld      c,(hl+)
-    ld      b,(hl)
     push    hl
+    call    fat_ld32
     call    create_chain
     pop     hl
     jr      NC,fat_alloc_fail
-    ld      (hl-),b
-    ld      (hl-),c
-    ld      (hl-),d
-    ld      (hl),e
+    call    fat_st32
     ld      l,0
     ret
 fat_alloc_fail:
@@ -3127,10 +3105,7 @@ fat_alloc_fail:
 
 ; HL -> DWORD start cluster.
 _fat_free:
-    ld      e,(hl+)
-    ld      d,(hl+)
-    ld      c,(hl+)
-    ld      b,(hl)
+    call    fat_ld32
     call    remove_chain
     ld      l,0
     ret     C
@@ -3139,18 +3114,12 @@ _fat_free:
 
 ; HL -> DWORD cluster in, LBA out.
 _fat_clst2sect:
-    ld      e,(hl+)
-    ld      d,(hl+)
-    ld      c,(hl+)
-    ld      b,(hl)
     push    hl
+    call    fat_ld32
     call    clst2sect
     pop     hl
     jr      NC,fat_c2s_fail
-    ld      (hl-),b
-    ld      (hl-),c
-    ld      (hl-),d
-    ld      (hl),e
+    call    fat_st32
     ld      l,0
     ret
 fat_c2s_fail:
@@ -3214,11 +3183,12 @@ gf_got:
     jr      Z,gf32
     ld      b,0                     ;256 FAT16 entries / sector
 gf16_lp:
-    ld      a,(hl+)
-    or      (hl+)
+    call    fat_win_is_free
     jr      NZ,gf16_used
     call    gf_inc
 gf16_used:
+    ld      de,hl+2
+    ex      de,hl
     call    gf_dec
     jr      Z,gf_scanned
     dec     b
@@ -3227,16 +3197,12 @@ gf16_used:
 gf32:
     ld      b,128
 gf32_lp:
-    ld      a,(hl+)
-    or      (hl+)
-    or      (hl+)
-    ld      c,a
-    ld      a,(hl+)
-    and     $0F
-    or      c
+    call    fat_win_is_free
     jr      NZ,gf32_used
     call    gf_inc
 gf32_used:
+    ld      de,hl+4
+    ex      de,hl
     call    gf_dec
     jr      Z,gf_scanned
     dec     b
@@ -3253,14 +3219,7 @@ gf_scanned:
     ld      bc,hl
 gf_store:
     pop     hl
-    push    de
-    ex      de,hl
-    pop     hl                      ;HL = nfree lo, DE = out
-    ld      (de),hl
-    inc     de
-    inc     de
-    ld      hl,bc
-    ld      (de),hl
+    call    fat_st32
     ld      l,0
     scf
     ret
