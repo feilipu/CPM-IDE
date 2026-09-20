@@ -113,7 +113,7 @@ int main(void)
     expect("hello_nal", slot[11] == 1 && slot[12] == 0);
     expect("hello_firstal", slot[9] == 2 && slot[10] == 0);
     expect("hello_sclust", slot[1] == 3);
-    slot += 13;
+    slot += 24;
     expect("big_nal", slot[11] == 16 && slot[12] == 0);
     expect("big_firstal", slot[9] == 3 && slot[10] == 0);
     expect("big_sclust", slot[1] == 4);
@@ -133,20 +133,20 @@ int main(void)
     bios_home();
     bios_settrk(0);
 
-    /* Directory host 0: synth 8.3 at byte 0 (not CP/M UU). */
+    /* Directory host 0: CP/M UU at byte 0, 8.3 at 1. */
     memset(rec, 0, 128);
     bios_setdma(rec);
     bios_setsec(0);
     rc = bios_read();
-    expect("dir_read", rc == 0 && memcmp(rec, "HELLO   TXT", 11) == 0);
-    expect("dir_read_big", memcmp(rec + 32, "BIG     DAT", 11) == 0);
+    expect("dir_read", rc == 0 && rec[0] == 0 && memcmp(rec + 1, "HELLO   TXT", 11) == 0);
+    expect("dir_read_big", rec[32] == 0 && memcmp(rec + 33, "BIG     DAT", 11) == 0);
 
     /* Overlay: SETDMA inside hstbuf, skip ldi_128, retarget DIRBUF. */
     bios_setdma(hstbuf);
     bios_setsec(0);
     rc = bios_read();
     expect("dir_overlay", rc == 0 && dirbuf == hstbuf
-           && memcmp(hstbuf, "HELLO   TXT", 11) == 0);
+           && hstbuf[0] == 0 && memcmp(hstbuf + 1, "HELLO   TXT", 11) == 0);
 
     /* AL 2 = host sec 16 = CP/M rec 64. Cluster 3 data at LBA 4. */
     memset(rec, 0, 128);
@@ -187,10 +187,10 @@ int main(void)
     rc = bios_read();
     expect("fat_has_new", memcmp(ram_image + 3 * 512 + 64, "NEW     COM", 11) == 0);
     expect("dir_after_create", rc == 0
-           && (memcmp(rec, "NEW     COM", 11) == 0
-               || memcmp(rec + 32, "NEW     COM", 11) == 0
-               || memcmp(rec + 64, "NEW     COM", 11) == 0
-               || memcmp(rec + 96, "NEW     COM", 11) == 0));
+           && (memcmp(rec + 1, "NEW     COM", 11) == 0
+               || memcmp(rec + 33, "NEW     COM", 11) == 0
+               || memcmp(rec + 65, "NEW     COM", 11) == 0
+               || memcmp(rec + 97, "NEW     COM", 11) == 0));
 
     memset(dir, 0, 128);
     cpm_dirent(dir, 0xE5, "NEW     COM");
@@ -204,10 +204,10 @@ int main(void)
     bios_setsec(0);
     rc = bios_read();
     expect("dir_after_era", rc == 0
-           && memcmp(rec, "NEW     COM", 11) != 0
-           && memcmp(rec + 32, "NEW     COM", 11) != 0
-           && memcmp(rec + 64, "NEW     COM", 11) != 0
-           && memcmp(rec + 96, "NEW     COM", 11) != 0);
+           && memcmp(rec + 1, "NEW     COM", 11) != 0
+           && memcmp(rec + 33, "NEW     COM", 11) != 0
+           && memcmp(rec + 65, "NEW     COM", 11) != 0
+           && memcmp(rec + 97, "NEW     COM", 11) != 0);
 
     puts(fails ? "V3BIOS_BAD" : "V3BIOS_OK");
     return fails ? 1 : 0;

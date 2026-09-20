@@ -51,7 +51,7 @@ synth_fi:               defs 1
 synth_want:             defs 1
 synth_seen:             defs 1
 _fat_files:
-fat_files:              defs 64*13*4        ;FILE_MAX * FILE_SIZ * 4 drives
+fat_files:              defs 64*24*4        ;FILE_MAX * FILE_SIZ * 4 drives
 
 ; CP/M deblock (same names as cpm22bios.asm BSS)
 _cpm_dsk0_base:         defs 16     ; 4 x 32-bit LBA bases

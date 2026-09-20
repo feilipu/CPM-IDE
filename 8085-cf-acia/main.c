@@ -21,7 +21,7 @@
 #include "../common/fatfs.h"
 
 #pragma output REGISTER_SP = 0xCD00
-#pragma printf = "%c %s %d %02u %lu %04X"
+#pragma printf = "%c %s %d %u %lu %X"
 
 extern uint8_t bios_iobyte;
 
@@ -38,6 +38,7 @@ void select_console(void)
     output = stdout;
     error = stderr;
     bios_iobyte = 0x81;
+    fprintf(output, "> :-)");
 }
 
 int main(int argc, char ** argv)
@@ -47,7 +48,7 @@ int main(int argc, char ** argv)
 
     buffer = (char *)malloc(BUFFER_SIZE * sizeof(char));
 
-    fprintf(stdout, "\n\nRC2014 - CP/M-IDE - 8085 - CF - ACIA\nfeilipu 2026\n\n> :-)\n");
+    fprintf(stdout, "\n\nRC2014 - CP/M-IDE - 8085 - CF - ACIA\nfeilipu 2026\n\n");
 
     if (buffer) {
         put_rc(fat_mount());

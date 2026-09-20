@@ -47,6 +47,7 @@ void select_console(void)
                 output = stdout;
                 error = stderr;
                 bios_iobyte = 1;
+                fprintf(output, "\b-)");
                 return;
             }
             sioa_flush_rx_di();
@@ -57,6 +58,7 @@ void select_console(void)
                 output = ttyout;
                 error = ttyerr;
                 bios_iobyte = 0;
+                fprintf(output, "\b-)");
                 return;
             }
             siob_flush_rx_di();

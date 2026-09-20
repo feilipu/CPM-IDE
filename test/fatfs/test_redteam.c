@@ -351,10 +351,10 @@ static void case_huge_nal(void)
         report("huge_size_nal_wrap", "FAIL");
         return;
     }
-    /* n_al of HUGE at slot+11; HELLO first_al at slot+13+9. */
+    /* n_al of HUGE at slot+11; HELLO first_al at slot+24+9. */
     report("huge_size_nal_wrap",
            (slot[11] == 0xFF && slot[12] == 0xFF
-            && slot[13 + 9] == 1 && slot[13 + 10] == 0) ? "HIT" : "SAFE");
+            && slot[24 + 9] == 1 && slot[24 + 10] == 0) ? "HIT" : "SAFE");
 }
 
 static void case_clst1(void)
@@ -392,7 +392,7 @@ static void case_crosslink(void)
     pack_drv = 0;
     rc = pack_drive_run();
     a = fat_files;
-    b = fat_files + 13;
+    b = fat_files + 24;
     if (rc != 0) {
         report("crosslink_same_clst", "FAIL");
         return;
@@ -487,8 +487,8 @@ static void case_win_many(void)
     rc = pack_drive_run();
     slot = fat_files;
     report("win_files65_bound",
-           rc == 0 && (slot[0] & 0x80) && (slot[63 * 13] & 0x80)
-           && slot[64 * 13] == 0 ? "SAFE" : "HIT");
+           rc == 0 && (slot[0] & 0x80) && (slot[63 * 24] & 0x80)
+           && slot[64 * 24] == 0 ? "SAFE" : "HIT");
 }
 
 static void case_win_cap(void)
@@ -529,7 +529,7 @@ static void case_win_sys(void)
     report("win_sys_skipped",
            rc == 0 && (slot[0] & 0x80) && slot[1] == 3
            && memcmp(ram_image + 3 * 512 + 32, "HELLO   TXT", 11) == 0
-           && slot[13] == 0 ? "SAFE" : "HIT");
+           && slot[24] == 0 ? "SAFE" : "HIT");
 }
 
 static void case_win_frag(void)

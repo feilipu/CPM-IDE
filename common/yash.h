@@ -43,7 +43,6 @@ int8_t ya_pwd(char **args);
 int8_t ya_rm(char **args);
 int8_t ya_rmdir(char **args);
 int8_t ya_mkdir(char **args);
-int8_t ya_type(char **args);
 int8_t ya_cp(char **args);
 int8_t ya_mv(char **args);
 int8_t ya_mount(char **args);

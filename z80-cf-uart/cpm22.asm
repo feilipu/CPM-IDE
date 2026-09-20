@@ -33,7 +33,7 @@ SECTION rodata_lib           ;read only library (code)
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xCD00    ;v3: BIOS 0xE380, FAT/IDE in ROM
+defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xCD00    ;v3: BIOS 0xE500, FAT/IDE in ROM
 
 ;------------------------------------------------------------------------------
 ; start of definitions

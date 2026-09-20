@@ -21,7 +21,7 @@
 #include "../common/fatfs.h"
 
 #pragma output REGISTER_SP = 0xCD00
-#pragma printf = "%c %s %d %02u %lu %04X"
+#pragma printf = "%c %s %d %u %lu %X"
 
 extern uint8_t bios_iobyte;
 
@@ -46,6 +46,7 @@ void select_console(void)
                 output = stdout;
                 error = stderr;
                 bios_iobyte = 0x81;
+                fprintf(output, "\b-)");
                 return;
             }
             uarta_reset();
@@ -56,6 +57,7 @@ void select_console(void)
                 output = ttyout;
                 error = ttyerr;
                 bios_iobyte = 0x80;
+                fprintf(output, "\b-)");
                 return;
             }
             uartb_reset();

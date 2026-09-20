@@ -233,7 +233,7 @@ BIOS: DPH `DIRBUF` overlays `hstbuf`. After IDE/PPIDE, wait for DRQ only. Do not
 - DRI CCP/BDOS unchanged except `DIRBUF` public, APN 02 DEL=BS, CCP `$CD00`, BDOS stack `ALIGN $20` (BIOS `$E380`).
 - Four resident maps, **64** FAT names per drive (a name may still occupy many extents, including one 8 MB file). Names are walked from FAT on `DIR`, not cached as 8.3 in the BIOS.
 - Mini-FAT, IDE, and host-sector I/O run from ROM; RAM BIOS pages ROM in on disk I/O. Serial ISRs stay in high RAM.
-- Shell `ls` / `cd` / `mkdir` / `cp` / `mv` / `rm` / `rmdir` / `type` operate on the FAT tree. No `frag`.
+- Shell `ls` / `cd` / `mkdir` / `cp` / `mv` / `rm` / `rmdir` operate on the FAT tree. `frag` and `free` report cluster runs and free space.
 
 #### Advantages
 
@@ -259,7 +259,7 @@ Mini-FAT still uses the z88dk IDE driver. Set `__IO_CF_8_BIT` in `config_target.
 - PATA (IDE Hard Drive Module, 8255 at `$20`–`$23`): `__IO_CF_8_BIT = 0`.
 - Compact Flash Module (ports `$10`–`$17`): `__IO_CF_8_BIT = 1`.
 
-A PATA ROM linked with the CF 8-bit library returns `FR_NOT_READY` on `ls` and `mount 1`. Delayed `mount` still prints `FR_OK` because it does not talk to the disk. Do not run `rebuild-hex.sh` for all seven in one library state.
+A PATA ROM linked with the CF 8-bit library returns `FR_NOT_READY` on `ls`, `mount`, and `ds`. Those commands talk to the disk immediately. Do not run `rebuild-hex.sh` for all seven in one library state.
 
 ### CP/M deblocking
 
@@ -302,7 +302,7 @@ __NOTE:__ Where the SIO Module or the UART Module is being used, on startup the 
 
 CP/M can be started by command __`cpm <dirA> [dirB] [dirC] [dirD]`__. At least one valid directory must be provided for A:. Alternatively __`cpm <parent>`__ maps `<parent>/A` … `<parent>/D` if those subdirectories exist, or __`cpm`__ with no arguments reads `CPMIDE.CFG`. Up to four FAT directories can be concurrently mounted. They can be located anywhere on the FAT volume, provided the full path is used to reference them. FAT16 volume root cannot be A: (cluster 0 means unmounted; use a subdirectory).
 
-The shell provides __`ls`__, __`cd`__, __`pwd`__, __`rm`__, __`rmdir`__, __`mkdir`__, __`type`__, __`cp`__, and __`mv`__ on the FAT volume, plus __`hload`__, __`mount`__, __`ds`__, __`dd`__, and __`md`__. __`hload`__ can be used to upload and directly run a CP/M application, rather than from a drive. __`exit`__ can be used to restart the RC2014 if desired.
+The shell lists and edits the FAT tree with __`ls`__, __`cd`__, __`pwd`__, __`rm`__, __`rmdir`__, __`mkdir`__, __`cp`__, and __`mv`__. __`frag`__ and __`free`__ report cluster runs and free space. __`hload`__ loads an Intel HEX CP/M file from the console and runs it. __`mount`__ remounts the FAT volume. __`ds`__ and __`dd`__ show disk status and a sector. __`md`__ dumps memory. __`exit`__ restarts the RC2014.
 
 Once the shell __`cpm`__ command has established that it has a valid CP/M drive available, then it will page out the ROM, write in a new `Page 0` with relevant CP/M data and interrupt linkages, and then pass control to the CP/M CCP.
 
@@ -390,15 +390,16 @@ Again, here is a view of what success looks like.
 
 ### File System Functions
 - `ls [path]` - directory listing
-- `cd [path]` - change the current working directory
+- `cd <path>` - change the current working directory
 - `pwd` - show the current working directory
 - `rm <file>` - delete a file
 - `rmdir <path>` - remove an empty directory
 - `mkdir <path>` - create a directory
-- `type <file>` - print a text file
 - `cp <src> <dst>` - copy a file
 - `mv <src> <dst>` - rename or move a file
-- `mount [option]` - mount a FAT file system, option 0 = delayed, 1 = immediate
+- `mount` - mount the FAT volume
+- `frag <file>` - cluster-run count for a file
+- `free` - free and total space on the volume
 
 ### Disk Functions
 - `ds` - disk status

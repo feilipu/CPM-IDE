@@ -49,12 +49,11 @@ struct Builtin builtins[] = {
     { "rm", &ya_rm, "<file> - delete a file"},
     { "rmdir", &ya_rmdir, "<path> - remove an empty directory"},
     { "mkdir", &ya_mkdir, "<path> - create a directory"},
-    { "type", &ya_type, "<file> - print a text file"},
     { "cp", &ya_cp, "<src> <dst> - copy a file"},
     { "mv", &ya_mv, "<src> <dst> - rename or move a file"},
     { "mount", &ya_mount, "- mount a FAT file system"},
     { "frag", &ya_frag, "<file> - cluster-run count for a file"},
-    { "free", &ya_free, "- free clusters on the volume"},
+    { "free", &ya_free, "- free and total space on the volume"},
 
 // disk related functions
     { "ds", &ya_ds, "- disk status"},
@@ -113,6 +112,23 @@ static void name83(uint8_t *dst, const char *src)
     }
 }
 
+/* Host FAT tools sometimes store "MAIN.C" in the 11-byte SFN (dot in
+ * the name field) instead of "MAIN    C  ". */
+static void name_pack11(uint8_t *dst, const char *src)
+{
+    uint8_t i;
+
+    for (i = 0; i < 11; ++i)
+        dst[i] = ' ';
+    i = 0;
+    while (*src && i < 11) {
+        char c = *src++;
+        if (c >= 'a' && c <= 'z')
+            c = (char)(c - 32);
+        dst[i++] = (uint8_t)c;
+    }
+}
+
 static uint32_t root_clst(void)
 {
     if (cpm_fat_vol.fs_type == 3)
@@ -120,12 +136,98 @@ static uint32_t root_clst(void)
     return 0;
 }
 
+static uint8_t is_root_clst(uint32_t clst)
+{
+    if (clst == 0 || clst == root_clst())
+        return 1;
+    return 0;
+}
+
+static uint32_t ent_clst(const uint8_t *ent)
+{
+    uint32_t c;
+
+    c = (uint32_t)ent[26] | ((uint32_t)ent[27] << 8);
+    c |= ((uint32_t)ent[20] << 16) | ((uint32_t)ent[21] << 24);
+    if (cpm_fat_vol.fs_type == 3)
+        c &= 0x0FFFFFFFul;
+    return c;
+}
+
+static void sfn_to_name(char *dst, const uint8_t *ent)
+{
+    uint8_t i, n;
+
+    n = 0;
+    i = 0;
+    while (i < 8 && ent[i] != ' ') {
+        dst[n] = (char)ent[i];
+        ++n;
+        ++i;
+    }
+    if (ent[8] != ' ') {
+        dst[n] = '.';
+        ++n;
+        i = 8;
+        while (i < 11 && ent[i] != ' ') {
+            dst[n] = (char)ent[i];
+            ++n;
+            ++i;
+        }
+    }
+    dst[n] = 0;
+}
+
+static uint8_t dir_find_try(uint8_t *n)
+{
+    uint8_t alt[11];
+    char tmp[13];
+
+    if (dir_find(n) == 0)
+        return 0;
+    sfn_to_name(tmp, n);
+    name_pack11(alt, tmp);
+    if (memcmp(n, alt, 11) == 0)
+        return 1;
+    return dir_find(alt);
+}
+
+/* One path component. "." keeps clst. ".." is the parent dirent. */
+static uint8_t dir_walk(uint32_t *clst, const char *comp)
+{
+    uint8_t n[11];
+
+    if (comp[0] == '.' && comp[1] == 0)
+        return 0;
+    if (comp[0] == '.' && comp[1] == '.' && comp[2] == 0) {
+        if (is_root_clst(*clst))
+            return 0;
+        if (fat_dir_open(clst))
+            return FR_DISK_ERR;
+        name83(n, "..");
+        if (dir_find_try(n))
+            return FR_NO_PATH;
+        *clst = fat_found_sclust;
+        if (*clst < 2)
+            *clst = root_clst();
+        return 0;
+    }
+    if (fat_dir_open(clst))
+        return FR_DISK_ERR;
+    name83(n, comp);
+    if (dir_find_try(n))
+        return FR_NO_PATH;
+    if ((fat_dir_ptr[11] & AM_DIR) == 0)
+        return FR_NO_PATH;
+    *clst = fat_found_sclust;
+    return 0;
+}
+
 static uint8_t path_to_dir(const char *path, uint32_t *out)
 {
     uint32_t clst;
-    uint8_t n[11];
     char comp[13];
-    uint8_t ci;
+    uint8_t ci, rc;
 
     if (path == NULL || path[0] == 0) {
         *out = fat_cwd;
@@ -151,14 +253,9 @@ static uint8_t path_to_dir(const char *path, uint32_t *out)
             ++path;
         if (comp[0] == 0)
             continue;
-        if (fat_dir_open(&clst))
-            return FR_DISK_ERR;
-        name83(n, comp);
-        if (dir_find(n))
-            return FR_NO_PATH;
-        if ((fat_dir_ptr[11] & AM_DIR) == 0 && (comp[0] != '.'))
-            return FR_NO_PATH;
-        clst = fat_found_sclust;
+        rc = dir_walk(&clst, comp);
+        if (rc)
+            return rc;
     }
     *out = clst;
     return 0;
@@ -178,9 +275,8 @@ static uint8_t is_dot_name(const uint8_t *n)
 static uint8_t path_split(const char *path, uint32_t *parent, uint8_t *name11)
 {
     uint32_t clst;
-    uint8_t n[11];
     char comp[13];
-    uint8_t ci;
+    uint8_t ci, rc;
 
     if (path == NULL || path[0] == 0)
         return FR_INVALID_NAME;
@@ -209,16 +305,45 @@ static uint8_t path_split(const char *path, uint32_t *parent, uint8_t *name11)
             *parent = clst;
             return 0;
         }
-        if (fat_dir_open(&clst))
-            return FR_DISK_ERR;
-        name83(n, comp);
-        if (dir_find(n))
-            return FR_NO_PATH;
-        if ((fat_dir_ptr[11] & AM_DIR) == 0 && (comp[0] != '.'))
-            return FR_NO_PATH;
-        clst = fat_found_sclust;
+        rc = dir_walk(&clst, comp);
+        if (rc)
+            return rc;
     }
     return FR_INVALID_NAME;
+}
+
+/* Dest for cp/mv. A trailing / or an existing directory keeps the source 8.3
+ * name and uses that directory as the parent. */
+static uint8_t dest_resolve(const char *dst, const uint8_t *sn,
+    uint32_t *parent, uint8_t *name11)
+{
+    const char *p;
+    uint8_t rc;
+
+    if (dst == NULL || dst[0] == 0)
+        return FR_INVALID_NAME;
+    p = dst;
+    while (p[1])
+        ++p;
+    if (*p == '/' || *p == '\\') {
+        rc = path_to_dir(dst, parent);
+        if (rc)
+            return rc;
+        memcpy(name11, sn, 11);
+        return FR_OK;
+    }
+    rc = path_split(dst, parent, name11);
+    if (rc)
+        return rc;
+    if (is_dot_name(name11))
+        return FR_INVALID_NAME;
+    if (fat_dir_open(parent))
+        return FR_DISK_ERR;
+    if (dir_find_try(name11) == 0 && (fat_dir_ptr[11] & AM_DIR)) {
+        *parent = fat_found_sclust;
+        memcpy(name11, sn, 11);
+    }
+    return FR_OK;
 }
 
 /* Split path, refuse . / .., open the parent, find the leaf. 0 = found. */
@@ -233,7 +358,7 @@ static uint8_t open_leaf(const char *path, uint32_t *parent, uint8_t *n)
         return FR_INVALID_NAME;
     if (fat_dir_open(parent))
         return FR_DISK_ERR;
-    if (dir_find(n))
+    if (dir_find_try(n))
         return FR_NO_FILE;
     return FR_OK;
 }
@@ -270,6 +395,7 @@ static uint8_t dir_fill(uint8_t attr, uint32_t clst, uint32_t size)
     e[29] = (uint8_t)(size >> 8);
     e[30] = (uint8_t)(size >> 16);
     e[31] = (uint8_t)(size >> 24);
+    fat_dirty();
     return fat_sync();
 }
 
@@ -311,16 +437,17 @@ static uint8_t zero_cluster(uint32_t clst, uint32_t parent)
     return 0;
 }
 
-static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first)
+static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint32_t *out_size)
 {
-    uint32_t last = 0, first = 0, lbas, lbad, nxt;
+    uint32_t last = 0, first = 0, lbas, lbad, nxt, remain, chunk;
     uint8_t s, nsec;
-    uint32_t chunk;
 
     *out_first = 0;
+    *out_size = 0;
     if (size == 0)
         return 0;
-    while (size) {
+    remain = size;
+    while (remain) {
         if (src < 2 || is_eoc(src))
             return 1;
         lbas = src;
@@ -336,22 +463,27 @@ static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first)
         if (fat_clst2sect(&lbad))
             return 1;
         nsec = cpm_fat_vol.csize;
-        for (s = 0; s < nsec && size; ++s) {
+        for (s = 0; s < nsec && remain; ++s) {
             if (disk_read(0, buffer, lbas + s, 1))
                 return 1;
             if (disk_write(0, buffer, lbad + s, 1))
                 return 1;
-            chunk = (size > 512) ? 512 : size;
-            size -= chunk;
+            chunk = (remain > 512) ? 512 : remain;
+            remain -= chunk;
         }
-        if (size == 0)
+        if (remain == 0)
             break;
         nxt = src;
-        if (fat_next(&nxt) || is_eoc(nxt))
+        if (fat_next(&nxt))
             return 1;
+        if (is_eoc(nxt))
+            break;
         src = nxt;
     }
+    if (first == 0)
+        return 1;
     *out_first = first;
+    *out_size = size - remain;
     return fat_sync();
 }
 
@@ -364,9 +496,9 @@ static uint8_t read_cfg(void)
 
     name83(n, "CPMIDE.CFG");
     clst = fat_cwd;
-    if (fat_dir_open(&clst) || dir_find(n)) {
+    if (fat_dir_open(&clst) || dir_find_try(n)) {
         clst = root_clst();
-        if (fat_dir_open(&clst) || dir_find(n))
+        if (fat_dir_open(&clst) || dir_find_try(n))
             return 1;
     }
     if (fat_found_sclust < 2)
@@ -564,15 +696,30 @@ static void hist_down(char *line, uint16_t *pos, uint16_t maxlen)
     }
 }
 
-static
+static void put_hex(uint16_t v, uint8_t digits)
+{
+    uint8_t n;
+    char c;
+
+    n = digits;
+    while (n) {
+        --n;
+        c = (char)((v >> (n << 2)) & 0x0F);
+        c += (c < 10) ? '0' : ('A' - 10);
+        fputc(c, output);
+    }
+}
+
 void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt)
 {
     uint8_t i;
 
-    fprintf(output,"%04X:", ofs);
+    put_hex(ofs, 4);
+    fputc(':', output);
 
     for(i = 0; i < cnt; ++i) {
-        fprintf(output," %02X", buff[i]);
+        fputc(' ', output);
+        put_hex(buff[i], 2);
     }
     fputc(' ', output);
     for(i = 0; i < cnt; ++i) {
@@ -594,13 +741,15 @@ void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt)
 int8_t ya_mkcpm(char ** args)   /* initialise CP/M with up to 4 directory mounts */
 {
     uint8_t i;
-    uint32_t clst;
+    uint32_t clst, cwd;
     char letter[2];
 
+    cwd = fat_cwd;
     if (fat_mount()) {
         put_rc(1);
         return 1;
     }
+    fat_cwd = cwd;
 
     for (i = 0; i < 4; ++i)
         cpm_dir_sclust[i] = 0;
@@ -689,7 +838,10 @@ int8_t ya_md(char ** args)      /* dump RAM contents from nominated origin. */
         origin = (uint8_t *)strtoul(args[1], NULL, 16);
     }
 
-    fprintf(output, "\nOrigin: %04X\n", (uint16_t)origin);
+    fputc('\n', output);
+    fprintf(output, "Origin: ");
+    put_hex((uint16_t)origin, 4);
+    fputc('\n', output);
 
     for (ptr=origin, ofs = 0; ofs < 0x100; ptr += 16, ofs += 16) {
         put_dump(ptr, ofs, 16);
@@ -745,9 +897,11 @@ int8_t ya_ls(char ** args)      /* print directory contents */
     uint8_t ent[32];
     uint8_t attr, i;
 
-    if (args[1] == NULL)
+    if (args[1] == NULL) {
         clst = fat_cwd;
-    else if (put_fail(path_to_dir(args[1], &clst)))
+        if (clst < 2)
+            clst = root_clst();
+    } else if (put_fail(path_to_dir(args[1], &clst)))
         return 1;
 
     if (fat_dir_open(&clst)) {
@@ -771,7 +925,7 @@ int8_t ya_ls(char ** args)      /* print directory contents */
             p1 += (uint32_t)ent[28] | ((uint32_t)ent[29] << 8) |
                   ((uint32_t)ent[30] << 16) | ((uint32_t)ent[31] << 24);
         }
-        fprintf(output, "%c%c%c%c%c %9lu  ",
+        fprintf(output, "%c%c%c%c%c %lu  ",
                 (attr & AM_DIR) ? 'D' : '-',
                 (attr & AM_RDO) ? 'R' : '-',
                 (attr & AM_HID) ? 'H' : '-',
@@ -788,7 +942,7 @@ int8_t ya_ls(char ** args)      /* print directory contents */
         }
         fputc('\n', output);
     }
-    fprintf(output, "%4u File(s),%10lu bytes total\n%4u Dir(s)\n", s1, p1, s2);
+    fprintf(output, "%u File(s),%lu bytes total\n%u Dir(s)\n", s1, p1, s2);
     return 1;
 }
 
@@ -815,10 +969,98 @@ int8_t ya_cd(char ** args)
    @param args List of args.  args[0] is "pwd".
    @return Always returns 1, to continue executing.
  */
-int8_t ya_pwd(char ** args)     /* print the current directory cluster */
+int8_t ya_pwd(char ** args)     /* print the current working directory path */
 {
+    uint32_t clst, parent, child;
+    uint8_t ent[32];
+    char name[13];
+    char *p;
+    uint8_t found, n, attr;
+
     (void *)args;
-    fprintf(output, "cluster %lu\n", fat_cwd);
+    clst = fat_cwd;
+    if (is_root_clst(clst)) {
+        fprintf(output, "/\n");
+        return 1;
+    }
+    p = (char *)buffer + BUFFER_SIZE - 1;
+    *p = 0;
+    for (;;) {
+        if (is_root_clst(clst))
+            break;
+        if (fat_dir_open(&clst)) {
+            put_rc(1);
+            return 1;
+        }
+        found = 0;
+        parent = 0;
+        while (fat_dir_read(ent) == 0) {
+            if (ent[0] == 0)
+                break;
+            if (ent[0] == 0xE5)
+                continue;
+            if (ent[0] != '.')
+                continue;
+            if (ent[1] != '.')
+                continue;
+            parent = ent_clst(ent);
+            found = 1;
+            break;
+        }
+        if (found == 0) {
+            put_rc(1);
+            return 1;
+        }
+        if (parent < 2)
+            parent = root_clst();
+        child = clst;
+        if (fat_dir_open(&parent)) {
+            put_rc(1);
+            return 1;
+        }
+        found = 0;
+        while (fat_dir_read(ent) == 0) {
+            if (ent[0] == 0)
+                break;
+            if (ent[0] == 0xE5)
+                continue;
+            attr = ent[11];
+            if (attr == AM_LFN)
+                continue;
+            if (attr & AM_VOL)
+                continue;
+            if (ent_clst(ent) != child)
+                continue;
+            sfn_to_name(name, ent);
+            found = 1;
+            break;
+        }
+        if (found == 0) {
+            put_rc(1);
+            return 1;
+        }
+        n = 0;
+        while (name[n])
+            ++n;
+        if (p < (char *)buffer + (uint16_t)n + 2) {
+            put_rc(FR_NOT_ENOUGH_CORE);
+            return 1;
+        }
+        while (n) {
+            --n;
+            --p;
+            *p = name[n];
+        }
+        --p;
+        *p = '/';
+        if (is_root_clst(parent))
+            break;
+        clst = parent;
+    }
+    if (*p == 0)
+        fprintf(output, "/\n");
+    else
+        fprintf(output, "%s\n", p);
     return 1;
 }
 
@@ -877,7 +1119,7 @@ int8_t ya_rmdir(char ** args)
         put_rc(FR_DENIED);
         return 1;
     }
-    if (fat_dir_open(&parent) || dir_find(n) || dir_zap() || fat_sync()) {
+    if (fat_dir_open(&parent) || dir_find_try(n) || dir_zap() || fat_sync()) {
         put_rc(1);
         return 1;
     }
@@ -907,7 +1149,7 @@ int8_t ya_mkdir(char ** args)
         put_rc(1);
         return 1;
     }
-    if (dir_find(n) == 0) {
+    if (dir_find_try(n) == 0) {
         put_rc(FR_EXIST);
         return 1;
     }
@@ -930,69 +1172,12 @@ int8_t ya_mkdir(char ** args)
 
 /**
    @brief Builtin command:
-   @param args List of args.  args[0] is "type". args[1] is the file.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_type(char ** args)
-{
-    uint32_t parent, clst, size, lba;
-    uint8_t n[11], s, nsec;
-    uint16_t i, nout;
-    uint8_t *p;
-
-    if (need_args(args, 1, "type"))
-        return 1;
-    if (put_fail(open_leaf(args[1], &parent, n)))
-        return 1;
-    if (fat_dir_ptr[11] & AM_DIR) {
-        put_rc(FR_DENIED);
-        return 1;
-    }
-    clst = fat_found_sclust;
-    size = fat_found_size;
-    while (size) {
-        if (clst < 2 || is_eoc(clst))
-            break;
-        lba = clst;
-        if (fat_clst2sect(&lba)) {
-            put_rc(1);
-            return 1;
-        }
-        nsec = cpm_fat_vol.csize;
-        for (s = 0; s < nsec && size; ++s) {
-            if (disk_read(0, buffer, lba + s, 1)) {
-                put_rc(1);
-                return 1;
-            }
-            p = (uint8_t *)buffer;
-            nout = (size > 512) ? 512 : (uint16_t)size;
-            for (i = 0; i < nout; ++i) {
-                if (p[i] == 0x1A) {
-                    size = 0;
-                    break;
-                }
-                fputc(p[i], output);
-            }
-            if (size)
-                size -= nout;
-        }
-        if (size == 0)
-            break;
-        if (fat_next(&clst) || is_eoc(clst))
-            break;
-    }
-    return 1;
-}
-
-
-/**
-   @brief Builtin command:
    @param args List of args.  args[0] is "cp". args[1] src, args[2] dst.
    @return Always returns 1, to continue executing.
  */
 int8_t ya_cp(char ** args)
 {
-    uint32_t sp, dp, src, size, first, old;
+    uint32_t sp, dp, src, size, first, copied, old;
     uint8_t sn[11], dn[11];
     uint8_t dest_exists;
 
@@ -1007,15 +1192,19 @@ int8_t ya_cp(char ** args)
     src = fat_found_sclust;
     size = fat_found_size;
 
-    if (put_fail(path_split(args[2], &dp, dn)) || put_fail(is_dot_name(dn) ? FR_INVALID_NAME : 0))
+    if (put_fail(dest_resolve(args[2], sn, &dp, dn)))
         return 1;
     if (sp == dp && memcmp(sn, dn, 11) == 0)
         return 1;
+    if (copy_file(src, size, &first, &copied)) {
+        put_rc(1);
+        return 1;
+    }
     if (fat_dir_open(&dp)) {
         put_rc(1);
         return 1;
     }
-    dest_exists = (uint8_t)(dir_find(dn) == 0);
+    dest_exists = (uint8_t)(dir_find_try(dn) == 0);
     if (dest_exists) {
         if (fat_dir_ptr[11] & AM_DIR) {
             put_rc(FR_DENIED);
@@ -1028,21 +1217,11 @@ int8_t ya_cp(char ** args)
                 return 1;
             }
         }
-        if (fat_dir_open(&dp) || dir_find(dn) || dir_fill(AM_ARC, 0, 0)) {
+        if (fat_dir_open(&dp) || dir_find_try(dn) || dir_fill(AM_ARC, first, copied))
             put_rc(1);
-            return 1;
-        }
-    } else {
-        if (dir_create(dn) || fat_sync()) {
-            put_rc(1);
-            return 1;
-        }
-    }
-    if (copy_file(src, size, &first)) {
-        put_rc(1);
         return 1;
     }
-    if (fat_dir_open(&dp) || dir_find(dn) || dir_fill(AM_ARC, first, size))
+    if (dir_create(dn) || dir_fill(AM_ARC, first, copied))
         put_rc(1);
     return 1;
 }
@@ -1055,7 +1234,7 @@ int8_t ya_cp(char ** args)
  */
 int8_t ya_mv(char ** args)
 {
-    uint32_t sp, dp, sclust, ssize, old;
+    uint32_t sp, dp, sclust, ssize;
     uint8_t sn[11], dn[11], attr;
 
     if (need_args(args, 2, "mv"))
@@ -1070,7 +1249,7 @@ int8_t ya_mv(char ** args)
     sclust = fat_found_sclust;
     ssize = fat_found_size;
 
-    if (put_fail(path_split(args[2], &dp, dn)) || put_fail(is_dot_name(dn) ? FR_INVALID_NAME : 0))
+    if (put_fail(dest_resolve(args[2], sn, &dp, dn)))
         return 1;
     if (sp == dp && memcmp(sn, dn, 11) == 0)
         return 1;
@@ -1078,33 +1257,17 @@ int8_t ya_mv(char ** args)
         put_rc(1);
         return 1;
     }
-    if (dir_find(dn) == 0) {
-        if (fat_dir_ptr[11] & AM_DIR) {
-            put_rc(FR_DENIED);
-            return 1;
-        }
-        old = fat_found_sclust;
-        if (dir_zap() || fat_sync()) {
-            put_rc(1);
-            return 1;
-        }
-        if (old >= 2) {
-            if (fat_free(&old) || fat_sync()) {
-                put_rc(1);
-                return 1;
-            }
-        }
-        if (fat_dir_open(&dp)) {
-            put_rc(1);
-            return 1;
-        }
+    if (dir_find_try(dn) == 0) {
+        put_rc((fat_dir_ptr[11] & AM_DIR) ? FR_DENIED : FR_EXIST);
+        return 1;
     }
     if (sp == dp) {
-        if (dir_find(sn)) {
+        if (fat_dir_open(&sp) || dir_find_try(sn)) {
             put_rc(1);
             return 1;
         }
         memcpy(fat_dir_ptr, dn, 11);
+        fat_dirty();
         if (fat_sync())
             put_rc(1);
         return 1;
@@ -1113,7 +1276,7 @@ int8_t ya_mv(char ** args)
         put_rc(1);
         return 1;
     }
-    if (fat_dir_open(&sp) || dir_find(sn) || dir_zap() || fat_sync())
+    if (fat_dir_open(&sp) || dir_find_try(sn) || dir_zap() || fat_sync())
         put_rc(1);
     return 1;
 }
@@ -1176,9 +1339,9 @@ int8_t ya_frag(char ** args)    /* cluster-run count for a file */
    @param args List of args.  args[0] is "free".
    @return Always returns 1, to continue executing.
  */
-int8_t ya_free(char ** args)    /* free clusters on the volume */
+int8_t ya_free(char ** args)    /* free and total space on the volume */
 {
-    uint32_t ncl, nbytes;
+    uint32_t ncl, ntot, csize;
 
     (void *)args;
     if (cpm_fat_vol.fs_type == 0) {
@@ -1189,8 +1352,13 @@ int8_t ya_free(char ** args)    /* free clusters on the volume */
     ncl = 0;
     if (put_fail(fat_getfree(&ncl)))
         return 1;
-    nbytes = ncl * (uint32_t)cpm_fat_vol.csize * 512;
-    fprintf(output, "%lu cluster(s) free, %lu bytes\n", ncl, nbytes);
+    ntot = 0;
+    if (cpm_fat_vol.n_fatent > 2)
+        ntot = cpm_fat_vol.n_fatent - 2;
+    csize = (uint32_t)cpm_fat_vol.csize;
+    /* kB = clusters * bytes/cluster / 1024; bytes/cluster = csize * 512 */
+    fprintf(output, "%lu kB free, %lu kB total\n%lu / %lu cluster(s)\n",
+            (ncl * csize) / 2, (ntot * csize) / 2, ncl, ntot);
     return 1;
 }
 
@@ -1456,8 +1624,6 @@ void ya_loop(void)
     hist_i = 0;
 
     select_console();
-
-    fprintf(output," :-)\n");
 
     do {
         fflush(input);

@@ -18,7 +18,7 @@ defc    __IO_SIO_TX_SIZE            = 0x08
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_BIOS    ;base of bios
-defc    __COMMON_AREA_PHASE_BIOS    = 0xE380    ;meets BDOS STKAREA; FAT/IDE in ROM
+defc    __COMMON_AREA_PHASE_BIOS    = 0xE500    ;meets BDOS STKAREA; FAT/IDE in ROM
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -81,7 +81,7 @@ DEFC    wrall   =    0          ;write to allocated
 DEFC    wrdir   =    1          ;write to directory
 DEFC    wrual   =    2          ;write to unallocated
 
-DEFC    FILE_SIZ        =    13             ;flags+sclust+size+first_al+n_al
+DEFC    FILE_SIZ        =    24             ;flags+sclust+size+first_al+n_al+8.3
 
 ;=============================================================================
 ;
@@ -1575,9 +1575,6 @@ alv03:              defs ((hstalb-1)/8)+1
 
 hstbuf:             defs hstsiz
 
-; flags 1 (bit7=used, 0-3=UU), sclust 4, size 4, first_al 2, n_al 2
-fat_files:          defs FILE_MAX*FILE_SIZ*4
-
 synth_fi:           defs 1          ;$FF = DIR walk invalid
 synth_want:         defs 1
 synth_seen:         defs 1
@@ -1646,4 +1643,7 @@ PUBLIC  _cpm_bios_bss_tail
 _cpm_bios_bss_tail:                     ;tail of the cpm bios bss
 
 DEPHASE
+
+; Always-RAM at $8000+. Kept out of the BIOS PHASE so serial rings stay at the top of RAM.
+fat_files:          defs FILE_MAX*FILE_SIZ*4
 

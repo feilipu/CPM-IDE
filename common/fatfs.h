@@ -37,6 +37,7 @@ extern uint8_t dir_find(uint8_t *name11) __z88dk_fastcall;
 extern uint8_t dir_create(uint8_t *name11) __z88dk_fastcall;
 extern uint8_t dir_zap(void);
 extern uint8_t fat_sync(void);
+extern void fat_dirty(void);
 extern uint8_t fat_dir_open(uint32_t *sclust) __z88dk_fastcall;
 extern uint8_t fat_dir_read(uint8_t *ent32) __z88dk_fastcall;
 extern uint8_t fat_next(uint32_t *clst) __z88dk_fastcall;

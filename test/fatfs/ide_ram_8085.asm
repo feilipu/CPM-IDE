@@ -2,6 +2,8 @@
 
 SECTION code_compiler
 
+PUBLIC  ide_init
+PUBLIC  asm_disk_initialize
 PUBLIC  ide_read_sector
 PUBLIC  ide_write_sector
 
@@ -41,6 +43,15 @@ copy512_lp:
     ld      (de+),a
     dec     b
     jp      NZ,copy512_lp
+    ret
+
+ide_init:
+    scf
+    ret
+
+asm_disk_initialize:
+    ld      hl,0
+    scf
     ret
 
 ide_read_sector:

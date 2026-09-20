@@ -101,15 +101,15 @@ int main(void)
     expect("hello_nal", slot[11] == 1 && slot[12] == 0);     /* n_al = 1 */
     expect("hello_firstal", slot[9] == 2 && slot[10] == 0);
     expect("hello_sclust", slot[1] == 3);
-    slot += 13;
+    slot += 24;
     expect("big_nal", slot[11] == 16 && slot[12] == 0);      /* 65536 >> 12 */
     expect("big_firstal", slot[9] == 3 && slot[10] == 0);
 
     memset(hstbuf, 0, 512);
     synth_rec = 0;
     synth_dir_run();
-    expect("synth_hello", memcmp(hstbuf, "HELLO   TXT", 11) == 0);
-    expect("synth_big", memcmp(hstbuf + 32, "BIG     DAT", 11) == 0);
+    expect("synth_hello", hstbuf[0] == 0 && memcmp(hstbuf + 1, "HELLO   TXT", 11) == 0);
+    expect("synth_big", hstbuf[32] == 0 && memcmp(hstbuf + 33, "BIG     DAT", 11) == 0);
 
     /* AL 2 → track 0 host sec 16 (dir is reserved AL 0-1 = host sec 0-15). */
     hsttrk = 0;

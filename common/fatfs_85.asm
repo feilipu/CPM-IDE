@@ -42,6 +42,7 @@
 
 SECTION code_lib
 
+EXTERN  asm_disk_initialize
 EXTERN  ide_read_sector
 EXTERN  ide_write_sector
 
@@ -86,6 +87,7 @@ EXTERN  writehst
 PUBLIC  clst2sect           ;cluster -> first sector LBA
 PUBLIC  fat_sync_window     ;write fatwin if dirty; mirror FAT#2
 PUBLIC  _fat_sync           ;C: fat_sync_window
+PUBLIC  _fat_dirty          ;C: mark fatwin dirty
 PUBLIC  fat_move_window     ;flush dirty, read LBA into fatwin
 PUBLIC  fat_mount           ;mount FAT16/32 from LBA 0 or MBR
 PUBLIC  _fat_mount          ;C: fat_mount
@@ -195,16 +197,18 @@ DEFC    FILE_MAX        = 64
 DEFC    DIR_AL          = 2             ;AL 0-1 reserved; DPB AL0=$C0 (256 dirents)
 DEFC    DIR_HST         = DIR_AL*8      ;host sectors in reserved dir ALs (BLS/512)
 DEFC    wrual           = 2             ;BDOS WRITE C=2; matches BIOS wrual
-DEFC    FILE_SIZ        = 13            ;flags+sclust+size+first_al+n_al; 8.3 from FAT
+DEFC    FILE_SIZ        = 24            ;flags+sclust+size+first_al+n_al+8.3
 DEFC    FF_FLAGS        = 0
 DEFC    FF_SCLUST       = 1
 DEFC    FF_SIZE         = 5
 DEFC    FF_FIRSTAL      = 9
 DEFC    FF_NAL          = 11
+DEFC    FF_NAME         = 13
 DEFC    FF_USED         = $80
 DEFC    EOC32           = $0FFFFFFF
 
 DEFC    AM_RDO          = $01
+DEFC    AM_HID          = $02
 
 
 ; ff.c clst2sect: if (clst < 2 || clst >= n_fatent) fail;
@@ -273,8 +277,6 @@ clst2sect_ov:
     or      a
     ret
 
-_fat_sync:
-
 ; ff.c sync_window, fail closed. Writes FAT #1 first. wflag stays set
 ; until every copy succeeds (ff clears it before FAT #2 and ignores a
 ; failed mirror). n_fats >= 2 and winsect in FAT #1 (unsigned
@@ -282,6 +284,12 @@ _fat_sync:
 ; are not mirrored. Mount only allows 1 or 2 FATs.
 ; OUT: C: OK; NC: write failed
 ; clobbers AF, BC, DE, HL (ide_write_sector contract)
+_fat_dirty:
+    ld      a,1
+    ld      (fat_wflag),a
+    ret
+
+_fat_sync:
 fat_sync_window:
     ld      a,(fat_wflag)
     or      a
@@ -434,6 +442,32 @@ fat_check_fail:
     or      a
     ret
 
+; Wait for ready, then SET FEATURES 8-bit. Cold CF is BSY after power-on;
+; SET FEATURES issued while BSY is ignored (warm reset then works).
+fat_ide_delay:
+    xor     a
+fat_ide_d0:
+    ex      (sp),hl
+    ex      (sp),hl
+    dec     a
+    jp      NZ,fat_ide_d0
+    ret
+
+; 8 tries of disk_initialize with delay. C: ready. NC: still busy.
+fat_ide_bringup:
+    ld      b,8
+fat_ide_br1:
+    push    bc
+    ld      l,0
+    call    asm_disk_initialize
+    pop     bc
+    ret     C
+    call    fat_ide_delay
+    dec     b
+    jp      NZ,fat_ide_br1
+    or      a
+    ret
+
 ;------------------------------------------------------------------------------
 ; fat_mount — ff.c find_volume + mount_volume
 ; LBA 0 as SFD VBR; else four MBR primary PTEs (no GPT, no extended).
@@ -444,6 +478,11 @@ fat_check_fail:
 ;------------------------------------------------------------------------------
 _fat_mount:
 fat_mount:
+    ld      b,8
+fat_mount_cold:
+    push    bc
+    call    fat_ide_bringup
+    jp      NC,fat_mount_cold1
     xor     a
     ld      (fat_wflag),a
     ld      (_cpm_fat_vol+25),a     ;free_valid
@@ -453,10 +492,27 @@ fat_mount:
     ld      bc,0
     ld      de,0
     call    fat_move_window
-    ld      l,1
-    ret     NC
+    jp      NC,fat_mount_cold1
     call    fat_check_vbr
+    pop     bc
     jp      C,fat_parse_bpb
+    ld      a,(fatwin+BS_55AA)
+    cp      $55
+    jp      NZ,fat_mount_cold2
+    ld      a,(fatwin+BS_55AA+1)
+    cp      $AA
+    jp      NZ,fat_mount_cold2
+    jp      fat_mount_mbr
+fat_mount_cold1:
+    pop     bc
+fat_mount_cold2:
+    dec     b
+    jp      NZ,fat_mount_cold
+    ld      l,1
+    or      a
+    ret
+
+fat_mount_mbr:
     ld      hl,fatwin+MBR_PTE+PTE_StLba
     ld      de,fat_work
     ld      b,4
@@ -897,12 +953,13 @@ fat_fatent:
     jr      fat_fatent_sec
 fat_fatent32:
     ; FAT32: pff DWORD array. sect = fatbase + clst/128; off = (clst%128)*4
+    ; (clst%128)*4 is 0..508 — must be 16-bit; add a,a wraps at 64.
     ld      a,e
     and     127
-    add     a,a
-    add     a,a
     ld      l,a
     ld      h,0
+    add     hl,hl
+    add     hl,hl
     push    hl                      ;off 0..508
     ld      a,e
     rla                             ;C = clst bit 7
@@ -1367,63 +1424,12 @@ cc_scan:
 cc_ok:
     call    fat_sync_window
     jr      NC,cc_ret_cl            ;FAT#2 failed: cluster is on FAT#1
-    ld      hl,(fat_work+14)
-    ld      bc,hl
-    ld      hl,(fat_work+12)
-    ex      de,hl
-    call    clst2sect
-    ret     NC
-    ex      de,hl
-    ld      (fat_work),hl
-    ld      hl,bc
-    ld      (fat_work+2),hl
-    ld      hl,fatwin
-    xor     a
-    ld      b,0
-cc_fill:
-    ld      (hl+),a
-    ld      (hl+),a
-    dec     b
-    jp      NZ,cc_fill
-    ld      a,(_cpm_fat_vol+1)
-cc_zlp:
-    push    af
-    ld      hl,(fat_work+2)
-    ld      bc,hl
-    ld      hl,(fat_work)
-    ex      de,hl
-    ld      hl,fatwin
-    call    ide_write_sector
-    pop     de
-    ld      a,d
-    jr      NC,cc_zfail
-    ld      hl,(fat_work)
-    inc     hl
-    ld      (fat_work),hl
-    ld      a,h
-    or      l
-    jr      NZ,cc_znext
-    ld      hl,(fat_work+2)
-    inc     hl
-    ld      (fat_work+2),hl
-cc_znext:
-    ld      a,d
-    dec     a
-    jr      NZ,cc_zlp
-    ld      hl,$FFFF
-    ld      (fat_winsect),hl
-    ld      (fat_winsect+2),hl
-    xor     a
-    ld      (fat_wflag),a
 cc_ret_cl:
     ld      hl,(fat_work+14)
     ld      bc,hl
     ld      hl,(fat_work+12)
     ex      de,hl
     scf
-    ret
-cc_zfail:
-    or      a
     ret
 cc_next:
     ld      hl,(fat_work+14)
@@ -1971,20 +1977,40 @@ pack_drive:
     xor     a
     ld      (fat_work+4),a          ;file count
     ld      (fat_work+6),a          ;dirents used
+    ld      (synth_seen),a          ;walk cap (stop when it wraps)
 pd_loop:
+    ld      a,(synth_seen)
+    inc     a
+    ld      (synth_seen),a
+    jp      Z,pd_done               ;256 raw entries
     ld      hl,(dir_ptr)
     ld      a,(hl)
     or      a
-    jp      Z,pd_done
+    jp      Z,pd_done               ;0x00 end of directory
     cp      $E5                     ;deleted
     jp      Z,pd_skip
-    cp      '.'                     ;. and ..
-    jp      Z,pd_skip
+    cp      '.'
+    jr      NZ,pd_attr
+    inc     hl
+    ld      a,(hl)
+    dec     hl
+    cp      ' '
+    jp      Z,pd_skip               ; "."
+    cp      '.'
+    jr      NZ,pd_attr
+    inc     hl
+    inc     hl
+    ld      a,(hl)
+    dec     hl
+    dec     hl
+    cp      ' '
+    jp      Z,pd_skip               ; ".."
+pd_attr:
     ld      de,hl+DIR_Attr
     ld      a,(de)
     cp      AM_LFN
     jp      Z,pd_skip
-    and     AM_DIR|AM_VOL|AM_SYS
+    and     AM_DIR|AM_VOL|AM_HID
     jp      NZ,pd_skip
     ld      a,(fat_work+4)
     cp      FILE_MAX
@@ -2032,8 +2058,6 @@ pd_shr12:
     or      h
     or      l
     jr      Z,pd_empty_cl
-    call    pd_clst_ok
-    jp      C,pd_skip
     ld      a,(fat_work+6)
     cp      255
     jp      NC,pd_done
@@ -2070,8 +2094,6 @@ pd_nal_ok:
     sra     hl
     jr      pd_nd
 pd_empty_cl:
-    call    pd_clst_ok
-    jp      C,pd_skip
     ld      hl,1
 pd_nd:
     ld      a,(fat_work+6)
@@ -2163,7 +2185,12 @@ pd_alst:
     inc     de
     ld      hl,(fat_work+8)         ;n_al
     ld      (de),hl
-    ex      de,hl                   ;DE = n_al
+    inc     de
+    inc     de
+    ld      hl,(dir_ptr)
+    ld      bc,11
+    call    fat_copy                ;8.3 at slot+FF_NAME
+    ld      de,(fat_work+8)         ;n_al
     ld      hl,(fat_work+2)
     add     hl,de
     jr      C,pd_stop               ;first_al wrapped
@@ -2179,6 +2206,9 @@ pd_stop:
     jp      pd_done
 pd_skip:
     call    dir_next
+    jp      NC,pd_done
+    ld      a,(dir_ofs+1)
+    cp      $20                     ;256 raw dirents (ofs 8192)
     jp      C,pd_loop
     jp      pd_done
 pd_done:
@@ -2306,19 +2336,16 @@ pd_cl_bad:
     scf
     ret
 
-; A = file index, HL = table base + A*FILE_SIZ (13 = *8 + *4 + *1)
+; A = file index, HL = table base + A*FILE_SIZ (24 = *16 + *8)
 pd_slot:
     ld      l,a
     ld      h,0
-    ld      de,hl
     add     hl,hl
     add     hl,hl
     add     hl,hl                   ;*8
-    add     hl,de                   ;*9
-    add     hl,de                   ;*10
-    add     hl,de                   ;*11
-    add     hl,de                   ;*12
-    add     hl,de                   ;*13
+    ld      de,hl
+    add     hl,hl                   ;*16
+    add     hl,de                   ;*24
     ex      de,hl
     ld      hl,(fat_work)
     add     hl,de
@@ -2348,16 +2375,31 @@ sfe_lp:
     ld      hl,(dir_ptr)
     ld      a,(hl)
     or      a
-    ret     Z
+    ret     Z                       ;0x00 end of directory
     cp      $E5
     jr      Z,sfe_sk
     cp      '.'
-    jr      Z,sfe_sk
+    jr      NZ,sfe_attr
+    inc     hl
+    ld      a,(hl)
+    dec     hl
+    cp      ' '
+    jr      Z,sfe_sk                ; "."
+    cp      '.'
+    jr      NZ,sfe_attr
+    inc     hl
+    inc     hl
+    ld      a,(hl)
+    dec     hl
+    dec     hl
+    cp      ' '
+    jr      Z,sfe_sk                ; ".."
+sfe_attr:
     ld      de,hl+DIR_Attr
     ld      a,(de)
     cp      AM_LFN
     jr      Z,sfe_sk
-    and     AM_DIR|AM_VOL
+    and     AM_DIR|AM_VOL|AM_HID
     jr      NZ,sfe_sk
     ld      a,(synth_seen)
     ld      hl,synth_want
@@ -2447,7 +2489,7 @@ sd_empty:
     ld      hl,(fat_work+12)
     ex      de,hl
     ld      b,32
-    xor     a
+    ld      a,$E5                   ;CP/M unused dirent
 sd_z:
     ld      (de+),a
     dec     b
@@ -2456,29 +2498,25 @@ sd_z:
 sd_hit:
     add     hl,de                   ;HL = extent e within file
     ld      (fat_work+10),hl
-    ld      hl,(fat_work)
-    push    hl                      ;slot
-    ld      hl,(fat_work+10)
-    push    hl                      ;e
     ld      hl,(fat_work+12)
-    push    hl                      ;dest
-    ld      a,(fat_work+14)
-    call    sd_fat_entry            ;dir_ptr -> 8.3; clobbers fat_work
-    pop     de                      ;dest
-    pop     bc                      ;e
-    pop     hl                      ;slot
-    jp      NC,sd_empty
-    ld      (fat_work),hl
-    push    hl
-    ld      hl,bc
-    ld      (fat_work+10),hl
-    ld      hl,(dir_ptr)
-    ld      bc,11
-    call    fat_copy                            ;FAT 8.3
-    pop     hl
+    ex      de,hl                   ;DE = dest
+    ld      hl,(fat_work)           ;slot
     ld      a,(hl)
     and     $0F                     ;UU
-    ld      (de+),a                 ;DE = dest+12 (EX)
+    ld      (de+),a                 ;CP/M byte 0
+    ld      bc,FF_NAME
+    add     hl,bc
+    ld      bc,11
+    call    fat_copy                ;8.3 from slot, DE = dest+12 (EX)
+    ld      hl,-11
+    add     hl,de
+    ld      b,11
+sd_mask:
+    ld      a,(hl)
+    and     $7F                     ;CP/M t2' SYS hides DIR
+    ld      (hl+),a
+    dec     b
+    jp      NZ,sd_mask
     ld      hl,(fat_work+10)        ;e
     add     hl,hl                   ;2e  (EXM=1)
     ld      a,l
@@ -2662,16 +2700,30 @@ ma_miss:
     or      a
     ret
 
-; Host sectors 0 .. DIR_HST-1 on track 0 are the synthesized CP/M
-; directory (AL 0-1). Data ALs start at host sector DIR_HST.
-; OUT C if host sector is in the reserved directory ALs (track 0, hstsec < DIR_HST)
+; Directory ALs 0 .. DIR_AL-1: AL = (hsttrk:hstsec) >> 3.
+; OUT C if that AL is a reserved directory block (synth, not IDE).
 fat_hst_isdir:
     ld      a,(hsttrk)
+    ld      h,a
+    ld      a,(hstsec)
+    ld      l,a
+    xor     a                       ;C = 0
+    ld      b,3
+fhi_shr:
+    ld      a,h
+    rra
+    ld      h,a
+    ld      a,l
+    rra
+    ld      l,a
+    dec     b
+    jp      NZ,fhi_shr
+    ld      a,h
     or      a
     jr      NZ,fat_hst_data
-    ld      a,(hstsec)
-    cp      DIR_HST
-    ret                             ;C if hstsec < DIR_HST
+    ld      a,l
+    cp      DIR_AL
+    ret                             ;C if AL < DIR_AL
 fat_hst_data:
     or      a
     ret
@@ -3180,6 +3232,7 @@ wd_phit:
 ;*    first byte is EOT (ff dir_read).               *
 ;*****************************************************
 
+; HL -> DWORD start cluster. dir_sdi at offset 0. L=0 success.
 _fat_dir_open:
     call    fat_ld32
     ld      hl,0
@@ -3189,6 +3242,7 @@ _fat_dir_open:
     inc     l
     ret
 
+; HL -> 32-byte dirent. Copy dir_ptr; first byte 0x00 is EOT (L=1).
 _fat_dir_read:
     push    hl
     ld      hl,(dir_ptr)
