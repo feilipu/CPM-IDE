@@ -20,9 +20,7 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 # from repo root
 ./.agents/scripts/rebuild-ff.sh
 ./.agents/scripts/rebuild-hex.sh
-# *.hex gitignored; often assume-unchanged (git ls-files -v shows H)
-git update-index --no-assume-unchanged rc2014-cpm22-*.hex
-git add -f rc2014-cpm22-*.hex
+# *.hex is gitignored. Do not commit the HEX files.
 ```
 
 `MAXJOBS` default 2. Each job has its own cwd and `TMPDIR` — **never** parallel bare `zcc` in one directory (`zcc_opt.def`).
@@ -52,4 +50,4 @@ Build PATA HEX files, then set the flag to `1`, rebuild both libraries, then bui
 - `z88dk-lib +rc2014 ff` installs basename `ff` only. Copy `ff_ro` / `ff_85*` by hand (the ff script does this).
 - SDCC `ff_ro` is one `-clib=sdcc_iy` object, installed as `lib/clibs/sdcc_ix/lib/<target>/ff_ro.lib`. Do not leave a second copy under `sdcc_iy/`.
 - Restore `FF_FS_READONLY` to `0` after an RO build (`rebuild-ff.sh` traps this).
-- `*.hex` is gitignored and often assume-unchanged (**H**). Stage with the `update-index` + `git add -f` lines above.
+- `*.hex` is gitignored. Do not commit the HEX files.

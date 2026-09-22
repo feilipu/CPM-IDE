@@ -61,7 +61,7 @@ zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m \
 cp ../rc2014-cpm22-z80-cf-sio.ihx ../rc2014-cpm22-z80-cf-sio.hex
 ```
 
-`cpm22.lst`: `cpm22preamble`, `cpm22bios`, `cpm22`, `sio_init_async_rodata`, `../common/fatfs.asm`, `main.c`. Parallel `zcc` in one cwd corrupts `zcc_opt.def`. `*.hex` is gitignored: `git add -f`.
+`cpm22.lst`: `cpm22preamble`, `cpm22bios`, `cpm22`, `sio_init_async_rodata`, `../common/fatfs.asm`, `main.c`. Parallel `zcc` in one cwd corrupts `zcc_opt.def`. `*.hex` is gitignored. Do not commit the HEX files.
 
 Gate: boot image **≤ 32768**. HEX copied from ihx. Mini-FAT (`SECTION code_lib`) is ROM-resident, not inside the BIOS PHASE.
 

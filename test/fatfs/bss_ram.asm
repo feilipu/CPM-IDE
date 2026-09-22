@@ -11,7 +11,7 @@ PUBLIC hstwrt, _hstwrt
 PUBLIC wrtype, dmaadr, erflag, hstact, _hstact
 PUBLIC drv_packed
 PUBLIC clst_cache_sclust, clst_cache_ci, clst_cache_clst
-PUBLIC unamap_idx, unamap_drv
+PUBLIC unamap_idx, unamap_drv, unamap_ofs, unamap_on
 PUBLIC synth_fi, synth_want, synth_seen
 PUBLIC _fat_cwd, _fat_found_sclust, _fat_found_size, _fat_dir_ptr, _fat_dir_sclust
 PUBLIC _cpm_dsk0_base
@@ -47,6 +47,8 @@ fat_work:               defs 16
 pack_sv:                defs 16
 unamap_idx:             defs 1
 unamap_drv:             defs 1
+unamap_ofs:             defs 2
+unamap_on:              defs 1
 synth_fi:               defs 1
 synth_want:             defs 1
 synth_seen:             defs 1

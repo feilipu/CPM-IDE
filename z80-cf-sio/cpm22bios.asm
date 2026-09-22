@@ -405,8 +405,10 @@ chgdsk:
     jr      NZ,chgdsk_packed
     xor     a
     out     (__IO_ROM_TOGGLE),a     ;ROM in (pack_drive)
+    push    bc                      ;pack_drive reuses C (dir_next leaves BC=32)
     ld      a,c
     call    pack_drive
+    pop     bc
     ld      a,$01
     out     (__IO_ROM_TOGGLE),a     ;RAM in
 chgdsk_packed:
@@ -479,6 +481,8 @@ write:
     ld      a,c
     cp      wrdir
     jp      NZ,write_data
+    ld      a,(sekdsk)
+    ld      (hstdsk),a              ;wrdir_cpm reads this drive's FAT directory
     xor     a
     out     (__IO_ROM_TOGGLE),a     ;ROM in (wrdir_cpm)
     call    wrdir_cpm
@@ -1484,6 +1488,8 @@ PUBLIC  clst_cache_ci
 PUBLIC  clst_cache_clst
 PUBLIC  unamap_idx
 PUBLIC  unamap_drv
+PUBLIC  unamap_ofs
+PUBLIC  unamap_on
 PUBLIC  synth_fi
 PUBLIC  synth_want
 PUBLIC  synth_seen
@@ -1509,6 +1515,7 @@ sekhst:             defs 1  ;seek shr secshf
 hstact:             defs 1  ;host active flag
 hstwrt:             defs 1  ;host written flag
 
+PUBLIC  unacnt
 unacnt:             defs 1  ;unalloc rec cnt
 
 unadsk:             defs 1  ;last unalloc disk
@@ -1567,6 +1574,8 @@ fat_work:           defs 16
 pack_sv:            defs 16
 unamap_drv:         defs 1
 unamap_idx:         defs 1
+unamap_ofs:         defs 2  ;FAT directory offset of that file
+unamap_on:          defs 1  ;1 once a new file has been armed
 
 alv00:              defs ((hstalb-1)/8)+1   ;DSM bitmap; 256 B × 4, not DRM
 alv01:              defs ((hstalb-1)/8)+1

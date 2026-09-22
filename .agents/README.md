@@ -16,11 +16,6 @@ Scripts fail-closed: zcc or a missing/empty product fails the job; job-dir `rm` 
 
 Set `__IO_CF_8_BIT` and rebuild `rc2014.lib` plus `rc2014-8085_clib.lib` **before** HEX. PATA HEX needs `0`. CF HEX needs `1`. Do not run `rebuild-hex.sh` for mixed PATA+CF in one library state. See root `AGENTS.md` rule 5.
 
-`*.hex` is gitignored and often assume-unchanged (`git ls-files -v` **H**). After a HEX rebuild:
-
-```bash
-git update-index --no-assume-unchanged rc2014-cpm22-*.hex
-git add -f rc2014-cpm22-*.hex
-```
+`*.hex` is gitignored. Do not commit the HEX files.
 
 Env defaults: `Z88DK=/data/z88dk`, `Z88DK_LIBRARIES=/data/z88dk-libraries` (or `../z88dk-libraries` next to this repo). Override `PATH`, `ZCCCFG`, `Z88DK`, `Z88DK_LIBRARIES`, `MAXJOBS`.

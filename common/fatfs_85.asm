@@ -78,6 +78,9 @@ EXTERN  clst_cache_ci
 EXTERN  clst_cache_clst
 EXTERN  unamap_idx
 EXTERN  unamap_drv
+EXTERN  unamap_ofs
+EXTERN  unamap_on
+EXTERN  unacnt
 EXTERN  synth_fi
 EXTERN  synth_want
 EXTERN  synth_seen
@@ -1216,8 +1219,8 @@ clst_from_off:
     ld      d,c
     ld      c,b
     ld      b,0                     ;fptr >> 8
+    xor     a
     ld      a,c
-    or      a
     rra
     ld      c,a
     ld      a,d
@@ -1240,8 +1243,8 @@ cfo_div:
     or      a
     jr      Z,cfo_ci
 cfo_shr:
+    xor     a
     ld      a,c
-    or      a
     rra
     ld      c,a
     ld      a,d
@@ -1362,7 +1365,7 @@ create_chain:
     inc     bc
     jr      cc_scan
 cc_from2:
-    ld      de,2
+    ld      de,3                    ;cluster 2 is the FAT32 root
     ld      bc,0
 cc_scan:
     ld      hl,bc
@@ -1370,6 +1373,8 @@ cc_scan:
     ex      de,hl
     ld      (fat_work+12),hl
     ex      de,hl
+    push    bc                      ;range check clobbers BC
+    push    de
     ld      hl,(_cpm_fat_vol+4)
     ld      a,l
     sub     e
@@ -1382,61 +1387,55 @@ cc_scan:
     ld      c,a
     ld      a,(_cpm_fat_vol+7)
     sbc     a,b
-    jr      C,cc_wrap
+    jr      C,cc_scan_pop
     or      c
     or      h
     or      l
-    jr      Z,cc_wrap               ;search >= n_fatent
-    ld      hl,(fat_work+14)
-    ld      bc,hl
-    ld      hl,(fat_work+12)
-    ex      de,hl
+    jr      Z,cc_scan_pop           ;search >= n_fatent
     call    get_fat
-    ret     NC
+    jr      NC,cc_pop_fail
     ld      a,b
     or      c
     or      d
     or      e
     jr      NZ,cc_next              ;in use
-    ld      hl,(fat_work+14)
-    ld      bc,hl
-    ld      hl,(fat_work+12)
-    ex      de,hl
+    pop     de
+    pop     bc
+    push    bc
+    push    de
     ld      hl,cc_eoc
     call    put_fat
-    ret     NC
+    jr      NC,cc_pop_fail
     ld      a,(fat_work+8)
     ld      hl,fat_work+9
     or      (hl+)
     or      (hl+)
     or      (hl)
     jr      Z,cc_ok
+    pop     de
+    pop     bc
     push    bc
     push    de
+    ld      hl,bc
+    ld      (fat_work+14),hl        ;put_fat reads the new cluster from here
+    ex      de,hl
+    ld      (fat_work+12),hl
     ld      hl,(fat_work+10)
     ld      bc,hl
     ld      hl,(fat_work+8)
     ex      de,hl
     ld      hl,fat_work+12
     call    put_fat
+    jr      NC,cc_pop_fail
+cc_ok:
+    call    fat_sync_window         ;ignore FAT#2; cluster is on FAT#1
     pop     de
     pop     bc
-    ret     NC
-cc_ok:
-    call    fat_sync_window
-    jr      NC,cc_ret_cl            ;FAT#2 failed: cluster is on FAT#1
-cc_ret_cl:
-    ld      hl,(fat_work+14)
-    ld      bc,hl
-    ld      hl,(fat_work+12)
-    ex      de,hl
     scf
     ret
 cc_next:
-    ld      hl,(fat_work+14)
-    ld      bc,hl
-    ld      hl,(fat_work+12)
-    ex      de,hl
+    pop     de
+    pop     bc
     inc     de
     ld      a,d
     or      e
@@ -1456,6 +1455,13 @@ cc_wrap:
     or      (hl)
     jr      Z,cc_fail
     jp      cc_from2
+cc_scan_pop:
+    pop     de
+    pop     bc
+    jp      cc_wrap
+cc_pop_fail:
+    pop     de
+    pop     bc
 cc_fail:
     or      a
     ret
@@ -1469,9 +1475,11 @@ remove_chain:
     ld      a,b
     or      c
     or      d
-    or      e
-    scf
-    ret     Z
+    jr      NZ,rc_go
+    ld      a,e
+    cp      3                       ;0, 1, and the FAT32 root stay allocated
+    ret     C
+rc_go:
     ld      hl,0
     ld      (fat_work),hl            ;step cap (hang on cyclic FAT)
 rc_loop:
@@ -1911,6 +1919,8 @@ dc_z:
     ld      a,1
     ld      (fat_wflag),a
     ld      hl,0
+    ld      (fat_found_sclust),hl   ;new entry has no cluster yet
+    ld      (fat_found_sclust+2),hl
     scf
     ret
 
@@ -1944,6 +1954,24 @@ fat_filebase_lp:
 ; OUT: C packed. Table filled in FAT directory order.
 pack_drive:
     ld      (fat_work+15),a         ;drive
+    ld      a,(unamap_on)
+    or      a
+    jr      Z,pd_un_keep
+    ld      a,(unamap_drv)
+    ld      hl,fat_work+15
+    cp      (hl)
+    jr      NZ,pd_un_keep
+    ld      a,FILE_MAX
+    ld      (unamap_idx),a          ;slot index changes when the walk reorders
+pd_un_keep:
+    ld      a,(fat_wflag)
+    or      a
+    jr      NZ,pd_win_ok            ;keep a directory update not yet synced
+    ld      hl,$FFFF
+    ld      (fat_winsect),hl        ;force the walk to read the card
+    ld      (fat_winsect+2),hl
+pd_win_ok:
+    ld      a,(fat_work+15)
     call    fat_filebase
     ld      (fat_work),hl           ;table base
     ld      de,hl
@@ -2014,6 +2042,24 @@ pd_attr:
     ld      a,(fat_work+4)
     cp      FILE_MAX
     jp      NC,pd_done
+    ld      a,(unamap_on)
+    or      a
+    jr      Z,pd_un_no
+    ld      a,(unamap_drv)
+    ld      hl,fat_work+15
+    cp      (hl)
+    jr      NZ,pd_un_no
+    ld      a,(dir_ofs)
+    ld      hl,unamap_ofs
+    cp      (hl)
+    jr      NZ,pd_un_no
+    inc     hl
+    ld      a,(dir_ofs+1)
+    cp      (hl)
+    jr      NZ,pd_un_no
+    ld      a,(fat_work+4)
+    ld      (unamap_idx),a          ;same FAT dirent as the file just created
+pd_un_no:
     ; n_al = (size + 4095) >> 12
     ld      hl,(dir_ptr)
     ld      de,hl+DIR_FileSize
@@ -2036,8 +2082,8 @@ pd_sz4095:
     ld      d,0
     ld      b,4
 pd_shr12:
+    xor     a
     ld      a,e
-    or      a
     rra
     ld      e,a
     ld      a,h
@@ -2258,83 +2304,6 @@ pack_sv_in:
     rra                             ;restore carry
     ret
 
-; C if dirent start cluster < 2 (invalid for a non-empty file).
-pd_clst_ok:
-    ld      hl,(dir_ptr)
-    ld      de,hl+DIR_ClusLO
-    ld      hl,(de)
-    ex      de,hl                   ;DE = clus lo
-    ld      bc,0
-    ld      a,(_cpm_fat_vol)
-    cp      FS_FAT32
-    jr      NZ,pd_cl2
-    ld      bc,de                   ;park lo
-    ld      hl,(dir_ptr)
-    ld      de,hl+DIR_ClusHI
-    ld      hl,(de)
-    ld      de,bc                   ;DE = clus lo
-    ld      bc,hl                   ;BC = clus hi
-pd_cl2:
-    ld      a,b
-    or      c
-    or      d
-    or      e
-    ret     Z                       ;cluster 0: empty file
-    ld      a,e
-    sub     2
-    ld      a,d
-    sbc     a,0
-    ld      a,c
-    sbc     a,0
-    ld      a,b
-    sbc     a,0
-    ret     C                       ;cluster < 2
-    ld      hl,_cpm_fat_vol+4
-    ld      a,e
-    sub     (hl+)
-    ld      a,d
-    sbc     a,(hl+)
-    ld      a,c
-    sbc     a,(hl+)
-    ld      a,b
-    sbc     a,(hl)
-    jr      C,pd_cl_live
-    scf
-    ret
-pd_cl_live:
-    push    bc
-    push    de
-    call    get_fat
-    ld      a,0
-    jr      NC,pd_gf_done
-    ld      a,b
-    or      c
-    or      d
-    or      e
-    ld      a,1
-    jr      NZ,pd_gf_done
-    xor     a
-pd_gf_done:
-    pop     de
-    pop     bc
-    push    af
-    ld      hl,(dir_sect)
-    ex      de,hl
-    ld      hl,(dir_sect+2)
-    ld      bc,hl
-    call    fat_move_window
-    pop     de
-    jr      NC,pd_cl_bad
-    ld      a,d
-    or      a
-    scf
-    ret     Z
-    or      a
-    ret
-pd_cl_bad:
-    scf
-    ret
-
 ; A = file index, HL = table base + A*FILE_SIZ (24 = *16 + *8)
 pd_slot:
     ld      l,a
@@ -2533,7 +2502,9 @@ sd_mask:
     or      a
     rra
     ld      (de+),a                 ;S2 = e>>4
+    push    de                      ;sd_rc uses DE; keep the dirent cursor
     call    sd_rc
+    pop     de
     ld      (de+),a                 ;RC
     push    de                      ;dest → AL[0]
     ld      hl,(fat_work)
@@ -2646,8 +2617,10 @@ sd_rc0:
 ; IN: DE = AL
 ; OUT C: A = file index, HL = block-within-file
 map_al:
+    push    de                      ;fat_filebase reuses DE when drive != 0
     ld      a,(hstdsk)
     call    fat_filebase
+    pop     de
     xor     a
 ma_lp:
     cp      FILE_MAX
@@ -2706,9 +2679,9 @@ fat_hst_isdir:
     ld      h,a
     ld      a,(hstsec)
     ld      l,a
-    xor     a                       ;C = 0
     ld      b,3
 fhi_shr:
+    xor     a                       ;drop the bit shifted out last pass
     ld      a,h
     rra
     ld      h,a
@@ -2736,23 +2709,22 @@ fat_hst_map:
     ld      h,a
     ld      a,(hstsec)
     ld      l,a
+    xor     a                       ;three logical >>1; or a does not clear carry
+    ld      a,h
+    rra
+    ld      h,a
+    ld      a,l
+    rra
+    ld      l,a
     xor     a
     ld      a,h
-    or      a
     rra
     ld      h,a
     ld      a,l
     rra
     ld      l,a
+    xor     a
     ld      a,h
-    or      a
-    rra
-    ld      h,a
-    ld      a,l
-    rra
-    ld      l,a
-    ld      a,h
-    or      a
     rra
     ld      h,a
     ld      a,l
@@ -2760,7 +2732,10 @@ fat_hst_map:
     ld      l,a                       ;AL
     ex      de,hl
     call    map_al
-    ret     NC
+    jr      C,fhm_mapped
+    ld      a,1                     ;no packed file owns this AL
+    ret
+fhm_mapped:
     ld      (fat_work+14),a         ;file index
     ld      (fat_work+12),hl        ;block within file (keep across clst_from_off)
     ld      a,(hstdsk)
@@ -2806,8 +2781,10 @@ fhm_fp:
     ld      (fat_work+6),hl
     ld      hl,fat_work
     call    clst_from_off
+    ld      a,3                     ;cluster chain does not reach this block
     ret     NC
     call    clst2sect
+    ld      a,3
     ret     NC
     ; sector in cluster = (block*8 + (hstsec&7)) & (csize-1)
     ld      hl,(fat_work+12)
@@ -2831,12 +2808,98 @@ fhm_ok:
     scf
     ret
 
+; DE = slot. Include the host block in [first_al, first_al+n_al).
+; One CP/M block is one 4 KiB cluster, so this runs once per block.
+fwb_cover:
+    push    de
+    ld      a,(hsttrk)
+    ld      h,a
+    ld      a,(hstsec)
+    ld      l,a
+    ld      b,3
+fwb_sh:
+    xor     a
+    ld      a,h
+    rra
+    ld      h,a
+    ld      a,l
+    rra
+    ld      l,a
+    dec     b
+    jp      NZ,fwb_sh               ;HL = AL
+    pop     de
+    push    de
+    ex      de,hl                   ;DE = AL, HL = slot
+    ld      bc,FF_FIRSTAL
+    add     hl,bc
+    ld      c,(hl)
+    inc     hl
+    ld      b,(hl)                  ;BC = first_al
+    inc     hl
+    push    hl                      ;n_al
+    ld      a,(hl)
+    inc     hl
+    or      (hl)
+    pop     hl
+    jr      NZ,fwb_grow
+    ld      (hl),1
+    inc     hl
+    ld      (hl),0                  ;n_al = 1
+    dec     hl
+    dec     hl
+    dec     hl
+    ld      (hl),e
+    inc     hl
+    ld      (hl),d                  ;first_al = AL
+    pop     de
+    ret
+fwb_grow:
+    push    hl                      ;n_al
+    ld      a,(hl)
+    inc     hl
+    ld      h,(hl)
+    ld      l,a                     ;HL = n_al
+    ld      a,c
+    add     a,l
+    ld      l,a
+    ld      a,b
+    adc     a,h
+    ld      h,a                     ;HL = first_al+n_al
+    ld      a,e
+    sub     l
+    ld      a,d
+    sbc     a,h
+    pop     hl                      ;n_al
+    jr      C,fwb_cov_ret           ;AL already inside the span
+    ld      a,e
+    sub     c
+    ld      e,a
+    ld      a,d
+    sbc     a,b
+    ld      d,a
+    inc     de                      ;n_al = AL-first_al+1
+    ld      (hl),e
+    inc     hl
+    ld      (hl),d
+fwb_cov_ret:
+    pop     de                      ;slot
+    ret
+
 ; Unmapped wrual (BDOS WRITE C=2): grow the last dir-updated file
 ; (unamap_*) and allocate a FAT cluster (ff create_chain).
 fat_wrual_bind:
+    ; BDOS puts C=2 on the first record of a new block only. The host
+    ; sector is flushed later, when wrtype is already 0 and unacnt is
+    ; still counting that block down.
+    ld      a,(unacnt)
+    or      a
+    jr      NZ,fwb_go
     ld      a,(wrtype)
     cp      wrual
-    ret     NZ
+    jr      Z,fwb_go
+    or      a
+    ret
+fwb_go:
     ld      a,(unamap_idx)
     cp      FILE_MAX
     ret     NC
@@ -2844,7 +2907,10 @@ fat_wrual_bind:
     ld      a,(unamap_drv)
     ld      hl,hstdsk
     cp      (hl)
-    ret     NZ
+    jr      Z,fwb_drv
+    or      a
+    ret
+fwb_drv:
     ld      a,(hstdsk)
     call    fat_filebase
     ld      (fat_work),hl
@@ -2854,12 +2920,10 @@ fat_wrual_bind:
     or      a
     ret     Z
     ld      de,hl                   ;park slot
-    ld      bc,FF_NAL
-    add     hl,bc
-    inc     (hl)                    ;n_al++
-    jr      NZ,fwb_1
-    inc     hl
-    inc     (hl)
+    call    fwb_cover               ;first_al/n_al include this block
+    jr      NC,fwb_1                ;C: this block is already in the span
+    scf
+    ret
 fwb_1:
     ld      hl,de
     ld      bc,FF_SCLUST
@@ -2869,10 +2933,14 @@ fwb_1:
     ld      c,(hl+)
     ld      b,(hl)
     ld      a,b
+    and     $F0                     ;above any volume this BIOS mounts
+    jr      NZ,fwb_zero
+    ld      a,b
     or      c
     or      d
     or      e
     jr      NZ,fwb_walk_init
+fwb_zero:
     ld      de,0
     ld      bc,0
     call    create_chain
@@ -2960,20 +3028,35 @@ wd_lp:
     call    fat_sync_window
     xor     a
     ld      (erflag),a
+    ld      hl,drv_packed       ;RAM maps are stale after a directory write
+    ld      (hl+),a
+    ld      (hl+),a
+    ld      (hl+),a
+    ld      (hl),a
     ret
 
 ; HL -> one CP/M 32-byte dirent. ERA unlinks; else find/create 8.3.
+; User 0 is a real entry. An empty name (00 or space) is padding.
 wrdir_slot:
     ld      a,(hl)
-    or      a
-    ret     Z
     cp      $E5
     jp      Z,wd_era
+    inc     hl
+    ld      a,(hl)
+    dec     hl
+    or      a
+    ret     Z
+    cp      ' '
+    ret     Z
     call    wd_loaddir
     push    hl
     inc     hl
-    call    dir_find
+    call    dir_find                ;already this 8.3
     pop     hl
+    jr      C,wd_upd
+    call    wd_oldname              ;REN: same blocks, previous 8.3
+    jr      C,wd_upd
+    call    wd_same8                ;REN: same 8-char name (PIP $$$)
     jr      C,wd_upd
     push    hl
     inc     hl
@@ -3012,7 +3095,17 @@ wd_ro:
     ld      (hl),a
     pop     hl
     call    wd_size
-    call    wd_pack
+    call    wd_pack                 ;fat_found_sclust = slot cluster
+    ld      hl,(dir_ptr)
+    ld      de,hl+DIR_ClusLO
+    ld      hl,fat_found_sclust
+    ld      bc,2
+    call    fat_copy
+    ld      hl,(dir_ptr)
+    ld      de,hl+DIR_ClusHI
+    ld      hl,fat_found_sclust+2
+    ld      bc,2
+    call    fat_copy
     ld      a,1
     ld      (fat_wflag),a
     ret
@@ -3067,6 +3160,132 @@ wd_ezn:
     ld      a,(fat_work+14)
     inc     a
     jr      wd_ez
+
+; REN has already stored the new 8.3 in the CP/M dirent. The packed slot
+; still has the old 8.3. A block in this dirent selects that slot.
+; OUT C: dir_ptr is the FAT entry of that old name. HL = CP/M dirent.
+wd_oldname:
+    push    hl
+    ld      bc,16
+    add     hl,bc
+    ld      b,8
+wdo_al:
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      a,d
+    or      e
+    jr      NZ,wdo_blk
+    dec     b
+    jp      NZ,wdo_al
+    pop     hl
+    or      a
+    ret
+wdo_blk:
+    push    de                      ;fat_filebase reuses DE when drive != 0
+    ld      a,(hstdsk)
+    call    fat_filebase
+    pop     de
+    xor     a
+wdo_lp:
+    cp      FILE_MAX
+    jr      NC,wdo_no
+    push    af
+    ld      a,(hl)
+    or      a
+    jr      Z,wdo_nx
+    push    hl
+    push    de
+    ld      bc,FF_FIRSTAL
+    add     hl,bc
+    ld      c,(hl+)
+    ld      b,(hl+)                  ;first_al
+    ld      a,(hl+)
+    ld      (fat_work),a
+    ld      a,(hl)
+    ld      (fat_work+1),a           ;n_al
+    ld      a,e
+    sub     c
+    ld      e,a
+    ld      a,d
+    sbc     a,b
+    ld      d,a
+    jr      C,wdo_pop               ;block < first_al
+    ld      hl,(fat_work)
+    ld      a,e
+    sub     l
+    ld      a,d
+    sbc     a,h
+    jr      NC,wdo_pop              ;block >= first_al+n_al
+    pop     de
+    pop     hl                      ;slot
+    pop     af
+    ld      bc,FF_NAME
+    add     hl,bc
+    call    dir_find
+    pop     hl                      ;CP/M dirent
+    ret
+wdo_pop:
+    pop     de
+    pop     hl
+wdo_nx:
+    pop     af
+    ld      bc,FILE_SIZ
+    add     hl,bc
+    inc     a
+    jr      wdo_lp
+wdo_no:
+    pop     hl
+    or      a
+    ret
+
+; CP/M REN already stored the new 8.3. PIP keeps the 8-char name and
+; changes $$$. Match that slot when the block span does not.
+; IN: HL = CP/M dirent. OUT C: dir_ptr set. HL preserved.
+wd_same8:
+    push    hl
+    ld      a,(unamap_drv)
+    ld      hl,hstdsk
+    cp      (hl)
+    jr      NZ,ws8_no
+    ld      a,(hstdsk)
+    call    fat_filebase
+    ld      (fat_work),hl
+    ld      a,(unamap_idx)
+    cp      FILE_MAX
+    jr      NC,ws8_no
+    call    pd_slot
+    ld      a,(hl)
+    or      a
+    jr      Z,ws8_no
+    ld      bc,FF_NAME
+    add     hl,bc
+    pop     de
+    push    de
+    inc     de
+    ld      b,8
+ws8_cmp:
+    ld      a,(de)
+    and     $7F
+    ld      c,a
+    ld      a,(hl)
+    and     $7F
+    cp      c
+    jr      NZ,ws8_no
+    inc     de
+    inc     hl
+    dec     b
+    jp      NZ,ws8_cmp
+    ld      bc,-8
+    add     hl,bc
+    call    dir_find
+    jr      NC,ws8_no
+    pop     hl
+    scf
+    ret
+ws8_no:
+    pop     hl
+    or      a
+    ret
 
 wd_loaddir:
     push    hl
@@ -3158,14 +3377,15 @@ wd_sz1:
     ld      (fat_work+7),a
     ld      hl,(dir_ptr)
     ld      de,hl+DIR_FileSize
-    ex      de,hl
-    ld      de,fat_work+4
+    ld      hl,fat_work+4           ;computed size -> directory
     ld      bc,4
     call    fat_copy
     pop     hl
     ret
 
 wd_pack:
+    push    hl                      ;CP/M dirent (name follows user)
+    ld      (pack_sv),hl
     ld      a,(hl)                  ;CP/M UU
     and     $0F
     or      FF_USED
@@ -3176,12 +3396,22 @@ wd_pack:
     xor     a
 wd_ps:
     cp      FILE_MAX
-    ret     NC
+    jr      NC,wd_pack_pop
     ld      (fat_work+14),a
     call    pd_slot
     ld      a,(hl)
     or      a
     jr      Z,wd_pempty
+    push    hl
+    ld      a,(fat_found_sclust)    ;cluster 0 is a new file: match the 8.3
+    ld      hl,fat_found_sclust+1
+    or      (hl)
+    inc     hl
+    or      (hl)
+    inc     hl
+    or      (hl)
+    pop     hl
+    jr      Z,wd_byname
     push    hl
     ld      bc,FF_SCLUST
     add     hl,bc
@@ -3197,30 +3427,85 @@ wd_pc:
     jr      wd_phit
 wd_pn:
     pop     hl
+wd_pnext:
     ld      a,(fat_work+14)
     inc     a
     jr      wd_ps
+wd_byname:
+    push    hl
+    ld      bc,FF_NAME
+    add     hl,bc
+    ld      de,(pack_sv)
+    inc     de                      ;CP/M 8.3
+    ld      b,11
+wd_bn:
+    ld      a,(de)
+    and     $7F                     ;drop t1' t2' t3'
+    ld      c,a
+    ld      a,(hl)
+    and     $7F
+    cp      c
+    jr      NZ,wd_bn_no
+    inc     de
+    inc     hl
+    dec     b
+    jp      NZ,wd_bn
+    pop     hl
+    jr      wd_phit                 ;existing slot: do not retarget unamap
+wd_bn_no:
+    pop     hl
+    jr      wd_pnext
 wd_pempty:
     ld      a,(fat_work+13)
     ld      (hl),a
     ld      a,(fat_work+14)
     call    pd_slot
-wd_phit:
-    ld      a,(fat_work+13)         ;used | UU
-    ld      (hl),a
+wd_arm:
     ld      a,(fat_work+14)
     ld      (unamap_idx),a
     ld      a,(hstdsk)
     ld      (unamap_drv),a
+    ld      hl,(dir_ofs)
+    ld      (unamap_ofs),hl         ;survives the next pack_drive reorder
+    ld      a,1
+    ld      (unamap_on),a
+wd_phit:
+    ld      a,(fat_work+13)         ;used | UU
+    ld      (hl),a
     ld      bc,FF_SCLUST
     add     hl,bc
+    push    hl
+    ld      a,(hl)
+    inc     hl
+    or      (hl)
+    inc     hl
+    or      (hl)
+    inc     hl
+    or      (hl)
+    pop     hl
+    jr      Z,wd_keep_cl            ;do not replace a dirent cluster with 0
     ld      de,fat_found_sclust
     ld      bc,4
     call    fat_copy                            ;sclust; HL -> slot size
-    ex      de,hl
+    jr      wd_sized
+wd_keep_cl:
+    ld      bc,4
+    add     hl,bc                               ;HL = slot size
+wd_sized:
+    ex      de,hl                               ;DE = slot size
     ld      hl,fat_work+4
     ld      bc,4
     call    fat_copy                            ;size from wd_size
+    inc     de
+    inc     de
+    inc     de
+    inc     de                                  ;slot 8.3 (past first_al, n_al)
+    pop     hl
+    inc     hl                                  ;CP/M 8.3
+    ld      bc,11
+    jp      fat_copy
+wd_pack_pop:
+    pop     hl
     ret
 
 ;

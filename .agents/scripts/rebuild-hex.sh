@@ -184,7 +184,5 @@ for f in "${HEX_OUTS[@]}"; do
   fi
 done
 echo
-echo "*.hex is gitignored (often assume-unchanged H):"
-echo "  git update-index --no-assume-unchanged rc2014-cpm22-*.hex"
-echo "  git add -f rc2014-cpm22-*.hex"
+echo "*.hex is gitignored. Do not commit the HEX files."
 exit 0
