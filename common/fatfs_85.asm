@@ -5,10 +5,11 @@
 ; fatfs.h. ROM-resident, no PHASE. Buffers (fatwin, hstbuf, fat_files,
 ; volume) stay in the BIOS BSS PHASE; IDE transfers those RAM buffers.
 ;
-; C: PUBLIC _names, zsdcc ABI 0. Pointers are __z88dk_fastcall (HL).
+; C: PUBLIC _names. Pointers are __z88dk_fastcall (HL).
 ; DWORD cluster/LBA is BCDE (E LSB); _fat_next/_fat_alloc/_fat_free/
 ; _fat_clst2sect/_fat_dir_open load that little-endian dword from (HL).
 ; Success: L=0 and carry set. Fail: L=1 and carry clear.
+; sccz80 treats a char return as an int, so these exits also clear H.
 ;
 ; FatFs R0.16 map (z88dk-libraries/ff/source/ff.c):
 ;   check_fs / find_volume / mount_volume
@@ -300,7 +301,7 @@ fat_sync_window:
     ex      de,hl
     ld      hl,fatwin               ;high RAM FAT window
     call    ide_write_sector        ;C: OK; HL += 512
-    ld      l,1
+    ld      hl,1
     ret     NC                      ;leave flag dirty
     ld      a,(_cpm_fat_vol+24)     ;n_fats
     cp      2
@@ -344,13 +345,13 @@ fat_sync_window:
     ld      b,a                     ;BCDE = winsect + fatsz
     ld      hl,fatwin
     call    ide_write_sector
-    ld      l,1
+    ld      hl,1
     ret     NC
 fat_sync_clear:
     xor     a
     ld      (fat_wflag),a
 fat_sync_ok:
-    ld      l,0
+    ld      hl,0
     scf
     ret
 
@@ -508,7 +509,7 @@ fat_mount_cold1:
 fat_mount_cold2:
     dec     b
     jp      NZ,fat_mount_cold
-    ld      l,1
+    ld      hl,1
     or      a
     ret
 
@@ -550,7 +551,7 @@ fat_mount_nextpt:
     pop     bc
     dec     b
     jp      NZ,fat_mount_trypt
-    ld      l,1
+    ld      hl,1
     or      a
     ret
 fat_mount_gotpt:
@@ -897,7 +898,7 @@ fat_mount_ok:
     ld      (fat_cwd+1),a
     ld      (fat_cwd+2),a
     ld      (fat_cwd+3),a
-    ld      l,0
+    ld      hl,0
     scf
     ret
 fat_mount_cwd32:
@@ -905,11 +906,11 @@ fat_mount_cwd32:
     ld      (fat_cwd),hl
     ld      hl,(_cpm_fat_vol+14)
     ld      (fat_cwd+2),hl
-    ld      l,0
+    ld      hl,0
     scf
     ret
 fat_mount_fail:
-    ld      l,1
+    ld      hl,1
     or      a
     ret
 
@@ -1800,7 +1801,7 @@ dir_next_end:
 ; ff.c dir_find (no LFN). 0x00 ends the table; 0xE5 is deleted.
 ; Skip AM_VOL and AM_LFN ($0F). 8.3 compare is 11 raw bytes.
 ; IN: HL -> 11-byte 8.3
-; OUT C and L=0: HL = dir_ptr, fat_found_* filled
+; OUT C and L=0, H=0: found, fat_found_* and dir_ptr filled. L=1: miss.
 _dir_find:
 dir_find:
     ld      (pack_sv),hl            ;8.3; dir_sdi clobbers fat_work
@@ -1810,7 +1811,7 @@ dir_find:
     ex      de,hl
     ld      hl,0
     call    dir_sdi
-    ld      l,1
+    ld      hl,1
     ret     NC
 df_loop:
     ld      hl,(dir_ptr)
@@ -1857,15 +1858,14 @@ df_hi:
     inc     de
     ld      hl,(de)
     ld      (fat_found_size+2),hl
-    ld      hl,(dir_ptr)
-    ld      l,0
+    ld      hl,0
     scf
     ret
 df_next:
     call    dir_next
     jr      C,df_loop
 df_miss:
-    ld      l,1
+    ld      hl,1
     or      a
     ret
 
@@ -1881,7 +1881,7 @@ dir_create:
     ex      de,hl
     ld      hl,0
     call    dir_sdi
-    ld      l,1
+    ld      hl,1
     ret     NC
 dc_loop:
     ld      hl,(dir_ptr)
@@ -1892,7 +1892,7 @@ dc_loop:
     jr      Z,dc_fill
     call    dir_next
     jr      C,dc_loop
-    ld      l,1
+    ld      hl,1
     or      a
     ret
 dc_fill:
@@ -1910,8 +1910,7 @@ dc_z:
     call    fat_copy
     ld      a,1
     ld      (fat_wflag),a
-    ld      hl,(dir_ptr)
-    ld      l,0
+    ld      hl,0
     scf
     ret
 
@@ -1922,7 +1921,7 @@ dir_zap:
     ld      (hl),$E5                ;DDEM; chain free is the caller's job
     ld      a,1
     ld      (fat_wflag),a
-    ld      l,0
+    ld      hl,0
     scf
     ret
 
@@ -3237,7 +3236,7 @@ _fat_dir_open:
     call    fat_ld32
     ld      hl,0
     call    dir_sdi
-    ld      l,0
+    ld      hl,0
     ret     C
     inc     l
     ret
@@ -3253,12 +3252,12 @@ _fat_dir_read:
     ld      bc,32
     call    fat_copy
     call    dir_next
-    ld      l,0
+    ld      hl,0
     ret
 fat_dir_read_end:
     pop     hl
     ld      (hl),0
-    ld      l,1
+    ld      hl,1
     ret
 
 ; HL -> DWORD cluster (LE). Write next cluster back. L=0 success.
@@ -3292,10 +3291,10 @@ _fat_next:
     jr      Z,fat_next_fail
 fat_next_store:
     call    fat_st32
-    ld      l,0
+    ld      hl,0
     ret
 fat_next_fail:
-    ld      l,1
+    ld      hl,1
     ret
 
 ; HL -> DWORD last cluster (0 = new chain). Write new cluster back.
@@ -3306,17 +3305,17 @@ _fat_alloc:
     pop     hl
     jr      NC,fat_alloc_fail
     call    fat_st32
-    ld      l,0
+    ld      hl,0
     ret
 fat_alloc_fail:
-    ld      l,1
+    ld      hl,1
     ret
 
 ; HL -> DWORD start cluster.
 _fat_free:
     call    fat_ld32
     call    remove_chain
-    ld      l,0
+    ld      hl,0
     ret     C
     inc     l
     ret
@@ -3329,10 +3328,10 @@ _fat_clst2sect:
     pop     hl
     jr      NC,fat_c2s_fail
     call    fat_st32
-    ld      l,0
+    ld      hl,0
     ret
 fat_c2s_fail:
-    ld      l,1
+    ld      hl,1
     ret
 
 ; ff.c f_getfree FAT16/32 window scan (no FSInfo). Count zero entries
@@ -3429,12 +3428,12 @@ gf_scanned:
 gf_store:
     pop     hl
     call    fat_st32
-    ld      l,0
+    ld      hl,0
     scf
     ret
 gf_fail:
     pop     hl
-    ld      l,1
+    ld      hl,1
     or      a
     ret
 
