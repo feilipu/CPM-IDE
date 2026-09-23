@@ -39,28 +39,28 @@ struct Builtin {
 
 struct Builtin builtins[] = {
   // CP/M related functions
-    { "cpm", &ya_mkcpm, "<dirA> [dirB] [dirC] [dirD] | <parent> - mount FAT dirs as A:–D:"},
-    { "hload", &ya_hload, "- load an Intel HEX CP/M file and run it"},
+    { "cpm", &ya_mkcpm, "<dirA..D or parent> - mount A:-D:"},
+    { "hload", &ya_hload, "- load Intel HEX and run"},
 
 // fat related functions
     { "ls", &ya_ls, "[path] - directory listing"},
-    { "cd", &ya_cd, "<path> - change the current working directory"},
-    { "pwd", &ya_pwd, "- show the current working directory"},
+    { "cd", &ya_cd, "<path> - change directory"},
+    { "pwd", &ya_pwd, "- show working directory"},
     { "rm", &ya_rm, "<file> - delete a file"},
     { "rmdir", &ya_rmdir, "<path> - remove an empty directory"},
     { "mkdir", &ya_mkdir, "<path> - create a directory"},
     { "cp", &ya_cp, "<src> <dst> - copy a file"},
     { "mv", &ya_mv, "<src> <dst> - rename or move a file"},
     { "mount", &ya_mount, "- mount a FAT file system"},
-    { "frag", &ya_frag, "<file> - cluster-run count for a file"},
-    { "free", &ya_free, "- free and total space on the volume"},
+    { "frag", &ya_frag, "<file> - cluster runs"},
+    { "free", &ya_free, "- free and total space"},
 
 // disk related functions
     { "ds", &ya_ds, "- disk status"},
-    { "dd", &ya_dd, "[sector] - disk dump, sector in decimal"},
+    { "dd", &ya_dd, "[sector] - dump sector (decimal)"},
 
 // system related functions
-    { "md", &ya_md, "[origin] - memory dump, origin in hexadecimal"},
+    { "md", &ya_md, "[origin] - dump memory (hex)"},
     { "help", &ya_help, "- this is it"},
     { "exit", &ya_exit, "- exit and restart"}
 };
@@ -814,7 +814,7 @@ int8_t ya_hload(char ** args)   /* load an Intel HEX CP/M file and run it */
 {
     (void *)args;
 
-    fprintf(output,"Waiting for Intel HEX CP/M command on console\n");
+    fprintf(output,"Waiting for Intel HEX\n");
     cpu_delay_ms(1);            /* output message before queue is flushed */
 
     hexload();
@@ -863,7 +863,7 @@ int8_t ya_help(char ** args)    /* print some help. */
     (void *)args;
 
     fprintf(output,"RC2014 - CP/M IDE Shell v3\n");
-    fprintf(output,"The following functions are built in:\n");
+    fprintf(output,"Commands:\n");
 
     for (i = 0; i < ya_num_builtins(); ++i) {
         fprintf(output,"  %s %s\n", builtins[i].name, builtins[i].help);

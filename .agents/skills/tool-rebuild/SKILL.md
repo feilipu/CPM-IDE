@@ -14,20 +14,31 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 | Script | What |
 |--------|------|
 | `rebuild-ff.sh` | ChaN `ff` RW+RO, Z80 all FatFs targets + rc2014 `ff_85` / `ff_85_ro`. Installs into `$ZCCCFG/../clibs`. |
-| `rebuild-hex.sh` | All seven `rc2014-cpm22-*.hex` in **one** library state. Copies `.ihx` → `.hex`, deletes leftovers. Do not use it for mixed PATA+CF in one run. |
+| `rebuild-hex.sh` | Shipped HEX only. `pata` or `cf` (not both in one library state). Copies `.ihx` → `.hex`, refuses an image over 32 KB, deletes leftovers. |
 
 ```bash
 # from repo root
 ./.agents/scripts/rebuild-ff.sh
-./.agents/scripts/rebuild-hex.sh
-# *.hex is gitignored. Do not commit the HEX files.
+# PATA library (__IO_CF_8_BIT = 0) first, then:
+./.agents/scripts/rebuild-hex.sh pata
+# CF library (__IO_CF_8_BIT = 1), then:
+./.agents/scripts/rebuild-hex.sh cf
 ```
 
 `MAXJOBS` default 2. Each job has its own cwd and `TMPDIR` — **never** parallel bare `zcc` in one directory (`zcc_opt.def`).
 
 This tree (v3 / `master`) links in-tree mini-FAT (`common/fatfs.asm` / `fatfs_85.asm` via `cpm22.lst`). Do **not** pass `-llib/rc2014/ff_ro` / `ff_85_ro` on HEX builds. `rebuild-ff.sh` still installs ChaN `ff` for CP/M applications (`-subtype=cpm`). v2.x (`cpm-ide-v2.5`) still links `ff_ro`.
 
-Scripts fail-closed: zcc or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). Job-dir `rm` is not success. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`); `reap` exits on the first non-zero child. After HEX `wait_all`, all seven `rc2014-cpm22-*.hex` must exist and be non-empty or the script exits 1.
+Scripts fail-closed: zcc or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). Job-dir `rm` is not success. A ROM `.bin` over 32768 bytes fails. An 8085 `__CODE_END` past `$7F81` fails. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`); `reap` exits on the first non-zero child. After HEX `wait_all`, every product from that `pata` or `cf` run must exist and be non-empty or the script exits 1.
+
+Shipped HEX names:
+
+- `rc2014-cpm22-8085-cf-acia.hex`
+- `rc2014-cpm22-z80-cf-acia.hex`
+- `rc2014-cpm22-z80-cf-sio.hex`
+- `rc2014-cpm22-z80-pata-sio.hex`
+
+Those four are the only HEX files git does not ignore. Stage, commit, or push them only when the user asks for that step. UART images do not fit in the 32 KB ROM. Do not build, stage, commit, or push a UART HEX.
 
 ## CF vs PATA (before any ROM `zcc`)
 
@@ -50,4 +61,4 @@ Build PATA HEX files, then set the flag to `1`, rebuild both libraries, then bui
 - `z88dk-lib +rc2014 ff` installs basename `ff` only. Copy `ff_ro` / `ff_85*` by hand (the ff script does this).
 - SDCC `ff_ro` is one `-clib=sdcc_iy` object, installed as `lib/clibs/sdcc_ix/lib/<target>/ff_ro.lib`. Do not leave a second copy under `sdcc_iy/`.
 - Restore `FF_FS_READONLY` to `0` after an RO build (`rebuild-ff.sh` traps this).
-- `*.hex` is gitignored. Do not commit the HEX files.
+- The four shipped HEX files may be staged, committed, and pushed when the user asks. UART HEX stays untracked. Do not commit or push unless that step was asked.

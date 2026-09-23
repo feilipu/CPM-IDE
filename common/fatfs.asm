@@ -30,7 +30,7 @@
 ;   FAT32 root is BPB_RootClus32; cluster 0 means that root (ff dir_sdi)
 ;   FAT16 root is static dirbase LBA
 ;   SFD (VBR at LBA 0) then four MBR primary partitions
-;   1 or 2 FATs; csize power of 2; BytsPerSec == 512
+;   1 or 2 FATs; BytsPerSec == 512; CP/M block is 4096 bytes so csize must be 8
 ;
 ; FatFs cases we skip (on purpose):
 ;   JumpBoot $EB/$E9/$E8; GPT protective MBR; logical partitions
@@ -429,9 +429,7 @@ fat_mount_cold:
     xor     a
     ld      (fat_wflag),a
     ld      (_cpm_fat_vol+25),a     ;free_valid
-    ld      hl,$FFFF
-    ld      (fat_winsect),hl
-    ld      (fat_winsect+2),hl
+    call    fat_win_inval
     ld      bc,0
     ld      de,0
     call    fat_move_window
@@ -586,11 +584,7 @@ fat_mount_shr:
     or      a
     jr      Z,fat_mount_ncl
 fat_mount_shrl:
-    srl     d
-    rr      e
-    rr      h
-    rr      l
-    djnz    fat_mount_shrl
+    call    fat_shr_dehl
 fat_mount_ncl:
     ld      (fat_work+12),hl         ;nclst low
     ld      (fat_work+14),de         ;nclst high
@@ -654,12 +648,7 @@ fat_mount_need32:
     inc     de
 fat_mount_need32s:
     ld      b,7
-fat_mount_need32l:
-    srl     d
-    rr      e
-    rr      h
-    rr      l
-    djnz    fat_mount_need32l
+    call    fat_shr_dehl
 fat_mount_needc:
     ld      bc,(_cpm_fat_vol+20)    ;fatsz - needed (C if fatsz < needed)
     ld      a,c
@@ -1150,12 +1139,68 @@ cfo_bad:
     or      a
     ret
 
+PUBLIC  fat_win_inval
+fat_win_inval:
+    ld      hl,$FFFF
+    ld      (fat_winsect),hl
+    ld      (fat_winsect+2),hl
+    ret
+
+fat_cache_inval:
+    ld      hl,$FFFF
+    ld      (clst_cache_sclust),hl
+    ld      (clst_cache_sclust+2),hl
+    ret
+
+; Shift DEHL right logically, once per B. B is 0 on return.
+fat_shr_dehl:
+    srl     d
+    rr      e
+    rr      h
+    rr      l
+    djnz    fat_shr_dehl
+    ret
+
+; C if BCDE is not a file cluster: < 2, or the FAT32 root in dirbase.
+; FAT16 dirbase is an LBA, so only < 2 applies. Preserves BCDE.
+fat_notfile:
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      NZ,fn_small
+    ld      hl,(_cpm_fat_vol+12)    ;BPB_RootClus32 low
+    or      a
+    sbc     hl,de
+    jr      NZ,fn_small
+    ld      hl,(_cpm_fat_vol+14)
+    or      a
+    sbc     hl,bc
+    jr      NZ,fn_small
+    scf
+    ret
+fn_small:
+    ld      a,b
+    or      c
+    or      d
+    jr      NZ,fn_no
+    ld      a,e
+    cp      2
+    ret
+fn_no:
+    or      a
+    ret
+
 ; ff.c create_chain (no last_clst hint, no FSInfo).
-; clst==0: scan from 2; else from clst+1, wrap once to 2.
+; A previous cluster < 2, or equal to this volume's FAT32 root, starts a new chain.
+; The free scan starts at 2 and wraps once to 2. The root cluster is never allocated.
 ; Marks the new cluster EOC ($0FFFFFFF) and links the previous if any.
 ; IN: BCDE = last cluster or 0
 ; OUT C: BCDE = new cluster
 create_chain:
+    call    fat_notfile
+    jr      NC,cc_save
+    ld      de,0
+    ld      bc,0
+cc_save:
     ld      (fat_work+8),de
     ld      (fat_work+10),bc
     xor     a
@@ -1172,11 +1217,13 @@ create_chain:
     inc     bc
     jr      cc_scan
 cc_from2:
-    ld      de,3                    ;cluster 2 is the FAT32 root
+    ld      de,2
     ld      bc,0
 cc_scan:
     ld      (fat_work+12),de
     ld      (fat_work+14),bc
+    call    fat_notfile             ;never allocate the FAT32 root
+    jr      C,cc_step
     push    bc                      ;range check clobbers BC
     push    de
     ld      hl,(_cpm_fat_vol+4)
@@ -1228,14 +1275,16 @@ cc_scan:
     call    put_fat
     jr      NC,cc_pop_fail
 cc_ok:
-    call    fat_sync_window         ;ignore FAT#2; cluster is on FAT#1
+    call    fat_sync_window         ;writes FAT #1, then the mirror inside fat_sync_window
     pop     de
     pop     bc
+    ret     NC
     scf
     ret
 cc_next:
     pop     de
     pop     bc
+cc_step:
     inc     de
     ld      a,d
     or      e
@@ -1272,12 +1321,7 @@ cc_eoc:
 ; putting 0 in each FAT entry. No TRIM / bitmap.
 ; IN: BCDE = start cluster
 remove_chain:
-    ld      a,b
-    or      c
-    or      d
-    jr      NZ,rc_go
-    ld      a,e
-    cp      3                       ;0, 1, and the FAT32 root stay allocated
+    call    fat_notfile             ;< 2, or the FAT32 root, stays allocated
     ret     C
 rc_go:
     ld      hl,0
@@ -1731,9 +1775,7 @@ pd_un_keep:
     ld      a,(fat_wflag)
     or      a
     jr      NZ,pd_win_ok            ;keep a directory update not yet synced
-    ld      hl,$FFFF
-    ld      (fat_winsect),hl        ;force the walk to read the card
-    ld      (fat_winsect+2),hl
+    call    fat_win_inval       ;force the walk to read the card
 pd_win_ok:
     ld      a,(fat_work+15)
     call    fat_filebase
@@ -2001,9 +2043,7 @@ pd_done:
     ld      hl,drv_packed
     add     hl,de
     ld      (hl),1
-    ld      hl,$FFFF
-    ld      (clst_cache_sclust),hl
-    ld      (clst_cache_sclust+2),hl
+    call    fat_cache_inval
     ld      a,$FF
     ld      (synth_fi),a            ;DIR name walk cache
     scf
@@ -2525,25 +2565,19 @@ fwb_sh:
     inc     hl
     ld      (hl),d                  ;first_al = AL
     pop     de
-    ret
+    ret                             ;NC: this block still needs a cluster
 fwb_grow:
     push    hl                      ;n_al
-    ld      a,(hl)
-    inc     hl
+    ld      a,(hl+)
     ld      h,(hl)
     ld      l,a                     ;HL = n_al
-    ld      a,c
-    add     a,l
-    ld      l,a
-    ld      a,b
-    adc     a,h
-    ld      h,a                     ;HL = first_al+n_al
+    add     hl,bc                   ;HL = first_al+n_al
     ld      a,e
     sub     l
     ld      a,d
     sbc     a,h
     pop     hl                      ;n_al
-    jr      C,fwb_cov_ret           ;AL already inside the span
+    jr      C,fwb_under_end
     ld      a,e
     sub     c
     ld      e,a
@@ -2554,9 +2588,22 @@ fwb_grow:
     ld      (hl),e
     inc     hl
     ld      (hl),d
-fwb_cov_ret:
-    pop     de                      ;slot
+    pop     de
+    ret                             ;NC from AL-first_al: allocate
+fwb_under_end:
+    ld      a,e
+    sub     c
+    ld      a,d
+    sbc     a,b
+    jr      C,fwb_before            ;AL < first_al is not inside the span
+    pop     de
+    scf
     ret
+fwb_before:
+    pop     de                      ;slot
+    pop     de                      ;return to fat_wrual_bind
+    or      a
+    ret                             ;NC to writehst: block is before first_al
 
 ; Unmapped wrual (BDOS WRITE C=2): grow the last dir-updated file
 ; (unamap_*) and allocate a FAT cluster (ff create_chain).
@@ -2593,8 +2640,8 @@ fwb_drv:
     or      a
     ret     Z
     ld      de,hl                   ;park slot
-    call    fwb_cover               ;first_al/n_al include this block
-    jr      NC,fwb_1                ;C: this block is already in the span
+    call    fwb_cover               ;NC: allocate. C: block is in the span
+    jr      NC,fwb_1
     scf
     ret
 fwb_1:
@@ -2606,13 +2653,10 @@ fwb_1:
     ld      c,(hl+)
     ld      b,(hl)
     ld      a,b
-    and     $F0                     ;above any volume this BIOS mounts
+    and     $F0                     ;bits 28-31 set: not a FAT32 cluster number
     jr      NZ,fwb_zero
-    ld      a,b
-    or      c
-    or      d
-    or      e
-    jr      NZ,fwb_walk_init
+    call    fat_notfile             ;< 2, or this volume's FAT32 root
+    jr      NC,fwb_walk_init
 fwb_zero:
     ld      de,0
     ld      bc,0
@@ -2681,9 +2725,7 @@ wrdir_cpm:
     xor     a
     ld      (hstwrt),a
     ld      (hstact),a              ;next DIR read must synth_dir
-    ld      hl,$FFFF
-    ld      (clst_cache_sclust),hl
-    ld      (clst_cache_sclust+2),hl
+    call    fat_cache_inval
     ld      a,$FF
     ld      (synth_fi),a
     ld      hl,(dmaadr)
@@ -2698,15 +2740,15 @@ wd_lp:
     pop     bc
     djnz    wd_lp
     call    fat_sync_window
+    jr      C,wd_maps
+    ld      a,1
+    ld      (erflag),a          ;keep a bind/map failure already in erflag
+wd_maps:
     xor     a
-    ld      (erflag),a
     ld      hl,drv_packed       ;RAM maps are stale after a directory write
-    ld      (hl),a
-    inc     hl
-    ld      (hl),a
-    inc     hl
-    ld      (hl),a
-    inc     hl
+    ld      (hl+),a
+    ld      (hl+),a
+    ld      (hl+),a
     ld      (hl),a
     ret
 

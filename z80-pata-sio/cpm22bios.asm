@@ -34,6 +34,7 @@ EXTERN  fat_hst_isdir
 EXTERN  fat_hst_map
 EXTERN  fat_wrual_bind
 EXTERN  synth_dir
+EXTERN  fat_win_inval
 
 PUBLIC  _cpm_disks
 
@@ -64,7 +65,7 @@ DEFC    hstspt  =    256        ;host disk sectors/trk
 DEFC    hstblk  =    hstsiz/128 ;CP/M sects/host buff (4)
 
 DEFC    FILE_MAX        =    64             ;FAT names packed per drive
-DEFC    cpmbls  =    4096       ;CP/M allocation block size BLS
+DEFC    cpmbls  =    4096       ;fixed BLS: 8 host sectors, BSH 5
 DEFC    cpmdir  =    256        ;extent slots (DRM+1); 256×32KB = 8 MB
 DEFC    cpmspt  =    hstspt * hstblk    ;CP/M sectors/track (1024 = 256 * 512 / 128)
 
@@ -684,9 +685,7 @@ PUBLIC  ldi_128             ;128-byte copy via ldi_body
 
 ; clobbers AF, BC, HL
 copy_build:
-    ld      hl,$FFFF        ;invalidate FAT window (LBA 0 is valid)
-    ld      (fat_winsect),hl
-    ld      (fat_winsect+2),hl
+    call    fat_win_inval   ;invalidate FAT window (LBA 0 is valid)
     ld      hl,ldi_body     ;target: ldi_body (BSS)
 
     ld      b,16            ;16 * ldi (ED A0)
@@ -717,14 +716,13 @@ writehst_page:
     xor     a
     out     (__IO_ROM_TOGGLE),a     ;ROM in (disk map + IDE)
     call    writehst
-    ld      a,$01
-    out     (__IO_ROM_TOGGLE),a     ;RAM in (TPA copy, serial)
-    ret
+    jr      page_ram
 
 readhst_page:
     xor     a
     out     (__IO_ROM_TOGGLE),a     ;ROM in (disk map + IDE)
     call    readhst
+page_ram:
     ld      a,$01
     out     (__IO_ROM_TOGGLE),a     ;RAM in (TPA copy, serial)
     ret
@@ -1470,8 +1468,8 @@ PUBLIC  ide_read_sector
 ide_read_sector:
     push de
     call ide_wait_ready         ;make sure drive is ready
-
     pop de
+    ret NC                      ;ERR or WFT: carry clear
     call ide_setup_lba          ;tell it which sector we want in BCDE
 
     ld de,__IO_PIO_IDE_SEC_CNT<<8|1
@@ -1481,6 +1479,7 @@ ide_read_sector:
     call ide_write_byte_preset  ;ask the drive to read it
 
     call ide_wait_drq           ;wait until it's got the data
+    ret NC
 
     call ide_read_block         ;grab the data into (HL++)
 
@@ -1502,8 +1501,8 @@ PUBLIC  ide_write_sector
 ide_write_sector:
     push de
     call ide_wait_ready         ;make sure drive is ready
-
     pop de
+    ret NC                      ;ERR or WFT: carry clear
     call ide_setup_lba          ;tell it which sector we want in BCDE
 
     ld de,__IO_PIO_IDE_SEC_CNT<<8|1
@@ -1513,6 +1512,7 @@ ide_write_sector:
     call ide_write_byte_preset  ;instruct drive to write a sector
 
     call ide_wait_drq           ;wait until it wants the data
+    ret NC
 
     call ide_write_block        ;send the data to the drive from (HL++)
 
