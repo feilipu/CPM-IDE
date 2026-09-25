@@ -3,9 +3,11 @@
 SECTION bss_compiler
 
 PUBLIC  _pack_drv
+PUBLIC  _drv_packed
 PUBLIC  _synth_rec
 PUBLIC  _map_lba
 _pack_drv:      defs 1
+_drv_packed:    defs 1
 _synth_rec:     defs 2
 _map_lba:       defs 4
 
@@ -18,10 +20,13 @@ PUBLIC  _fat_hst_map_run
 EXTERN  pack_drive
 EXTERN  synth_dir
 EXTERN  fat_hst_map
+EXTERN  drv_packed
 
 _pack_drive_run:
     ld      a,(_pack_drv)
     call    pack_drive
+    ld      a,(drv_packed)
+    ld      (_drv_packed),a
     ld      l,0
     ret     C
     inc     l

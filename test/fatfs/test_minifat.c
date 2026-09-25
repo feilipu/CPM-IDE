@@ -149,6 +149,17 @@ int main(void)
                cpm_fat_vol.free_valid == 1 && cpm_fat_vol.free_clst == 7);
     }
 
+    {
+        uint32_t ext = clst;
+
+        rc = fat_alloc(&ext);
+        expect("alloc_stretch", rc == 0 && ext == 3);
+        expect("stretch_link",
+               ram_image[512 + 4] == 3 && ram_image[512 + 5] == 0 &&
+               ram_image[512 + 6] == 0xFF && ram_image[512 + 7] == 0xFF &&
+               ram_image[1024 + 4] == 3 && ram_image[1024 + 6] == 0xFF);
+    }
+
     /* dir_zap uses dir_ptr in fatwin: re-find so the window is the directory. */
     parent = 0;
     rc = fat_dir_open(&parent);
@@ -230,7 +241,9 @@ int main(void)
 
     expect("dir_next_wrap", rt_dir_ofs_wrap() == 1);
 
-    /* FAT#2 at LBA 3 is past ram_nsect=3: sync must fail and keep wflag. */
+    /* FAT#2 at LBA 3 is past ram_nsect=3: alloc is fail-closed (cc_ok
+     * propagates the mirror failure since 293b39c), so alloc fails here;
+     * FAT#1 EOC is already on disk, wflag stays dirty, FAT#2 never written. */
     rt_invalidate();
     memset(ram_image, 0, sizeof ram_image);
     memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
@@ -250,7 +263,7 @@ int main(void)
     ram_image[515] = 0xFF;
     clst = 0;
     rc = fat_alloc(&clst);
-    expect("alloc_fat2_short", rc == 0 && clst == 2);
+    expect("alloc_fat2_short", rc != 0);
     rc = fat_sync();
     expect("sync_fat2_fail", rc != 0);
     expect("wflag_sticky", rt_wflag() != 0);

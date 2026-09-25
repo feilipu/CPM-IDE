@@ -10,6 +10,7 @@ uint8_t ram_nsect = 48;
 
 extern uint8_t  fat_files[];
 extern uint8_t  pack_drv;
+extern uint8_t  drv_packed;
 extern uint8_t  ldi_body[];
 extern uint8_t  hstdsk, hsttrk, hstsec;
 extern uint32_t map_lba;
@@ -17,6 +18,8 @@ extern uint32_t map_lba;
 extern void     bios_init(void);
 extern uint8_t  pack_drive_run(void);
 extern uint8_t  fat_hst_map_run(void);
+extern uint8_t  ide_badw;
+extern uint8_t  ide_force(uint16_t lba) __z88dk_fastcall;
 
 static uint8_t rec[128];
 static uint8_t dir[128];
@@ -186,6 +189,15 @@ int main(void)
     bios_setsec(0);
     rc = bios_read();
     expect("fat_has_new", memcmp(ram_image + 3 * 512 + 64, "NEW     COM", 11) == 0);
+    /* wrdir_cpm cleared drv_packed + hstact. In the product the re-pack
+     * lives in seldsk only (guarded by drv_packed); home does NOT re-pack.
+     * This test never calls seldsk, so call pack_drive directly to stand in
+     * for it, then home to clear the host-active flag. */
+    rc = pack_drive_run();
+    expect("repack_create", rc == 0 && drv_packed == 1);
+    bios_home();
+    bios_setsec(0);
+    rc = bios_read();
     expect("dir_after_create", rc == 0
            && (memcmp(rec + 1, "NEW     COM", 11) == 0
                || memcmp(rec + 33, "NEW     COM", 11) == 0
@@ -198,7 +210,11 @@ int main(void)
     rc = bios_write(WRDIR);
     expect("wrdir_era", rc == 0);
     expect("fat_era_new", ram_image[3 * 512 + 64] == 0xE5);
-
+    /* Re-pack and re-home again, standing in for the seldsk re-pack plus
+     * the home that precede the next directory scan in the product. */
+    rc = pack_drive_run();
+    expect("repack_era", rc == 0 && drv_packed == 1);
+    bios_home();
     memset(rec, 0, 128);
     bios_setdma(rec);
     bios_setsec(0);
@@ -208,6 +224,15 @@ int main(void)
            && memcmp(rec + 33, "NEW     COM", 11) != 0
            && memcmp(rec + 65, "NEW     COM", 11) != 0
            && memcmp(rec + 97, "NEW     COM", 11) != 0);
+
+    expect("writes_in_image", ide_badw == 0);
+    {
+        uint8_t keep = ram_image[0];
+
+        rc = ide_force(200);
+        expect("bad_write_captured",
+               rc != 0 && ide_badw == 1 && ram_image[0] == keep);
+    }
 
     puts(fails ? "V3BIOS_BAD" : "V3BIOS_OK");
     return fails ? 1 : 0;

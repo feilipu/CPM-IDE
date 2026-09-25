@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include "bios_disk.h"
 
+extern uint8_t ide_badw;
+extern uint8_t ide_force(uint16_t lba) __z88dk_fastcall;
+
 uint8_t ram_image[64 * 512];
 uint8_t ram_nsect = 64;
 
@@ -130,6 +133,15 @@ int main(void)
     expect("overlay_read", rc == 0 && hstbuf[0] == pat(0, 0)
            && hstbuf[127] == pat(0, 127)
            && dirbuf == hstbuf);
+
+    expect("writes_in_image", ide_badw == 0);
+    {
+        uint8_t keep = ram_image[0];
+
+        rc = ide_force(200);
+        expect("bad_write_captured",
+               rc != 0 && ide_badw == 1 && ram_image[0] == keep);
+    }
 
     printf("bios_fails %d\n", fails);
     return fails ? 1 : 0;
