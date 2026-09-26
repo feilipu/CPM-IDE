@@ -189,8 +189,12 @@ fi
 say "ALL OK  ok=$ok fail=$fail"
 echo
 echo "=== hex ==="
-ls -l "${BUILT[@]/#/$ROOT/}.hex"
-md5sum "${BUILT[@]/#/$ROOT/}.hex"
+hexes=()
+for f in "${BUILT[@]}"; do
+  hexes+=("$ROOT/$f.hex")
+done
+ls -l "${hexes[@]}"
+md5sum "${hexes[@]}"
 echo
 echo "=== vs HEAD ==="
 cd "$ROOT"

@@ -2,16 +2,16 @@
 
 SECTION bss_compiler
 
-PUBLIC _cpm_fat_vol, fatwin, _fatwin, fat_winsect, fat_wflag
+PUBLIC _cpm_fat_vol, fatwin, _fatwin, fat_winsect, fat_wflag, _fat_wflag
 PUBLIC fat_cwd, fat_found_sclust, fat_found_size
 PUBLIC dir_ptr, dir_sclust, dir_clust, dir_sect, dir_ofs
 PUBLIC fat_work, pack_sv, fat_files, _fat_files, _cpm_dir_sclust
 PUBLIC hstbuf, _hstbuf, hstdsk, _hstdsk, hsttrk, _hsttrk, hstsec, _hstsec
 PUBLIC hstwrt, _hstwrt
-PUBLIC wrtype, dmaadr, erflag, hstact, _hstact
+PUBLIC wrtype, dmaadr, erflag, _erflag, hstact, _hstact
 PUBLIC drv_packed
 PUBLIC clst_cache_sclust, clst_cache_ci, clst_cache_clst
-PUBLIC unamap_idx, unamap_drv, unamap_ofs, unamap_on
+PUBLIC unamap_idx, _unamap_idx, unamap_drv, _unamap_drv, unamap_ofs, unamap_on, _unamap_on
 PUBLIC synth_fi, synth_want, synth_seen
 PUBLIC _fat_cwd, _fat_found_sclust, _fat_found_size, _fat_dir_ptr, _fat_dir_sclust
 PUBLIC _cpm_dsk0_base
@@ -26,6 +26,7 @@ _cpm_fat_vol:           defs 32
 _fatwin:
 fatwin:                 defs 512
 fat_winsect:            defs 4
+_fat_wflag:
 fat_wflag:              defs 1
 _fat_dir_sclust:
 dir_sclust:             defs 4  ;directory start cluster; 0 = FAT16 static root
@@ -45,9 +46,12 @@ _fat_cwd:
 fat_cwd:                defs 4
 fat_work:               defs 16
 pack_sv:                defs 16
+_unamap_idx:
 unamap_idx:             defs 1
+_unamap_drv:
 unamap_drv:             defs 1
 unamap_ofs:             defs 2
+_unamap_on:
 unamap_on:              defs 1
 synth_fi:               defs 1
 synth_want:             defs 1
@@ -70,6 +74,7 @@ _hstwrt:
 hstwrt:                 defs 1
 wrtype:                 defs 1
 dmaadr:                 defs 2
+_erflag:
 erflag:                 defs 1
 sekdsk:                 defs 1
 sektrk:                 defs 2

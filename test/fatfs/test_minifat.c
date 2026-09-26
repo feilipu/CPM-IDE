@@ -10,6 +10,9 @@ uint8_t ram_nsect = 48;
 extern void rt_invalidate(void);
 extern uint8_t rt_dir_ofs_wrap(void);
 extern uint8_t rt_wflag(void);
+extern uint8_t cfo_at(uint32_t *box) __z88dk_fastcall;
+extern uint32_t cfo_clst;
+extern void win_inval(void);
 
 static int fails;
 
@@ -356,6 +359,49 @@ int main(void)
                 saw = 1;
         }
         expect("nroot32_overlap_read", saw == 0);
+    }
+
+    /* Chain 2->3->4. A read at cluster index 2 caches cluster 4.
+     * Freeing the chain must drop that cache: the same offset then fails
+     * instead of returning the old cluster 4. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 16;
+    cpm_fat_vol.n_fatent = 16;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 2;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0xFF;
+    put_le16(ram_image + 512 + 4, 3);
+    put_le16(ram_image + 512 + 6, 4);
+    put_le16(ram_image + 512 + 8, 0xFFFF);
+    {
+        uint32_t box[2];
+
+        box[0] = 2;
+        box[1] = 1024;
+        rc = cfo_at(box);
+        expect("cfo_cached_walk", rc == 0 && cfo_clst == 4);
+        clst = 2;
+        rc = fat_free(&clst);
+        rc |= fat_sync();
+        expect("cfo_free", rc == 0);
+        /* New chain 2 -> 5 -> 6. Discard the dirty window without
+         * touching clst_cache, so a stale cache still names cluster 4. */
+        put_le16(ram_image + 512 + 4, 5);
+        put_le16(ram_image + 512 + 10, 6);
+        put_le16(ram_image + 512 + 12, 0xFFFF);
+        win_inval();
+        rc = cfo_at(box);
+        expect("cfo_after_free", rc == 0 && cfo_clst == 6);
     }
 
     puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");

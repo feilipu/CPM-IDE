@@ -149,6 +149,27 @@ if grep -q 'REDTEAM_FAILS' "$HERE/out/redteam85.txt"; then exit 1; fi
 if grep -q 'REDTEAM_HITS' "$HERE/out/redteam85.txt"; then exit 1; fi
 grep -q 'REDTEAM_CLEAN' "$HERE/out/redteam85.txt"
 
+echo "=== shell copy/cfg/mkdir ==="
+( cd /tmp && zcc +test -vn -m -DYASH_TEST -DAMALLOC \
+    -I"$ROOT/common" -I"$HERE" \
+    "$HERE/test_yash.c" "$ROOT/common/yash.c" \
+    "$HERE/ide_ram.asm" "$HERE/bss_ram.asm" "$HERE/bios_disk.asm" \
+    "$ROOT/common/fatfs.asm" \
+    -o "$HERE/out/yash.bin" -lndos )
+z88dk-ticks "$HERE/out/yash.bin" -x "$HERE/out/yash.map" \
+    -counter 999999999 | tee "$HERE/out/yash.txt"
+grep -q 'YASH_OK' "$HERE/out/yash.txt"
+echo "=== shell copy/cfg/mkdir 8085 ==="
+( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m -DYASH_TEST -DAMALLOC \
+    -I"$ROOT/common" -I"$HERE" \
+    "$HERE/test_yash.c" "$ROOT/common/yash.c" \
+    "$HERE/ide_ram_8085.asm" "$HERE/bss_ram.asm" "$HERE/bios_disk_85.asm" \
+    "$ROOT/common/fatfs_85.asm" \
+    -o "$HERE/out/yash85.bin" -lndos )
+z88dk-ticks -m8085 "$HERE/out/yash85.bin" -x "$HERE/out/yash85.map" \
+    -counter 999999999 | tee "$HERE/out/yash85.txt"
+grep -q 'YASH_OK' "$HERE/out/yash85.txt"
+
 echo "=== compare mount-fail on small image ==="
 # ChaN may still mount nclst=100 as FAT12; mini-FAT must reject FAT12.
 grep -E 'ff_mount|fs_type' "$HERE/out/ff-small.txt" || true

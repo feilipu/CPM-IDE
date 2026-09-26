@@ -697,8 +697,6 @@ PUBLIC  ldi_128             ;128-byte copy via ldi_body
 
 ; clobbers AF, BC, HL
 copy_build:
-    xor     a
-    ld      (fat_wflag),a   ;discard dirty window; LBA $FFFF is not flushed
     call    fat_win_inval   ;invalidate FAT window (LBA 0 is valid)
     ld      hl,ldi_body     ;target: ldi_body (BSS)
 

@@ -20,6 +20,11 @@ extern uint8_t  pack_drive_run(void);
 extern uint8_t  fat_hst_map_run(void);
 extern uint8_t  ide_badw;
 extern uint8_t  ide_force(uint16_t lba) __z88dk_fastcall;
+extern uint8_t  fat_wflag;
+extern uint8_t  erflag;
+extern uint8_t  unamap_idx;
+extern uint8_t  unamap_drv;
+extern uint8_t  unamap_on;
 
 static uint8_t rec[128];
 static uint8_t dir[128];
@@ -105,7 +110,9 @@ int main(void)
     uint8_t *slot;
 
     fat_setup();
+    fat_wflag = 1;
     bios_init();                    /* copy_build + fat_winsect = $FFFFFFFF */
+    expect("wflag_cleared", fat_wflag == 0);
     expect("copy_build_ret", ldi_body[32] == 0xC9 || ldi_body[64] == 0xC9);
     expect("copy_build_z80", ldi_body[0] == 0xED || ldi_body[0] == 0x7E);
 
@@ -226,6 +233,62 @@ int main(void)
            && memcmp(rec + 97, "NEW     COM", 11) != 0);
 
     expect("writes_in_image", ide_badw == 0);
+
+    /* Unmapped host write must come back as a BIOS error, not success. */
+    fat_setup();
+    bios_init();
+    pack_drv = 0;
+    rc = pack_drive_run();
+    expect("repack_for_unmapped", rc == 0);
+    bios_setdsk(0);
+    bios_home();
+    bios_settrk(0);
+    memset(rec, 0x5A, 128);
+    bios_setdma(rec);
+    bios_setsec(608);               /* AL 19, past HELLO+BIG */
+    rc = bios_write(WRALL);
+    expect("unmapped_wrall", rc != 0 && erflag == 1 && ide_badw == 0);
+
+    /* 64 full slots: the new dirent must not extend slot 0. */
+    {
+        uint8_t i;
+        uint8_t nal;
+        uint8_t fat3_lo;
+        uint8_t fat3_hi;
+
+        nal = fat_files[11];
+        fat3_lo = ram_image[512 + 6];
+        fat3_hi = ram_image[512 + 7];
+        for (i = 0; i < 64; ++i) {
+            uint8_t *s = fat_files + (uint16_t)i * 24;
+
+            if (s[0] == 0) {
+                s[0] = 0x80;
+                memcpy(s + 13, "FULL    BIN", 11);
+            }
+        }
+        unamap_on = 1;
+        unamap_idx = 0;
+        unamap_drv = 0;
+        memset(dir, 0, 128);
+        cpm_dirent(dir, 1, "ZZNEW   COM");
+        bios_setdma(dir);
+        rc = bios_write(WRDIR);
+        expect("filemax_wrdir", rc != 0 && erflag == 1 && unamap_idx == 64);
+        expect("filemax_hello_held", fat_files[11] == nal
+               && ram_image[512 + 6] == fat3_lo
+               && ram_image[512 + 7] == fat3_hi);
+        bios_home();
+        bios_setdma(rec);
+        bios_setsec(608);
+        bios_write(WRUAL);          /* stays in hstbuf until the next host */
+        bios_setsec(612);
+        rc = bios_write(WRALL);     /* flush the unmapped host */
+        expect("filemax_wrual", rc != 0 && erflag == 1 && fat_files[11] == nal
+               && ram_image[512 + 6] == fat3_lo
+               && ram_image[512 + 7] == fat3_hi);
+    }
+
     {
         uint8_t keep = ram_image[0];
 

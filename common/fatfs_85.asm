@@ -1035,9 +1035,7 @@ put_fat_wrote:
     ld      a,(_cpm_fat_vol+25)
     or      a
     jr      Z,put_fat_dirty
-    push    bc
-    call    fat_src_is_free
-    pop     bc
+    call    fat_src_is_free         ;preserves BC; C still holds old_free
     ld      a,c
     jr      Z,put_fat_new0
     or      a
@@ -1271,8 +1269,11 @@ cfo_bad:
     or      a
     ret
 
+; Discard fatwin. A window at LBA $FFFFFFFF must not be written back.
 PUBLIC  fat_win_inval
 fat_win_inval:
+    xor     a
+    ld      (fat_wflag),a
     ld      hl,$FFFF
     ld      (fat_winsect),hl
     ld      (fat_winsect+2),hl
@@ -2863,6 +2864,7 @@ fwb_before:
 ; Allocate a FAT cluster for an unmapped BDOS write of a new block.
 ; IN: unamap_* and unacnt. OUT: C = bound; NC = no cluster. Clobbers AF, BC, DE, HL.
 ; Caveat: BDOS sends C=2 only on the first record of the block. The host sector is flushed later.
+; unamap_on must be set and unamap_idx must be below FILE_MAX, or the write is refused.
 fat_wrual_bind:
     ; BDOS puts C=2 on the first record of a new block only. The host
     ; sector is flushed later, when wrtype is already 0 and unacnt is
@@ -2876,6 +2878,9 @@ fat_wrual_bind:
     or      a
     ret
 fwb_go:
+    ld      a,(unamap_on)
+    or      a
+    ret     Z                       ;cold boot, or disarmed: do not use slot 0
     ld      a,(unamap_idx)
     cp      FILE_MAX
     ret     NC
@@ -3032,7 +3037,7 @@ wrdir_slot:
     inc     hl
     call    dir_create
     pop     hl
-    ret     NC
+    jp      NC,wd_noslot
 wd_upd:
     push    hl
     inc     hl
@@ -3065,7 +3070,7 @@ wd_ro:
     ld      (hl),a
     pop     hl
     call    wd_size
-    call    wd_pack                 ;fat_found_sclust = slot cluster
+    call    wd_pack                 ;slot size; cluster 0 stays until a bind
     ld      hl,(dir_ptr)
     ld      de,hl+DIR_ClusLO
     ld      hl,fat_found_sclust
@@ -3473,6 +3478,11 @@ wd_sized:
     jp      fat_copy
 wd_pack_pop:
     pop     hl
+wd_noslot:
+    ld      a,FILE_MAX
+    ld      (unamap_idx),a          ;this write has no packed slot
+    ld      a,$01
+    ld      (erflag),a
     ret
 
 ; _fat_dir_open
@@ -3569,9 +3579,11 @@ fat_alloc_fail:
 ; _fat_free
 ; Free the chain that starts at the cluster (HL) points to.
 ; IN: HL -> start cluster. OUT: L=0 and C = freed; L=1 and NC = remove_chain failed. H is 0.
-; Clobbers AF, BC, DE. Caveat: does not sync, and does not mark a directory entry deleted.
+; Clobbers AF, BC, DE, HL. Caveat: does not sync, and does not mark a directory entry deleted.
+; Drops clst_cache so a reused start cluster is not walked from the old chain.
 _fat_free:
     call    fat_ld32
+    call    fat_cache_inval         ;freed sclust must not alias the next alloc
     call    remove_chain
     ld      hl,0
     ret     C

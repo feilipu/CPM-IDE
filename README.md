@@ -44,7 +44,7 @@ The IDE Hard Drive Module supports both PATA hard drives (including 3 1/2" magne
 
 **v3** (`master`) mounts **FAT directories** as CP/M A:–D:. Files in those directories are native 8.3 FAT files (`FOO.COM`). The host USB/CF caddy and CP/M see the same names. **v2.x** (`cpm-ide-v2.5` branch and tag) instead mounted opaque 8 MB `.CPM` container files via a ChaN `ff_ro` shell. How that works, and what changed, is under [CP/M-IDE v3](#cpm-ide-v3).
 
-All seven firmware builds provide **51.00 KB** of TPA (BIOS origin `0xE380`, CCP `0xCD00`). Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). Four live drives maximum. 8.3 names are walked from the FAT directory on `DIR` rather than cached in the BIOS maps. Mini-FAT, IDE, and host sector I/O run from ROM (the RAM BIOS pages ROM in on disk I/O; serial ISRs stay in high RAM). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
+All seven firmware builds provide **51.00 KB** of TPA (BIOS origin `0xE500`, CCP `0xCD00`). Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). A 65th name is a BIOS error and is not attached to another file. Four live drives maximum. The 8.3 is stored in the 24-byte map row when the directory is packed, and `DIR` reads that row. Mini-FAT, IDE, and host sector I/O run from ROM (the RAM BIOS pages ROM in on disk I/O; serial ISRs stay in high RAM). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
 
 <div>
 <table style="border: 2px solid #cccccc;">
@@ -214,7 +214,7 @@ v3 is `master`. It stops treating the FAT volume as a bag of opaque 8 MB `.CPM` 
 
 Format the card FAT16/32 on a host, make directories, copy 8.3 files in. No container template. Old `.CPM` containers remain ordinary host files; they are no longer what `cpm` mounts.
 
-Mini-FAT and IDE stay in ROM. CCP is `$CD00` and BIOS is `$E380` on every port. TPA is 51.00 KB. `REGISTER_SP` sits at the CCP origin.
+Mini-FAT and IDE stay in ROM. CCP is `$CD00` and BIOS is `$E500` on every port. TPA is 51.00 KB. `REGISTER_SP` sits at the CCP origin.
 
 Shell (`ya_getline`):
 
@@ -230,8 +230,8 @@ BIOS: DPH `DIRBUF` overlays `hstbuf`. After IDE/PPIDE, wait for DRQ only. Do not
 #### Technical changes
 
 - Mini-FAT16/32 in ROM (`SECTION code_lib`), not ChaN `ff_ro`. Fail-closed mount/pack.
-- DRI CCP/BDOS unchanged except `DIRBUF` public, APN 02 DEL=BS, CCP `$CD00`, BDOS stack `ALIGN $20` (BIOS `$E380`).
-- Four resident maps, **64** FAT names per drive (a name may still occupy many extents, including one 8 MB file). Names are walked from FAT on `DIR`, not cached as 8.3 in the BIOS.
+- DRI CCP/BDOS unchanged except `DIRBUF` public, APN 02 DEL=BS, CCP `$CD00`, BDOS stack `ALIGN $20` (BIOS `$E500`).
+- Four resident maps, **64** FAT names per drive (a name may still occupy many extents, including one 8 MB file). The 8.3 is stored in the map row at pack time.
 - Mini-FAT, IDE, and host-sector I/O run from ROM; RAM BIOS pages ROM in on disk I/O. Serial ISRs stay in high RAM.
 - Shell `ls` / `cd` / `mkdir` / `cp` / `mv` / `rm` / `rmdir` operate on the FAT tree. `frag` and `free` report cluster runs and free space.
 
@@ -267,11 +267,11 @@ The CP/M allocation block is 4096 bytes on every build. One block is eight 512-b
 
 CP/M 2.2 always transfers **128-byte** records through `SETDMA` / `READ` / `WRITE`. The host disk is **512-byte** IDE/CF sectors, so the BIOS deblocks four CP/M records per host sector in `hstbuf`. File I/O (default DMA `0x80`, TPA) still copies 128 bytes between that host slice and the caller's DMA. That copy is required: the program looks at the address it passed to `SETDMA`, and a 512-byte IDE transfer cannot be aimed at a 128-byte hole in a `.COM` (or at `0x80`). Z80 builds use unrolled `LDI`; 8085 builds use `ld a,(hl+)` / `ld (de+),a`.
 
-Directory records are synthesized from the four resident FAT file maps (8.3 names are read from the FAT directory, not cached in the map). Those records do not come from a 512-byte IDE directory sector. `WRITE` C=1 is handled by `wrdir_cpm` in ROM.
+Directory records are synthesized from the four resident FAT file maps. The 8.3 is copied into the map row when the directory is packed. Those records do not come from a 512-byte IDE directory sector. `WRITE` C=1 is handled by `wrdir_cpm` in ROM. A host write that cannot be mapped sets the BIOS error flag.
 
 DPH `DIRBUF` overlays `hstbuf`. When DMA already lies in the 512-byte host window, `READ` does not copy; the BIOS writes the active 128-byte slice address into the BDOS `DIRBUF` word so `FCB2HL` / `CHECKSUM` / `MOVEDIR` see the record in place. User DMA still copies.
 
-CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, BDOS function 10 treats `DEL` as backspace (DRI APN 02), and a nameless `.COM` missing on the current drive is retried on A: (explicit `d:` does not fall back). CCP origin is `$CD00`; BIOS is `$E380` (FAT/IDE in ROM).
+CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, BDOS function 10 treats `DEL` as backspace (DRI APN 02), and a nameless `.COM` missing on the current drive is retried on A: (explicit `d:` does not fall back). CCP origin is `$CD00`; BIOS is `$E500` (FAT/IDE in ROM).
 
 The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that path uses `ld bc,de` / `sub hl,bc`, and `sra hl` for the slice shift.
 
@@ -481,9 +481,9 @@ Alternate z88dk command lines to build the CP/M-IDE for the 8085 CPU Module is b
 
 `zcc +rc2014 -subtype=acia85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
 
-__NOTE:__ The 8085 PATA UART image does not fit in the 32 KB ROM. The source stays in the tree and uses the same mini-FAT as the ACIA build. Do not burn that HEX file. The startup copy is 127 bytes and must start at `$7F81` or at a lower address. `8085-pata-uart` ends at `$802E` (173 bytes past `$7F81`). `8085-cf-uart` ends at `$7F6A`, with 23 bytes free before `$7F81`. The Z80 CF UART image is 32317 bytes, with 451 bytes free.
+__NOTE:__ UART images are not shipped. The 8085 startup copy is 127 bytes and must start at `$7F81` or at a lower address. `8085-cf-uart` now ends at `__CODE_END = $804D` (overlaps the DATA section) and `8085-pata-uart` was already past `$7F81`. Do not burn either. The Z80 CF UART image is 32370 bytes, with 398 bytes free, and stays out of the repository.
 
-__NOTE:__ These images fit in 32 KB. Z80 PATA SIO has 86 bytes free (32682 bytes, linked with the 16-bit PATA library). Z80 CF SIO has 292 bytes free. Z80 CF ACIA has 808 bytes free. The 8085 CF ACIA image ends at `__CODE_END = $7E7F`, with 258 bytes free before `$7F81`.
+__NOTE:__ These images fit in 32 KB. Z80 PATA SIO has 32 bytes free (32736 bytes, linked with the 16-bit PATA library). Z80 CF SIO has 239 bytes free (32529 bytes). Z80 CF ACIA has 754 bytes free (32014 bytes). The 8085 CF ACIA image ends at `__CODE_END = $7F5B`, with 38 bytes free before `$7F81`.
 
 The ROM shells have FAT write (`rm`, `mkdir`, `cp`, `mv`). ChaN FatFs is not required to build the firmware. The default (read/write) version of the [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) should be installed so that applications you compile using z88dk under CP/M (`-subtype=cpm`) can read and write to the FATFS file system independently of BDOS.
 

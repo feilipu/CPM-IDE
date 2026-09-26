@@ -36,3 +36,36 @@ _rt_wflag:
     ld      l,a
     ld      h,0
     ret
+
+; clst_from_off on {sclust, fptr} at HL. L=0 and _cfo_clst set, or L=1.
+PUBLIC  _cfo_at
+PUBLIC  _cfo_clst
+PUBLIC  _win_inval
+EXTERN  clst_from_off
+EXTERN  fat_win_inval
+
+_win_inval:
+    call    fat_win_inval
+    ret
+
+_cfo_at:
+    call    clst_from_off
+    jr      NC,cfo_bad
+    ld      hl,_cfo_clst
+    ld      (hl),e
+    inc     hl
+    ld      (hl),d
+    inc     hl
+    ld      (hl),c
+    inc     hl
+    ld      (hl),b
+    ld      hl,0
+    ret
+cfo_bad:
+    ld      hl,1
+    ret
+
+SECTION bss_compiler
+
+_cfo_clst:
+    defs    4

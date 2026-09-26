@@ -1,4 +1,6 @@
+#ifndef YASH_TEST
 #include <unistd.h>
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -10,11 +12,17 @@
 
 #pragma printf = "%c %s %d %u %lu %X"
 
+#ifndef YASH_TEST
 typedef uint8_t  BYTE;
 typedef uint16_t WORD;
 typedef uint16_t UINT;
 typedef uint32_t DWORD;
 #include <arch/rc2014/diskio.h>
+#else
+typedef uint8_t DRESULT;
+uint8_t disk_read(uint8_t pdrv, uint8_t *buff, uint32_t sector, uint16_t count);
+uint8_t disk_write(uint8_t pdrv, const uint8_t *buff, uint32_t sector, uint16_t count);
+#endif
 
 extern uint8_t bios_iobyte;
 extern void cpm_boot(void);
@@ -437,6 +445,15 @@ static uint8_t zero_cluster(uint32_t clst, uint32_t parent)
     return 0;
 }
 
+static void drop_chain(uint32_t first)
+{
+    if (first >= 2) {
+        fat_free(&first);
+        fat_sync();
+    }
+}
+
+/* 0 and *out_size == size only when the whole source chain was copied. */
 static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint32_t *out_size)
 {
     uint32_t last = 0, first = 0, lbas, lbad, nxt, remain, chunk;
@@ -449,25 +466,25 @@ static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint3
     remain = size;
     while (remain) {
         if (src < 2 || is_eoc(src))
-            return 1;
+            goto copy_fail;
         lbas = src;
         if (fat_clst2sect(&lbas))
-            return 1;
+            goto copy_fail;
         nxt = last;
         if (fat_alloc(&nxt))
-            return 1;
+            goto copy_fail;
         if (first == 0)
             first = nxt;
         last = nxt;
         lbad = nxt;
         if (fat_clst2sect(&lbad))
-            return 1;
+            goto copy_fail;
         nsec = cpm_fat_vol.csize;
         for (s = 0; s < nsec && remain; ++s) {
             if (disk_read(0, buffer, lbas + s, 1))
-                return 1;
+                goto copy_fail;
             if (disk_write(0, buffer, lbad + s, 1))
-                return 1;
+                goto copy_fail;
             chunk = (remain > 512) ? 512 : remain;
             remain -= chunk;
         }
@@ -475,23 +492,28 @@ static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint3
             break;
         nxt = src;
         if (fat_next(&nxt))
-            return 1;
+            goto copy_fail;
         if (is_eoc(nxt))
-            break;
+            goto copy_fail;
         src = nxt;
     }
     if (first == 0)
         return 1;
+    if (fat_sync())
+        goto copy_fail;
     *out_first = first;
-    *out_size = size - remain;
-    return fat_sync();
+    *out_size = size;
+    return 0;
+copy_fail:
+    drop_chain(first);
+    return 1;
 }
 
 static uint8_t read_cfg(void)
 {
     uint8_t n[11];
     uint32_t clst, lba;
-    char *p, *q;
+    char *p, *start, saved;
     uint8_t drv;
 
     name83(n, "CPMIDE.CFG");
@@ -508,7 +530,10 @@ static uint8_t read_cfg(void)
         return 1;
     if (disk_read(0, buffer, lba, 1) != 0)
         return 1;
-    ((uint8_t *)buffer)[511] = 0;
+    if (fat_found_size < 511)
+        ((uint8_t *)buffer)[fat_found_size] = 0;
+    else
+        ((uint8_t *)buffer)[511] = 0;
     p = (char *)buffer;
     while (*p) {
         while (*p == ' ' || *p == '\t' || *p == '\r')
@@ -537,14 +562,16 @@ static uint8_t read_cfg(void)
             ++p;
         if (*p == '"')
             ++p;
-        q = (char *)buffer + 384;
-        while (*p && *p != '"' && *p != '\n' && *p != '\r' && q < (char *)buffer + 510)
-            *q++ = *p++;
-        *q = 0;
-        if (path_to_dir((char *)buffer + 384, &clst) == 0) {
+        start = p;
+        while (*p && *p != '"' && *p != '\n' && *p != '\r')
+            ++p;
+        saved = *p;
+        *p = 0;
+        if (path_to_dir(start, &clst) == 0) {
             cpm_dir_sclust[drv - 'A'] = clst;
-            fprintf(output, "%c: \"%s\" cluster %lu\n", drv, (char *)buffer + 384, clst);
+            fprintf(output, "%c: \"%s\" cluster %lu\n", drv, start, clst);
         }
+        *p = saved;
         while (*p && *p != '\n')
             ++p;
         if (*p == '\n')
@@ -1114,6 +1141,10 @@ int8_t ya_rmdir(char ** args)
         put_rc(FR_NO_PATH);
         return 1;
     }
+    if (fat_dir_ptr[11] & AM_RDO) {
+        put_rc(FR_DENIED);
+        return 1;
+    }
     clst = fat_found_sclust;
     if (clst == fat_cwd || dir_is_empty(clst) == 0) {
         put_rc(FR_DENIED);
@@ -1158,14 +1189,23 @@ int8_t ya_mkdir(char ** args)
         put_rc(1);
         return 1;
     }
-    if (fat_dir_open(&parent) || dir_create(n)) {
-        fat_free(&clst);
-        fat_sync();
+    /* Zero before the dirent is published. dir_create reloads the directory window. */
+    if (zero_cluster(clst, parent)) {
+        drop_chain(clst);
         put_rc(1);
         return 1;
     }
-    if (dir_fill(AM_DIR, clst, 0) || zero_cluster(clst, parent))
+    if (fat_dir_open(&parent) || dir_create(n)) {
+        drop_chain(clst);
         put_rc(1);
+        return 1;
+    }
+    if (dir_fill(AM_DIR, clst, 0)) {
+        dir_zap();
+        fat_sync();
+        drop_chain(clst);
+        put_rc(1);
+    }
     return 1;
 }
 
@@ -1177,9 +1217,9 @@ int8_t ya_mkdir(char ** args)
  */
 int8_t ya_cp(char ** args)
 {
-    uint32_t sp, dp, src, size, first, copied, old;
+    uint32_t sp, dp, src, size, first, copied, old, old_size;
     uint8_t sn[11], dn[11];
-    uint8_t dest_exists;
+    uint8_t dest_exists, old_attr;
 
     if (need_args(args, 2, "cp"))
         return 1;
@@ -1201,28 +1241,41 @@ int8_t ya_cp(char ** args)
         return 1;
     }
     if (fat_dir_open(&dp)) {
+        drop_chain(first);
         put_rc(1);
         return 1;
     }
     dest_exists = (uint8_t)(dir_find_try(dn) == 0);
     if (dest_exists) {
         if (fat_dir_ptr[11] & AM_DIR) {
+            drop_chain(first);
             put_rc(FR_DENIED);
             return 1;
         }
         old = fat_found_sclust;
-        if (old >= 2) {
-            if (fat_free(&old) || fat_sync()) {
-                put_rc(1);
-                return 1;
-            }
+        old_size = fat_found_size;
+        old_attr = fat_dir_ptr[11];
+        if (dir_fill(AM_ARC, first, copied)) {
+            dir_fill(old_attr, old, old_size);
+            drop_chain(first);
+            put_rc(1);
+            return 1;
         }
-        if (fat_dir_open(&dp) || dir_find_try(dn) || dir_fill(AM_ARC, first, copied))
+        if (old >= 2 && (fat_free(&old) || fat_sync()))
             put_rc(1);
         return 1;
     }
-    if (dir_create(dn) || dir_fill(AM_ARC, first, copied))
+    if (dir_create(dn)) {
+        drop_chain(first);
         put_rc(1);
+        return 1;
+    }
+    if (dir_fill(AM_ARC, first, copied)) {
+        dir_zap();
+        fat_sync();
+        drop_chain(first);
+        put_rc(1);
+    }
     return 1;
 }
 
@@ -1289,8 +1342,13 @@ int8_t ya_mv(char ** args)
  */
 int8_t ya_mount(char ** args)    /* mount a FAT file system */
 {
+    uint32_t cwd;
+
     (void *)args;
+    cwd = fat_cwd;
     put_rc(fat_mount());
+    if (cpm_fat_vol.fs_type != 0)
+        fat_cwd = cwd;
     return 1;
 }
 
@@ -1644,3 +1702,15 @@ void ya_loop(void)
     free(args);
     free(line);
 }
+
+#ifdef YASH_TEST
+uint8_t yash_copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint32_t *out_size)
+{
+    return copy_file(src, size, out_first, out_size);
+}
+
+uint8_t yash_read_cfg(void)
+{
+    return read_cfg();
+}
+#endif

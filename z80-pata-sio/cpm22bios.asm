@@ -1530,15 +1530,17 @@ writehst:
     call    fat_hst_map     ;BCDE = data LBA
     jr      C,writehst_go
     call    fat_wrual_bind
-    ret     NC
+    jr      NC,writehst_err
     call    fat_hst_map
-    ret     NC
+    jr      C,writehst_go
+writehst_err:
+    ld      a,$01
+    ld      (erflag),a
+    ret
 writehst_go:
     ld      hl,hstbuf       ;high RAM host sector
     call    ide_write_sector
-    ret     C
-    ld      a,$01
-    ld      (erflag),a
+    jr      NC,writehst_err
     ret
 
 PUBLIC  readhst
