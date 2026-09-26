@@ -38,6 +38,7 @@ Entry files in those trees (index only; do not ingest every skill they list):
 | `+rc2014` CRT, serial, diskio | `target-rc2014` |
 | `z88dk-lib` / third-party `ff` | `tool-z88dk-lib` |
 | Rebuild HEX or `ff_ro` / `ff_85_ro` | this repo `.agents/skills/tool-rebuild` |
+| Host cpmtools, `rc2014-8MB` diskdef, rebuild without libdsk | this repo `.agents/skills/tool-cpmtools` |
 
 ## Environment
 
@@ -68,6 +69,9 @@ export Z88DK=/data/z88dk
 .agents/scripts/rebuild-ff.sh
 .agents/scripts/rebuild-hex.sh
 .agents/skills/tool-rebuild/SKILL.md
+.agents/skills/tool-cpmtools/SKILL.md
 ```
+
+Host cpmtools: `readme_cpmtools.md` (diskdef + upstream bug notes), recipe in `.agents/skills/tool-cpmtools`. Host tools live in `/usr/local/bin`, not the apt package. `CPMTOOLSFMT` is a format name, not a diskdefs path; a `./diskdefs` in the cwd wins over `/etc/cpmtools/diskdefs`. A `cpmglobfree: Assertion 'dirent' failed` abort is a cosmetic cpmtools bug on any no-match glob; `malloc(): invalid size` is a libdsk heap overflow, not a diskdef error.
 
 Disk-path tests: `test/fatfs/run.sh`. Red-team wrap/mount/pack: `test/fatfs/test_redteam.c` + `redteam_wipe.asm` (`+test`; wipe C name is `rt_invalidate`, not `_fat_winsect`). Overlay TIMER: `test/fatfs/bench_overlay.c`.

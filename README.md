@@ -349,7 +349,7 @@ The CP/M TOOLS package v2.23 is available from [debian repositories](https://pac
 > cpmcp -f rc2014-8MB a.cpm ~/Desktop/CPM/bbcbasic.com 0:BBCBASIC.COM
 ```
 
-__NOTE:__ Before use of `cpmtools`, append this to the host `/etc/cpmtools/diskdefs` file. The geometry matches the old 8 MB containers (and the synthesized v3 DPB: 4 KB blocks, 64 tracks × 256 sectors).
+__NOTE:__ Before use of `cpmtools`, append this to the host `/etc/cpmtools/diskdefs` file. The geometry matches the old 8 MB containers (and the synthesized v3 DPB: 4 KB blocks, 64 tracks × 256 sectors). `boottrk -` is deliberate: `cpmtools` parses it with `strtol("-")`, which is 0, the non-bootable value. See [`readme_cpmtools.md`](readme_cpmtools.md) for the host install and two upstream `cpmtools` bugs that are *not* diskdef errors.
 
 ```
 diskdef rc2014-8MB
