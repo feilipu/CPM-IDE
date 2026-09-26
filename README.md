@@ -245,7 +245,7 @@ BIOS: DPH `DIRBUF` overlays `hstbuf`. After IDE/PPIDE, wait for DRQ only. Do not
 
 #### Limitations
 
-- FAT16/32 only. No FAT12, LFN, exFAT, or GPT. LFN entries are skipped, not parsed.
+- FAT16/32 only. No FAT12, LFN, exFAT, or GPT. LFN entries are skipped, not parsed. Cluster size is a non-zero power of two.
 - Four live drives. 64 names per drive. Packed size capped around 8 MB (CP/M extent space), not dropped.
 - CP/M remains flat: no subdirectories inside a drive. Nested FAT paths are chosen at `cpm` time.
 - File data still pays the DRI 128-byte deblock copy. Directory records do not hit the IDE.
@@ -263,7 +263,7 @@ A PATA ROM linked with the CF 8-bit library returns `FR_NOT_READY` on `ls`, `mou
 
 ### CP/M deblocking
 
-The CP/M allocation block is 4096 bytes on every build. One block is eight 512-byte host sectors. The DPB uses BSH 5 and BLM 31. The FAT map shifts the host sector by 3 to get the block number. A volume must use 4096-byte clusters (`BPB_SecPerClus` = 8). A different cluster size is not a supported disk. The block size stays fixed because BDOS reads one DPB, and the stored block numbers count 4096-byte blocks.
+The CP/M allocation block is 4096 bytes on every build. One block is eight 512-byte host sectors. The DPB uses BSH 5 and BLM 31. The host map shifts the track and sector by 3 to get the block number. Mount accepts a non-zero power-of-two `BPB_SecPerClus`. The sector inside the 4 KiB block (`hstsec & 7`) is masked with `(csize-1)` and added to the cluster LBA. The block size stays fixed because BDOS reads one DPB, and the stored block numbers count 4096-byte blocks.
 
 CP/M 2.2 always transfers **128-byte** records through `SETDMA` / `READ` / `WRITE`. The host disk is **512-byte** IDE/CF sectors, so the BIOS deblocks four CP/M records per host sector in `hstbuf`. File I/O (default DMA `0x80`, TPA) still copies 128 bytes between that host slice and the caller's DMA. That copy is required: the program looks at the address it passed to `SETDMA`, and a 512-byte IDE transfer cannot be aimed at a 128-byte hole in a `.COM` (or at `0x80`). Z80 builds use unrolled `LDI`; 8085 builds use `ld a,(hl+)` / `ld (de+),a`.
 
@@ -277,7 +277,7 @@ The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that pa
 
 ### Installation
 
-The shipped HEX files in this directory are `rc2014-cpm22-8085-cf-acia.hex`, `rc2014-cpm22-z80-cf-acia.hex`, `rc2014-cpm22-z80-cf-sio.hex`, and `rc2014-cpm22-z80-pata-sio.hex`. Burn the file that matches the CPU and the disk module into a 32kB or 64kB EEPROM or PROM. The UART images are not shipped. They do not fit in the 32 KB ROM.
+The shipped HEX files in this directory are `rc2014-cpm22-8085-cf-acia.hex`, `rc2014-cpm22-z80-cf-acia.hex`, `rc2014-cpm22-z80-cf-sio.hex`, and `rc2014-cpm22-z80-pata-sio.hex`. Burn the file that matches the CPU and the disk module into a 32kB or 64kB EEPROM or PROM. UART images are not shipped. The 8085 PATA UART image does not fit in the 32 KB ROM.
 
 To initially configure your hard drive, use either a USB caddy for your PATA IDE drive, or a CF adapter for your Compact Flash card to mount your drive on your host computer. Your host computer should be able to read and write FAT32 formatted drives. Format the drive for FAT32 (or FAT16 if it is quite small). Create directories that will become CP/M A:–D: (for example `SYS`, `USER`) and copy 8.3 files into them. The example [CP/M drive zips](https://github.com/feilipu/CPM-IDE/tree/master/CPM%20Drives) can be unzipped on a host and **their contents** copied into those directories (do not mount the `.CPM` file itself). At least a `SYS` directory with the usual utilities is a good start. You may nest those directories anywhere on the FAT volume.
 
@@ -481,9 +481,9 @@ Alternate z88dk command lines to build the CP/M-IDE for the 8085 CPU Module is b
 
 `zcc +rc2014 -subtype=acia85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
 
-__NOTE:__ The two 8085 UART images do not fit in the 32 KB ROM. The source stays in the tree and uses the same mini-FAT as the ACIA build. Do not burn those two HEX files. The startup copy is 127 bytes and must start at `$7F81` or at a lower address. `8085-cf-uart` ends at `$8041` (192 bytes past `$7F81`). `8085-pata-uart` ends at `$80BE` (317 bytes past `$7F81`). The Z80 CF UART image still fits in 32 KB.
+__NOTE:__ The 8085 PATA UART image does not fit in the 32 KB ROM. The source stays in the tree and uses the same mini-FAT as the ACIA build. Do not burn that HEX file. The startup copy is 127 bytes and must start at `$7F81` or at a lower address. `8085-pata-uart` ends at `$802E` (173 bytes past `$7F81`). `8085-cf-uart` ends at `$7F6A`, with 23 bytes free before `$7F81`. The Z80 CF UART image is 32317 bytes, with 451 bytes free.
 
-__NOTE:__ These images fit in 32 KB. Z80 PATA SIO has 38 bytes free (32730 bytes, linked with the 16-bit PATA library). Z80 CF SIO has 245 bytes free. Z80 CF ACIA has 759 bytes free. The 8085 CF ACIA image ends at `__CODE_END = $7EC3`, with 190 bytes free before `$7F81`.
+__NOTE:__ These images fit in 32 KB. Z80 PATA SIO has 86 bytes free (32682 bytes, linked with the 16-bit PATA library). Z80 CF SIO has 292 bytes free. Z80 CF ACIA has 808 bytes free. The 8085 CF ACIA image ends at `__CODE_END = $7E7F`, with 258 bytes free before `$7F81`.
 
 The ROM shells have FAT write (`rm`, `mkdir`, `cp`, `mv`). ChaN FatFs is not required to build the firmware. The default (read/write) version of the [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) should be installed so that applications you compile using z88dk under CP/M (`-subtype=cpm`) can read and write to the FATFS file system independently of BDOS.
 
