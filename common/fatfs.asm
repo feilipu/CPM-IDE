@@ -85,7 +85,6 @@ EXTERN  unamap_drv
 EXTERN  unamap_ofs
 EXTERN  unamap_on
 EXTERN  unacnt
-EXTERN  synth_fi
 EXTERN  synth_want
 EXTERN  synth_seen
 
@@ -422,6 +421,7 @@ fat_mount_cold:
     ld      (fat_wflag),a
     ld      (_cpm_fat_vol+25),a     ;free_valid
     call    fat_win_inval
+    call    fat_cache_inval
     ld      bc,0
     ld      de,0
     call    fat_move_window
@@ -907,7 +907,7 @@ put_fat_wrote:
     ld      a,(_cpm_fat_vol+25)
     or      a
     jr      Z,put_fat_dirty
-    call    fat_src_is_free         ;preserves BC; C still holds old_free
+    call    fat_src_is_free         ;register C still holds old_free
     ld      a,c
     jr      Z,put_fat_new0
     or      a
@@ -1653,6 +1653,9 @@ df_cmp:
     jr      Z,df_hi
     ld      de,0
 df_hi:
+    ld      a,d
+    and     $0F                     ;FAT32 keeps 28 bits; FAT16 high is already 0
+    ld      d,a
     ld      (fat_found_sclust+2),de
     ld      hl,(dir_ptr)
     ld      bc,DIR_FileSize
@@ -2036,8 +2039,6 @@ pd_done:
     add     hl,de
     ld      (hl),1
     call    fat_cache_inval
-    ld      a,$FF
-    ld      (synth_fi),a            ;DIR name walk cache
     scf
     ret
 
@@ -2707,6 +2708,8 @@ fwb_fail0:
 ; IN: DMA buffer, hstwrt, hstdsk. OUT: directory and packed slot updated. Clobbers AF, BC, DE, HL.
 ; Caveat: clears every drv_packed flag. The same drive is not re-selected here, so the next DIR can be stale.
 wrdir_cpm:
+    xor     a
+    ld      (erflag),a              ;this call reports only its own failure
     ld      a,(hstwrt)
     or      a
     call    NZ,writehst
@@ -2714,8 +2717,6 @@ wrdir_cpm:
     ld      (hstwrt),a
     ld      (hstact),a              ;next DIR read must synth_dir
     call    fat_cache_inval
-    ld      a,$FF
-    ld      (synth_fi),a
     ld      hl,(dmaadr)
     ld      b,4
 wd_lp:
@@ -2730,7 +2731,7 @@ wd_lp:
     call    fat_sync_window
     jr      C,wd_maps
     ld      a,1
-    ld      (erflag),a          ;keep a bind/map failure already in erflag
+    ld      (erflag),a          ;FAT window did not reach the card
 wd_maps:
     xor     a
     ld      hl,drv_packed       ;RAM maps are stale after a directory write
@@ -2844,8 +2845,6 @@ wd_ezc:
     djnz    wd_ezc
     pop     hl
     ld      (hl),0                  ;clear used flag
-    ld      a,$FF
-    ld      (synth_fi),a
     ld      a,1
     ld      (fat_wflag),a
     ret
@@ -3202,7 +3201,8 @@ _fat_dir_open:
 
 ; _fat_dir_read
 ; Copy the current 32-byte directory entry to (HL) and advance.
-; IN: HL -> 32-byte buffer. OUT: L=0 and C = copied; L=1 = end of table. H is 0.
+; IN: HL -> 32-byte buffer. OUT: L=0 copied; L=1 = end of table. H is 0.
+; Carry is whatever dir_next left. A failed step does not hide the entry just copied.
 ; Clobbers AF, BC, DE. Caveat: a 0x00 first byte is end, not a deleted entry. Calls dir_next.
 _fat_dir_read:
     push    hl

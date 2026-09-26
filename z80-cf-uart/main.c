@@ -28,6 +28,8 @@
 
 extern uint8_t bios_iobyte;
 
+extern void uarta_reset(void);
+extern void uartb_reset(void);
 extern uint8_t uarta_pollc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 extern uint8_t uarta_getc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 extern uint8_t uartb_pollc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
@@ -81,6 +83,8 @@ int main(int argc, char ** argv)
     (void)argc;
     (void *)argv;
 
+    uarta_reset();
+    uartb_reset();
     buffer = (char *)malloc(BUFFER_SIZE * sizeof(char));
 
     fprintf(stdout, "\n\nRC2014 - CP/M-IDE - CF - UART\nfeilipu 2026\n\n> :?");

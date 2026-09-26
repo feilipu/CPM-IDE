@@ -32,7 +32,6 @@ EXTERN  fat_hst_isdir
 EXTERN  fat_hst_map
 EXTERN  fat_wrual_bind
 EXTERN  synth_dir
-EXTERN  fat_win_inval
 
 PUBLIC  _cpm_disks
 
@@ -626,6 +625,9 @@ nomatch:
     ld      a,(hstwrt)      ;host written?
     or      a
     call    NZ,writehst_page    ;clear host buff (ROM)
+    ld      a,(erflag)          ;flush failed: keep the dirty sector
+    or      a
+    ret     NZ
 
 filhst:
 ;           may have to fill the host buffer
@@ -698,7 +700,7 @@ PUBLIC  ldi_128             ;128-byte copy via ldi_body
 
 ; clobbers AF, BC, HL
 copy_build:
-    call    fat_win_inval   ;invalidate FAT window (LBA 0 is valid)
+    ; RAM is latched here. fat_win_inval lives in the ROM window.
     ld      hl,ldi_body     ;target: ldi_body (BSS)
 
     ld      b,16            ;16 * (ld a,(hl+) / ld (de+),a)
@@ -868,6 +870,8 @@ PUBLIC _uartb_pollc
     ld (uartaRxIn),hl
     ld (uartaRxOut),hl
 
+    ld a,__IO_UARTA_DATA_REGISTER   ; non-zero: this channel is present
+    ld (uartaControl),a
     ret
 
 ._uartb_reset                    ; interrupts should be disabled
@@ -883,6 +887,8 @@ PUBLIC _uartb_pollc
     ld (uartbRxIn),hl
     ld (uartbRxOut),hl
 
+    ld a,__IO_UARTB_DATA_REGISTER   ; non-zero: this channel is present
+    ld (uartbControl),a
     ret
 
 ._uarta_getc
@@ -1472,7 +1478,6 @@ PUBLIC  unamap_idx
 PUBLIC  unamap_drv
 PUBLIC  unamap_ofs
 PUBLIC  unamap_on
-PUBLIC  synth_fi
 PUBLIC  synth_want
 PUBLIC  synth_seen
 PUBLIC  _fat_cwd
@@ -1558,7 +1563,6 @@ unamap_drv:         defs 1
 unamap_idx:         defs 1
 unamap_ofs:         defs 2  ;FAT directory offset of that file
 unamap_on:          defs 1  ;1 once a new file has been armed
-synth_fi:           defs 1
 synth_want:         defs 1
 synth_seen:         defs 1
 

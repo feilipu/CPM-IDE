@@ -111,8 +111,8 @@ int main(void)
 
     fat_setup();
     fat_wflag = 1;
-    bios_init();                    /* copy_build + fat_winsect = $FFFFFFFF */
-    expect("wflag_cleared", fat_wflag == 0);
+    bios_init();                    /* copy_build runs with RAM over the ROM */
+    expect("wflag_kept", fat_wflag == 1);
     expect("copy_build_ret", ldi_body[32] == 0xC9 || ldi_body[64] == 0xC9);
     expect("copy_build_z80", ldi_body[0] == 0xED || ldi_body[0] == 0x7E);
 
@@ -288,6 +288,15 @@ int main(void)
                && ram_image[512 + 6] == fat3_lo
                && ram_image[512 + 7] == fat3_hi);
     }
+
+    /* A later directory write must not inherit that error. */
+    hstwrt = 0;
+    erflag = 1;
+    memset(dir, 0, 128);
+    cpm_dirent(dir, 0, "HELLO   TXT");
+    bios_setdma(dir);
+    rc = bios_write(WRDIR);
+    expect("wrdir_clears_erflag", rc == 0 && erflag == 0);
 
     {
         uint8_t keep = ram_image[0];

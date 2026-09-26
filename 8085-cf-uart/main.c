@@ -70,6 +70,8 @@ int main(int argc, char ** argv)
     (void)argc;
     (void *)argv;
 
+    uarta_reset();
+    uartb_reset();
     buffer = (char *)malloc(BUFFER_SIZE * sizeof(char));
 
     fprintf(stdout, "\n\nRC2014 - CP/M-IDE - 8085 - CF - UART\nfeilipu 2026\n\n> :?");

@@ -483,7 +483,7 @@ Alternate z88dk command lines to build the CP/M-IDE for the 8085 CPU Module is b
 
 __NOTE:__ UART images are not shipped. The 8085 startup copy is 127 bytes and must start at `$7F81` or at a lower address. `8085-cf-uart` now ends at `__CODE_END = $804D` (overlaps the DATA section) and `8085-pata-uart` was already past `$7F81`. Do not burn either. The Z80 CF UART image is 32370 bytes, with 398 bytes free, and stays out of the repository.
 
-__NOTE:__ These images fit in 32 KB. Z80 PATA SIO has 32 bytes free (32736 bytes, linked with the 16-bit PATA library). Z80 CF SIO has 239 bytes free (32529 bytes). Z80 CF ACIA has 754 bytes free (32014 bytes). The 8085 CF ACIA image ends at `__CODE_END = $7F5B`, with 38 bytes free before `$7F81`.
+__NOTE:__ These images fit in 32 KB. Z80 PATA SIO has 37 bytes free (32731 bytes, linked with the 16-bit PATA library). Z80 CF SIO has 243 bytes free (32525 bytes). Z80 CF ACIA has 757 bytes free (32011 bytes). The 8085 CF ACIA image ends at `__CODE_END = $7F57`, with 42 bytes free before `$7F81`.
 
 The ROM shells have FAT write (`rm`, `mkdir`, `cp`, `mv`). ChaN FatFs is not required to build the firmware. The default (read/write) version of the [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) should be installed so that applications you compile using z88dk under CP/M (`-subtype=cpm`) can read and write to the FATFS file system independently of BDOS.
 

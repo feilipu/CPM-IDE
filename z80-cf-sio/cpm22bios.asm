@@ -34,7 +34,6 @@ EXTERN  fat_hst_isdir
 EXTERN  fat_hst_map
 EXTERN  fat_wrual_bind
 EXTERN  synth_dir
-EXTERN  fat_win_inval
 
 PUBLIC  _cpm_disks
 
@@ -615,6 +614,9 @@ nomatch:
     ld      a,(hstwrt)      ;host written?
     or      a
     call    NZ,writehst_page    ;clear host buff (ROM)
+    ld      a,(erflag)          ;flush failed: keep the dirty sector
+    or      a
+    ret     NZ
 
 filhst:
 ;           may have to fill the host buffer
@@ -685,7 +687,7 @@ PUBLIC  ldi_128             ;128-byte copy via ldi_body
 
 ; clobbers AF, BC, HL
 copy_build:
-    call    fat_win_inval   ;invalidate FAT window (LBA 0 is valid)
+    ; RAM is latched here. fat_win_inval lives in the ROM window.
     ld      hl,ldi_body     ;target: ldi_body (BSS)
 
     ld      b,16            ;16 * ldi (ED A0)
@@ -1491,7 +1493,6 @@ PUBLIC  unamap_idx
 PUBLIC  unamap_drv
 PUBLIC  unamap_ofs
 PUBLIC  unamap_on
-PUBLIC  synth_fi
 PUBLIC  synth_want
 PUBLIC  synth_seen
 
@@ -1585,7 +1586,6 @@ alv03:              defs ((hstalb-1)/8)+1
 
 hstbuf:             defs hstsiz
 
-synth_fi:           defs 1          ;$FF = DIR walk invalid
 synth_want:         defs 1
 synth_seen:         defs 1
 
