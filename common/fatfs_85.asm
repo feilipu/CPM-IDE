@@ -40,6 +40,26 @@
 ;   CP/M block is 4096 bytes (8 sectors). The host map masks with (csize-1)
 ;   a new cluster is not zeroed; the caller writes the bytes it cares about
 ;
+; Two records name one file. The bytes on the card are a FAT entry: 8.3,
+; attribute, start cluster, byte length, and the cluster chain. yash reads
+; and writes that entry (dir_find, dir_create, _fat_dir_read) and walks the
+; chain with _fat_alloc, _fat_next, and _fat_free.
+; BDOS does not read that entry. pack_drive copies each FAT file into a RAM
+; slot (name, cluster, length, and a span of 4 KiB allocation blocks).
+; synth_dir builds the 32-byte CP/M extents BDOS reads from those slots:
+; extent number, record count, and block numbers. A block number is the
+; slot's place in the allocation map. It is not the FAT cluster.
+; A BDOS write comes back through the other door. Data records name a block.
+; fat_hst_map turns the block and the byte offset into a cluster on the
+; slot's chain. fat_wrual_bind calls create_chain when the block lies outside
+; the span and stores that cluster in the slot. A directory record is a CP/M
+; extent. wrdir_cpm keeps the 8.3 and the FCB length, and writes the slot's
+; cluster into the FAT entry. The block list in the CP/M extent is not stored.
+; A rename that keeps the 8-character stem updates the slot that already holds
+; the chain. ERA frees that chain.
+; The two callers agree on the name, the start cluster, and the length. Each
+; one parses only the record it wrote, so the layouts can differ.
+;
 ; FatFs cases we skip (on purpose):
 ;   GPT protective MBR; logical partitions
 ;   FAT32 FSVer is not checked. A non-zero FAT32 RootEntCnt is still added to sysect.
@@ -956,7 +976,7 @@ get_fat:
     scf
     ret
 get_fat16ok:
-    ex      de,hl                   ;DE = cluster
+    ld      de,hl                   ;cluster low word
     ld      bc,0
     scf
     ret
@@ -1371,19 +1391,33 @@ fn_no:
 ; create_chain
 ; Allocate one free cluster, mark it end-of-chain, and link it from BCDE when that is a file cluster.
 ; IN: BCDE = previous cluster, or 0 to start a chain. OUT: C and BCDE = new cluster; NC = none.
-; Clobbers AF, HL and fat_work. Syncs the FAT before returning. Does not clear data sectors.
-; Caveat: the scan starts at 2 and wraps once. A previous cluster < 2 starts a new chain.
+; Clobbers AF, HL and fat_work. Syncs both FAT copies before returning. Does not clear data sectors.
+; A real file cluster (2 .. n_fatent-1, and not the FAT32 root) starts the search at the next
+; cluster. Anything else starts at 2. fat_notfile skips a candidate below 2 or equal to the
+; FAT32 root. The range test is candidate - n_fatent via sub (hl+)/sbc (hl+), the same walk
+; as fat_fatent, so BCDE is still that candidate when get_fat and put_fat run. Carry clear
+; means the candidate is past the last legal cluster: the scan wraps once to cluster 2, and
+; a second wrap fails. A FAT dword of zero is free. put_fat writes $0FFFFFFF there. When the
+; saved previous cluster is itself a file cluster, a second put_fat stores the new cluster
+; number in the previous slot, so the chain grows by one. A zero previous cluster only plants
+; the end marker. fat_sync_window then writes that window and, when it lies in FAT #1, the
+; matching sector of FAT #2. NC from get_fat, put_fat, or the sync returns NC.
+; yash calls _fat_alloc with a zero dword to start a file and with the tail cluster to extend
+; it. BDOS never passes a cluster. fat_wrual_bind calls this with zero when the packed slot
+; has no chain, and with the end-of-chain cluster when the file already has one. One call
+; allocates one cluster. The returned number is stored in the slot; a later directory write
+; publishes it. Records inside a block the slot already covers do not call here.
+; Caveat: one wrap only. A previous cluster < 2 starts a new chain. Data sectors are left as they were.
 create_chain:
     call    fat_notfile
     jr      NC,cc_save
     ld      de,0
     ld      bc,0
 cc_save:
+    ld      hl,de
+    ld      (fat_work+8),hl
     ld      hl,bc
     ld      (fat_work+10),hl
-    ex      de,hl
-    ld      (fat_work+8),hl
-    ex      de,hl
     xor     a
     ld      (fat_work+7),a           ;wrap flag
     ld      a,b
@@ -1401,32 +1435,24 @@ cc_from2:
     ld      de,2
     ld      bc,0
 cc_scan:
+    ld      hl,de
+    ld      (fat_work+12),hl
     ld      hl,bc
     ld      (fat_work+14),hl
-    ex      de,hl
-    ld      (fat_work+12),hl
-    ex      de,hl
     call    fat_notfile             ;never allocate the FAT32 root
     jp      C,cc_step
-    push    bc                      ;range check clobbers BC
+    ld      hl,_cpm_fat_vol+4       ;candidate - n_fatent; BCDE stays the candidate
+    ld      a,e
+    sub     (hl+)
+    ld      a,d
+    sbc     (hl+)
+    ld      a,c
+    sbc     (hl+)
+    ld      a,b
+    sbc     a,(hl)
+    jp      NC,cc_wrap              ;candidate >= n_fatent
+    push    bc                      ;get_fat and put_fat clobber BCDE
     push    de
-    ld      hl,(_cpm_fat_vol+4)
-    ld      a,l
-    sub     e
-    ld      l,a
-    ld      a,h
-    sbc     a,d
-    ld      h,a
-    ld      a,(_cpm_fat_vol+6)
-    sbc     a,c
-    ld      c,a
-    ld      a,(_cpm_fat_vol+7)
-    sbc     a,b
-    jp      C,cc_scan_pop
-    or      c
-    or      h
-    or      l
-    jp      Z,cc_scan_pop           ;search >= n_fatent
     call    get_fat
     jp      NC,cc_pop_fail
     ld      a,b
@@ -1451,14 +1477,14 @@ cc_scan:
     pop     bc
     push    bc
     push    de
-    ld      hl,bc
-    ld      (fat_work+14),hl        ;put_fat reads the new cluster from here
-    ex      de,hl
+    ld      hl,de                   ;new cluster, for put_fat to read
     ld      (fat_work+12),hl
+    ld      hl,bc
+    ld      (fat_work+14),hl
+    ld      hl,(fat_work+8)         ;previous cluster becomes BCDE
+    ld      de,hl
     ld      hl,(fat_work+10)
     ld      bc,hl
-    ld      hl,(fat_work+8)
-    ex      de,hl
     ld      hl,fat_work+12
     call    put_fat
     jp      NC,cc_pop_fail
@@ -1492,10 +1518,6 @@ cc_wrap:
     or      (hl)
     jp      Z,cc_fail
     jp      cc_from2
-cc_scan_pop:
-    pop     de
-    pop     bc
-    jp      cc_wrap
 cc_pop_fail:
     pop     de
     pop     bc
@@ -1832,8 +1854,11 @@ dir_next_end:
     ret
 
 ; dir_find
-; Find an 11-byte 8.3 name in the current directory.
+; Find an 11-byte 8.3 name in the FAT directory. This is the entry yash reads.
 ; IN: HL -> name. OUT: C and L=0 found; NC and L=1 miss. H is 0. Clobbers AF, BC, DE.
+; On a hit, fat_found_sclust is the 28-bit start cluster and fat_found_size is the
+; byte length. Those two fields are what _fat_next and the shell follow. The CP/M
+; block list is not in this record. BDOS directory reads go through synth_dir.
 ; Caveat: 0x00 ends the table. 0xE5, AM_VOL, and AM_LFN are skipped. No long-name parse.
 _dir_find:
 dir_find:
@@ -1906,9 +1931,11 @@ df_miss:
     ret
 
 ; dir_create
-; Fill one free directory slot (0x00 or 0xE5) with an 8.3 name and the archive attribute.
+; Fill one free FAT directory slot (0x00 or 0xE5) with an 8.3 name and the archive attribute.
 ; IN: HL -> 11-byte name. OUT: C and L=0 created; NC and L=1 no slot. H is 0. Clobbers AF, BC, DE.
-; Caveat: the copy leaves DE on the attribute byte. A full table is not stretched. No start cluster yet.
+; The new FAT entry has no start cluster. yash fills that field when it has a chain.
+; A BDOS create leaves it empty too; the cluster written later is the one in the packed slot.
+; Caveat: the copy leaves DE on the attribute byte. A full table is not stretched.
 _dir_create:
 dir_create:
     ld      (pack_sv),hl            ;8.3; dir_sdi clobbers fat_work
@@ -1986,9 +2013,12 @@ fat_filebase_lp:
 ; pack_drive
 ; Copy one FAT directory into fat_files[drive], up to FILE_MAX slots.
 ; IN: A = drive 0-3. OUT: C = packed; NC = I/O abort with drv_packed left clear. Clobbers AF, BC, DE, HL.
+; Each slot is the shared record. It keeps the FAT entry's 8.3, start cluster, and
+; byte length, and assigns first_al and n_al so BDOS can name the file by allocation
+; block. yash does not read the slot; it keeps using the FAT entry. The chain itself
+; is not walked here: n_al comes from the byte length, one 4 KiB block at a time.
 ; Caveat: skips 0x00, 0xE5, '.', AM_LFN, AM_DIR, AM_VOL, and AM_SYS.
 ; Stops at 256 raw entries. pd_keep_cl drops a bad start cluster and keeps the rest.
-; Does not read the FAT chain of each file.
 pack_drive:
     ld      (fat_work+15),a         ;drive
     ld      a,(unamap_on)
@@ -2474,7 +2504,11 @@ sfe_sk:
 ; synth_dir
 ; Build one 512-byte CP/M directory sector in hstbuf from packed slots.
 ; IN: HL = host directory sector. OUT: hstbuf filled. Clobbers AF, BC, DE, HL, fat_work.
-; Caveat: each FAT name uses ceil(n_al/8) 32-byte extents. Sixteen entries per sector.
+; This is the directory BDOS reads. Each 32-byte record is one CP/M extent of one
+; slot: user number, 8.3, extent and record count from the byte length, and up to
+; eight allocation-block numbers. It is not a copy of the FAT entry, and yash does
+; not call it. A later BDOS directory write is translated back by wrdir_cpm.
+; Caveat: each name uses ceil(n_al/8) extents. Sixteen entries per sector.
 synth_dir:
     add     hl,hl
     add     hl,hl
@@ -2633,10 +2667,9 @@ sd_al:
     ld      (de+),a
     jr      sd_al_n
 sd_al_wr:
-    ld      a,l
-    ld      (de+),a
-    ld      a,h
-    ld      (de+),a
+    ld      (de),hl                 ;block number, low byte first
+    inc     de
+    inc     de
     inc     hl
     dec     bc
 sd_al_n:
@@ -2710,6 +2743,8 @@ sd_rc0:
 ; map_al
 ; Find which packed file owns allocation block DE.
 ; IN: DE = block, hstdsk = drive. OUT: C, A = file index, HL = block within the file; NC = none. Clobbers AF, BC, DE, HL.
+; The block is BDOS's name for a 4 KiB piece of the slot. It is not a FAT cluster.
+; yash never calls this; it already has the cluster from the FAT entry.
 ; Caveat: blocks 0 and 1 are the reserved CP/M directory, not a file.
 map_al:
     push    de                      ;fat_filebase reuses DE when drive != 0
@@ -2783,7 +2818,12 @@ fat_hst_isdir:
 ; fat_hst_map
 ; Turn the current CP/M host track and sector into a FAT data LBA.
 ; IN: hsttrk, hstsec, packed table. OUT: C and BCDE = LBA; NC = unmapped. Clobbers AF, HL, fat_work.
-; Caveat: one CP/M block is 4 KiB. The sector inside the block is added to the cluster LBA.
+; BDOS names a 4 KiB block. The byte offset is block<<12 plus the sector inside the
+; block. clst_from_off walks the slot's chain by that offset and by csize, so the
+; cluster size of the volume selects the cluster. The low bits of the offset, masked
+; with csize-1, are the sector inside it. yash does not use blocks; it calls
+; clst2sect with the cluster from the FAT entry.
+; Caveat: NC when the slot's chain does not reach that offset.
 fat_hst_map:
     call    fat_host_al             ;AL
     ex      de,hl
@@ -2864,8 +2904,10 @@ fhm_ok:
     scf
     ret
 
-; DE = slot. Include the host block in [first_al, first_al+n_al).
-; One CP/M block is one 4 KiB cluster, so this runs once per block.
+; DE = slot. Decide whether this 4 KiB allocation block lies in [first_al, first_al+n_al).
+; n_al counts CP/M blocks, not FAT clusters. An empty span sets n_al to 1 and returns NC.
+; A block at or past the end grows n_al and returns NC, so the caller allocates one cluster.
+; A block inside the span returns C. A block before first_al returns NC to writehst.
 fwb_cover:
     push    de
     call    fat_host_al             ;HL = AL
@@ -2930,10 +2972,16 @@ fwb_before:
     ret                             ;NC to writehst: block is before first_al
 
 ; fat_wrual_bind
-; Allocate a FAT cluster for an unmapped BDOS write of a new block.
-; IN: unamap_* and unacnt. OUT: C = bound; NC = no cluster. Clobbers AF, BC, DE, HL.
-; Caveat: BDOS sends C=2 only on the first record of the block. The host sector is flushed later.
-; unamap_on must be set and unamap_idx must be below FILE_MAX, or the write is refused.
+; Give a BDOS write of a new allocation block a FAT cluster, and remember it in the packed slot.
+; IN: unamap_* and unacnt. OUT: C = bound or already covered; NC = no cluster. Clobbers AF, BC, DE, HL.
+; BDOS puts C=2 on the first record of a new block. The host sector is flushed later, when wrtype
+; is already 0 and unacnt is still counting that block down, so either signal arms this routine.
+; unamap_on must be set, unamap_idx must be below FILE_MAX, and the armed drive must be the
+; selected drive. A slot with no file cluster, or with bits 28-31 set, calls create_chain(0).
+; A slot that already has a chain is walked with get_fat to its end marker, and create_chain
+; extends from that cluster. The new cluster is stored at FF_SCLUST. fwb_cover returns C when
+; the block is already inside the span, and this routine then returns C without allocating.
+; Caveat: one create_chain call adds one cluster. The directory entry is published later by wrdir_cpm.
 fat_wrual_bind:
     ; BDOS puts C=2 on the first record of a new block only. The host
     ; sector is flushed later, when wrtype is already 0 and unacnt is
@@ -3041,9 +3089,20 @@ fwb_fail0:
     ret
 
 ; wrdir_cpm
-; Apply a CP/M directory write: erase, rename, or create the 8.3 entry.
+; Apply one CP/M directory record: erase, rename, or create the 8.3 entry.
 ; IN: DMA buffer, hstwrt, hstdsk. OUT: directory and packed slot updated. Clobbers AF, BC, DE, HL.
-; Caveat: clears every drv_packed flag. The same drive is not re-selected here, so the next DIR can be stale.
+; BDOS writes four 32-byte entries per 128-byte record. An E5,E5 pair is a synthesised hole
+; and is left alone. E5 plus an 8.3 name is ERA: the directory slot is marked deleted, then
+; remove_chain frees that start cluster, and the packed slot with the same cluster is cleared.
+; Any other name is matched in order: the current 8.3, the same 8-character stem with a new
+; type, then an allocation block that falls inside an existing span. The first hit updates
+; that FAT entry in place. A miss allocates a directory slot. The update copies the 8.3 and
+; the FCB length, then the packed slot's cluster (the value create_chain stored) into the
+; start-cluster field. The allocation-block bytes BDOS keeps in the entry are not the chain.
+; yash creates and removes names through dir_create and _fat_free; it does not send these
+; 128-byte records. Success keeps drv_packed so the block numbers BDOS logged at select stay
+; valid. A failed FAT sync sets erflag and clears the four drv_packed flags.
+; Caveat: the chain is freed only on ERA. A rename publishes the cluster already in the slot.
 wrdir_cpm:
     xor     a
     ld      (erflag),a              ;this call reports only its own failure
@@ -3067,12 +3126,13 @@ wd_lp:
     dec     b
     jp      NZ,wd_lp
     call    fat_sync_window
-    jr      C,wd_maps
+    jr      NC,wd_sync_bad
+    ret                         ;block numbers stay valid for this login
+wd_sync_bad:
     ld      a,1
     ld      (erflag),a          ;FAT window did not reach the card
-wd_maps:
     xor     a
-    ld      hl,drv_packed       ;RAM maps are stale after a directory write
+    ld      hl,drv_packed       ;next select reloads from the card
     ld      (hl+),a
     ld      (hl+),a
     ld      (hl+),a
@@ -3084,7 +3144,14 @@ wd_maps:
 wrdir_slot:
     ld      a,(hl)
     cp      $E5
-    jp      Z,wd_era
+    jr      NZ,wd_named
+    inc     hl                      ;synth hole is E5,E5; ERA keeps the 8.3
+    ld      a,(hl)
+    dec     hl
+    cp      $E5
+    jp      NZ,wd_era
+    ret
+wd_named:
     inc     hl
     ld      a,(hl)
     dec     hl
@@ -3098,9 +3165,9 @@ wrdir_slot:
     call    dir_find                ;already this 8.3
     pop     hl
     jr      C,wd_upd
-    call    wd_oldname              ;REN: same blocks, previous 8.3
+    call    wd_same8                ;PIP $$$: same stem, before a wider span
     jr      C,wd_upd
-    call    wd_same8                ;REN: same 8-char name (PIP $$$)
+    call    wd_oldname              ;REN: same blocks, previous 8.3
     jr      C,wd_upd
     push    hl
     inc     hl
@@ -3162,12 +3229,12 @@ wd_era:
     call    wd_loaddir
     call    dir_find
     ret     NC
+    call    dir_zap                 ;dir_ptr dies when remove_chain reads the FAT
     ld      hl,(fat_found_sclust+2)
     ld      bc,hl
     ld      hl,(fat_found_sclust)
     ex      de,hl
     call    remove_chain
-    call    dir_zap
     ld      a,(hstdsk)
     call    fat_filebase
     ld      (fat_work),hl
@@ -3280,8 +3347,9 @@ wdo_no:
     or      a
     ret
 
-; CP/M REN already stored the new 8.3. PIP keeps the 8-char name and
-; changes $$$. Match that slot when the block span does not.
+; A directory write may keep the 8-character stem and change only the type.
+; Match that armed slot before an allocation-block span, so the cluster
+; create_chain stored is the one this write publishes.
 ; IN: HL = CP/M dirent. OUT C: dir_ptr set. HL preserved.
 wd_same8:
     push    hl
@@ -3306,21 +3374,26 @@ wd_same8:
     inc     de
     ld      b,8
 ws8_cmp:
-    ld      a,(de)
+    ld      a,(de+)
     and     $7F
     ld      c,a
-    ld      a,(hl)
+    ld      a,(hl+)
     and     $7F
     cp      c
     jr      NZ,ws8_no
-    inc     de
-    inc     hl
     dec     b
     jp      NZ,ws8_cmp
     ld      bc,-8
-    add     hl,bc
+    add     hl,bc                   ;slot 8.3
+    push    hl
     call    dir_find
+    pop     hl
     jr      NC,ws8_no
+    ld      bc,-12                  ;FF_NAME - FF_SCLUST
+    add     hl,bc
+    ld      de,fat_found_sclust     ;directory cluster is still 0 until close
+    ld      bc,4
+    call    fat_copy                ;slot chain, so wd_pack renames this slot
     pop     hl
     scf
     ret
@@ -3476,15 +3549,13 @@ wd_byname:
     inc     de                      ;CP/M 8.3
     ld      b,11
 wd_bn:
-    ld      a,(de)
+    ld      a,(de+)
     and     $7F                     ;drop t1' t2' t3'
     ld      c,a
-    ld      a,(hl)
+    ld      a,(hl+)
     and     $7F
     cp      c
     jr      NZ,wd_bn_no
-    inc     de
-    inc     hl
     dec     b
     jp      NZ,wd_bn
     pop     hl
@@ -3493,6 +3564,15 @@ wd_bn_no:
     pop     hl
     jr      wd_pnext
 wd_pempty:
+    ; Clear the whole slot, then store the new 8.3, so the new name has no chain yet.
+    push    hl
+    xor     a
+    ld      (hl),a
+    ld      de,hl
+    inc     de
+    ld      bc,FILE_SIZ-1
+    call    fat_copy
+    pop     hl
     ld      a,(fat_work+13)
     ld      (hl),a
     ld      a,(fat_work+14)
@@ -3563,8 +3643,10 @@ _fat_dir_open:
     ret
 
 ; _fat_dir_read
-; Copy the current 32-byte directory entry to (HL) and advance.
+; Copy the current FAT directory entry to (HL) and advance. This is what yash reads.
 ; IN: HL -> 32-byte buffer. OUT: L=0 copied; L=1 = end of table. H is 0.
+; The buffer is the on-disk entry (name, attribute, start cluster, byte length),
+; not a CP/M extent. BDOS reads those extents from synth_dir instead.
 ; The entry just copied is returned even when dir_next fails. That failure
 ; points dir_ptr at a zero byte so the following read is the end.
 ; Clobbers AF, BC, DE. Caveat: a 0x00 first byte is end, not a deleted entry. Calls dir_next.

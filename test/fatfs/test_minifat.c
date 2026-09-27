@@ -409,6 +409,43 @@ int main(void)
         expect("cfo_after_free", rc == 0 && cfo_clst == 6);
     }
 
+    /* FAT32, n_fatent above 65535, root cluster 2. Two new chains are 3 then 4. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 3;
+    cpm_fat_vol.csize = 8;
+    cpm_fat_vol.n_fatent = 248344; /* byte 2 non-zero, as on the CF card */
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 2;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 2;
+    ram_image[512 + 0] = 0xF8;
+    ram_image[512 + 1] = 0xFF;
+    ram_image[512 + 2] = 0xFF;
+    ram_image[512 + 3] = 0x0F;
+    ram_image[512 + 4] = 0xFF;
+    ram_image[512 + 5] = 0xFF;
+    ram_image[512 + 6] = 0xFF;
+    ram_image[512 + 7] = 0x0F;
+    ram_image[512 + 8] = 0xFF;          /* cluster 2 EOC, the root */
+    ram_image[512 + 9] = 0xFF;
+    ram_image[512 + 10] = 0xFF;
+    ram_image[512 + 11] = 0x0F;
+    {
+        uint32_t a = 0;
+        uint32_t b = 0;
+
+        rc = fat_alloc(&a);
+        rc |= fat_alloc(&b);
+        expect("fat32_two_chains",
+               rc == 0 && a == 3 && b == 4
+               && ram_image[512 + 12] == 0xFF && ram_image[512 + 15] == 0x0F
+               && ram_image[512 + 16] == 0xFF && ram_image[512 + 19] == 0x0F
+               && ram_image[1024 + 12] == 0xFF && ram_image[1024 + 16] == 0xFF);
+    }
+
     puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");
     return fails ? 1 : 0;
 }
