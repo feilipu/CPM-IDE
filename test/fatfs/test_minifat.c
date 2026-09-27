@@ -161,6 +161,11 @@ int main(void)
                ram_image[512 + 4] == 3 && ram_image[512 + 5] == 0 &&
                ram_image[512 + 6] == 0xFF && ram_image[512 + 7] == 0xFF &&
                ram_image[1024 + 4] == 3 && ram_image[1024 + 6] == 0xFF);
+        {
+            uint32_t nfree = 0;
+            rc = fat_getfree(&nfree);
+            expect("getfree_after_stretch", rc == 0 && nfree == 6);
+        }
     }
 
     /* dir_zap uses dir_ptr in fatwin: re-find so the window is the directory. */

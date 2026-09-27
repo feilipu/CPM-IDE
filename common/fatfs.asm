@@ -26,19 +26,24 @@
 ;   dirent 0x00 = end of directory; 0xE5 = deleted (reusable)
 ;   skip AM_LFN ($0F) and AM_VOL; pack also skips '.', AM_DIR, AM_SYS
 ;   files larger than remaining CP/M dirents are capped (8 MB / 256 extents)
+;   pack stops at 256 raw directory entries (offset 8192) on both CPUs
+;   a non-empty file is not packed when its start cluster is < 2, >= n_fatent,
+;   the FAT32 root, or this directory's own cluster (pd_keep_cl)
+;   an empty file (size 0, cluster 0) is packed
+;   fat_fatent returns NC for cluster < 2
 ;   dir_next stops on 16-bit ofs wrap (2048 dirents) for LFN-heavy Windows dirs
 ;   FAT32 root is BPB_RootClus32; cluster 0 means that root (ff dir_sdi)
 ;   FAT16 root is static dirbase LBA
 ;   SFD (VBR at LBA 0) then four MBR primary partitions; PTE type is ignored
 ;   1 or 2 FATs; BytsPerSec == 512; csize is a non-zero power of two
+;   a FAT16 root entry count must be a multiple of 16, or mount fails
 ;   CP/M block is 4096 bytes (8 sectors). The host map masks with (csize-1)
 ;   a new cluster is not zeroed; the caller writes the bytes it cares about
 ;
 ; FatFs cases we skip (on purpose):
 ;   GPT protective MBR; logical partitions
-;   FAT32 FSVer==0, n_rootent==0
+;   FAT32 FSVer is not checked. A non-zero FAT32 RootEntCnt is still added to sysect.
 ;   JumpBoot and the media byte are not checked.
-;   a FAT16 root must be a whole number of sectors (n_rootent % 16 == 0).
 ;   dir_next stretch (create_chain + dir_clear) when a subdir hits EOC
 ;   FSInfo last_clst / free_clst
 ;   first-byte $05 KANJI DDEM mapping
@@ -738,7 +743,8 @@ fat_fatent:
     sbc     a,0
     ld      a,b
     sbc     a,0
-    ret     C
+    ccf
+    ret     NC                      ;cluster < 2: borrow was set, caller wants NC
     ld      hl,_cpm_fat_vol+4       ;clst - n_fatent (BCDE live)
     ld      a,e
     sub     (hl+)
@@ -1127,7 +1133,10 @@ cfo_bad:
     or      a
     ret
 
-; Discard fatwin. A window at LBA $FFFFFFFF must not be written back.
+; fat_win_inval
+; Drop the FAT window so it cannot be flushed. Clears fat_wflag first.
+; IN: none. OUT: fat_winsect = $FFFFFFFF, fat_wflag = 0. Clobbers AF, HL.
+; Caveat: lives in the ROM window. copy_build must not call it.
 PUBLIC  fat_win_inval
 fat_win_inval:
     xor     a
@@ -1735,7 +1744,9 @@ dir_zap:
     scf
     ret
 
-; HL = fat_files + A * FILE_MAX * FILE_SIZ
+; fat_filebase
+; Base of the packed file table for drive A.
+; IN: A = drive 0-3. OUT: HL = fat_files + A * FILE_MAX * FILE_SIZ. Clobbers AF, DE.
 fat_filebase:
     ld      hl,fat_files
     or      a
@@ -1750,7 +1761,9 @@ fat_filebase_lp:
 ; pack_drive
 ; Copy one FAT directory into fat_files[drive], up to FILE_MAX slots.
 ; IN: A = drive 0-3. OUT: C = packed; NC = I/O abort with drv_packed left clear. Clobbers AF, BC, DE, HL.
-; Caveat: skips 0x00, 0xE5, '.', AM_LFN, AM_DIR, AM_VOL, and AM_SYS. Does not read the FAT.
+; Caveat: skips 0x00, 0xE5, '.', AM_LFN, AM_DIR, AM_VOL, and AM_SYS.
+; Stops at 256 raw entries. pd_keep_cl drops a bad start cluster and keeps the rest.
+; Does not read the FAT chain of each file.
 pack_drive:
     ld      (fat_work+15),a         ;drive
     ld      a,(unamap_on)
@@ -1930,6 +1943,8 @@ pd_nd:
     add     a,l
     jp      C,pd_done               ;256 dirents (8 MB of 32 KB extents)
     ld      (fat_work+6),a
+    call    pd_keep_cl
+    jp      NC,pd_skip              ;bad start cluster: keep the other files
     ; slot = base + nfiles*FILE_SIZ
     ld      a,(fat_work+4)
     call    pd_slot
@@ -2068,6 +2083,63 @@ pack_sdi:
     rlca                            ;bit 7 of cookie → carry
     ret
 
+; pd_keep_cl
+; A non-empty file must start on a data cluster other than this directory.
+; IN: dir_ptr, dir_sclust, n_al at fat_work+8. OUT: C = publish; NC = skip.
+; Clobbers AF, BC, DE, HL. Size 0 (n_al 0, cluster 0) is still published.
+pd_keep_cl:
+    ld      hl,(fat_work+8)
+    ld      a,h
+    or      l
+    jr      Z,pk_yes
+    ld      hl,(dir_ptr)
+    ld      bc,DIR_ClusLO
+    add     hl,bc
+    ld      e,(hl)
+    inc     hl
+    ld      d,(hl)
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,pk_hi
+    ld      bc,0
+    jr      pk_rng
+pk_hi:
+    ld      hl,(dir_ptr)
+    ld      bc,DIR_ClusHI
+    add     hl,bc
+    ld      c,(hl)
+    inc     hl
+    ld      a,(hl)
+    and     $0F                     ;FAT32 keeps 28 bits
+    ld      b,a
+pk_rng:
+    call    fat_notfile             ;C: cluster < 2, or the FAT32 root
+    jr      C,pk_no
+    ld      hl,_cpm_fat_vol+4
+    ld      a,e
+    sub     (hl+)
+    ld      a,d
+    sbc     (hl+)
+    ld      a,c
+    sbc     (hl+)
+    ld      a,b
+    sbc     a,(hl)
+    jr      NC,pk_no                ;cluster >= n_fatent
+    ld      hl,(dir_sclust)
+    or      a
+    sbc     hl,de
+    jr      NZ,pk_yes
+    ld      hl,(dir_sclust+2)
+    or      a
+    sbc     hl,bc
+    jr      Z,pk_no                 ;file starts on this directory's cluster
+pk_yes:
+    scf
+    ret
+pk_no:
+    or      a
+    ret
+
 ; A = file index, HL = table base + A*FILE_SIZ (24 = *16 + *8)
 pd_slot:
     ld      l,a
@@ -2176,7 +2248,10 @@ sd_lp:
     djnz    sd_lp
     ret
 
-; HL = dirent index, DE = dest
+; sd_one
+; Write one CP/M directory entry, or an $E5 hole, for dirent index HL.
+; IN: HL = dirent index, DE = 32-byte destination. OUT: hstbuf slot filled. Clobbers AF, BC, HL, fat_work.
+; Caveat: walks packed slots by extent count. An index past the table is $E5.
 sd_one:
     ld      (fat_work+10),hl         ;remaining index
     ld      (fat_work+12),de         ;dest
@@ -3202,7 +3277,8 @@ _fat_dir_open:
 ; _fat_dir_read
 ; Copy the current 32-byte directory entry to (HL) and advance.
 ; IN: HL -> 32-byte buffer. OUT: L=0 copied; L=1 = end of table. H is 0.
-; Carry is whatever dir_next left. A failed step does not hide the entry just copied.
+; The entry just copied is returned even when dir_next fails. That failure
+; points dir_ptr at a zero byte so the following read is the end.
 ; Clobbers AF, BC, DE. Caveat: a 0x00 first byte is end, not a deleted entry. Calls dir_next.
 _fat_dir_read:
     push    hl
@@ -3214,8 +3290,14 @@ _fat_dir_read:
     ld      bc,32
     ldir
     call    dir_next
+    jr      C,fdr_more
+    ld      hl,fdr_eod              ;next read is end; do not write the window
+    ld      (dir_ptr),hl
+fdr_more:
     ld      hl,0
     ret
+fdr_eod:
+    defb    0
 fat_dir_read_end:
     pop     hl
     ld      (hl),0

@@ -44,7 +44,7 @@ The IDE Hard Drive Module supports both PATA hard drives (including 3 1/2" magne
 
 **v3** (`master`) mounts **FAT directories** as CP/M A:–D:. Files in those directories are native 8.3 FAT files (`FOO.COM`). The host USB/CF caddy and CP/M see the same names. **v2.x** (`cpm-ide-v2.5` branch and tag) instead mounted opaque 8 MB `.CPM` container files via a ChaN `ff_ro` shell. How that works, and what changed, is under [CP/M-IDE v3](#cpm-ide-v3).
 
-All seven firmware builds provide **51.00 KB** of TPA (BIOS origin `0xE500`, CCP `0xCD00`). Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). A 65th name is a BIOS error and is not attached to another file. Four live drives maximum. The 8.3 is stored in the 24-byte map row when the directory is packed, and `DIR` reads that row. Mini-FAT, IDE, and host sector I/O run from ROM (the RAM BIOS pages ROM in on disk I/O; serial ISRs stay in high RAM). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
+All seven firmware builds provide **51.00 KB** of TPA (BIOS origin `0xE500`, CCP `0xCD00`). Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). A 65th name is a BIOS error and is not attached to another file. Pack also stops after 256 raw directory entries. A non-empty file whose start cluster is below 2, past the end of the FAT, or the directory's own cluster is left out of the map; an empty file is kept. Four live drives maximum. The 8.3 is stored in the 24-byte map row when the directory is packed, and `DIR` reads that row. Mini-FAT, IDE, and host sector I/O run from ROM (the RAM BIOS pages ROM in on disk I/O; serial ISRs stay in high RAM). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
 
 <div>
 <table style="border: 2px solid #cccccc;">
@@ -397,8 +397,8 @@ Again, here is a view of what success looks like.
 - `rm <file>` - delete a file
 - `rmdir <path>` - remove an empty directory
 - `mkdir <path>` - create a directory
-- `cp <src> <dst>` - copy a file
-- `mv <src> <dst>` - rename or move a file
+- `cp <src> <dst>` - copy a file. A path component longer than 12 characters is refused. An existing read-only destination is refused.
+- `mv <src> <dst>` - rename in the same directory, or move to another directory. An existing destination is refused. A path component longer than 12 characters is refused.
 - `mount` - mount the FAT volume
 - `frag <file>` - cluster-run count for a file
 - `free` - free and total space on the volume
@@ -481,9 +481,9 @@ Alternate z88dk command lines to build the CP/M-IDE for the 8085 CPU Module is b
 
 `zcc +rc2014 -subtype=acia85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
 
-__NOTE:__ UART images are not shipped. The 8085 startup copy is 127 bytes and must start at `$7F81` or at a lower address. `8085-cf-uart` now ends at `__CODE_END = $804D` (overlaps the DATA section) and `8085-pata-uart` was already past `$7F81`. Do not burn either. The Z80 CF UART image is 32370 bytes, with 398 bytes free, and stays out of the repository.
+__NOTE:__ UART images are not shipped and were not rebuilt with the later pack and shell edits. The 8085 startup copy is 127 bytes and must start at `$7F81` or at a lower address. Last measured `8085-cf-uart` ends at `__CODE_END = $804D` (overlaps the DATA section) and `8085-pata-uart` was already past `$7F81`. Do not burn either. The Z80 CF UART image was 32370 bytes, with 398 bytes free, and stays out of the repository.
 
-__NOTE:__ These images fit in 32 KB. Z80 PATA SIO has 37 bytes free (32731 bytes, linked with the 16-bit PATA library). Z80 CF SIO has 243 bytes free (32525 bytes). Z80 CF ACIA has 757 bytes free (32011 bytes). The 8085 CF ACIA image ends at `__CODE_END = $7F57`, with 42 bytes free before `$7F81`.
+__NOTE:__ These images fit in 32 KB. Z80 PATA SIO has 92 bytes free (32676 bytes, linked with the 16-bit PATA library). Z80 CF SIO has 300 bytes free (32468 bytes). Z80 CF ACIA has 815 bytes free (31953 bytes). The 8085 CF ACIA image ends at `__CODE_END = $7F57`, with 42 bytes free before `$7F81`.
 
 The ROM shells have FAT write (`rm`, `mkdir`, `cp`, `mv`). ChaN FatFs is not required to build the firmware. The default (read/write) version of the [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) should be installed so that applications you compile using z88dk under CP/M (`-subtype=cpm`) can read and write to the FATFS file system independently of BDOS.
 

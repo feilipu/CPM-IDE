@@ -118,6 +118,58 @@ int main(void)
     expect("map_hello", rc == 0 && map_lba == 4);
     expect("map_hello_data", memcmp(ram_image + 4 * 512, "hello", 5) == 0);
 
+    /* Bad start clusters are not live files. Empty cluster 0 still is. */
+    put_dirent(ram_image + 3 * 512 + 64, "ZEROCL  BIN", 0, 4096);
+    put_dirent(ram_image + 3 * 512 + 96, "FARCL   BIN", 2500, 4096);
+    put_dirent(ram_image + 3 * 512 + 128, "CL1     BIN", 1, 4096);
+    put_dirent(ram_image + 3 * 512 + 160, "SELFDIR BIN", 2, 4096);
+    put_dirent(ram_image + 3 * 512 + 192, "EMPTY   TXT", 0, 0);
+    pack_drv = 0;
+    rc = pack_drive_run();
+    expect("pack_bad_clust", rc == 0 &&
+           (fat_files[0] & 0x80) && fat_files[1] == 3 &&
+           (fat_files[24] & 0x80) && fat_files[25] == 3 &&
+           (fat_files[48] & 0x80) && fat_files[49] == 0 &&
+           memcmp(fat_files + 61, "EMPTY   TXT", 11) == 0 &&
+           fat_files[72] == 0);
+
+    /* 255 deleted entries, then one file. The 8085 walk used to stop one short. */
+    memset(ram_image, 0, sizeof ram_image);
+    {
+        uint8_t *v = (uint8_t *)&cpm_fat_vol;
+        uint16_t i;
+        memset(v, 0, sizeof cpm_fat_vol);
+        v[0] = 2;
+        v[1] = 1;
+        v[2] = 16;
+        v[4] = 24;
+        v[8] = 1;
+        v[12] = 2;
+        v[16] = 3;
+        v[20] = 1;
+        v[24] = 1;
+        ram_image[512] = 0xF8;
+        ram_image[513] = 0xFF;
+        ram_image[514] = 0xFF;
+        ram_image[515] = 0xFF;
+        for (i = 2; i < 18; ++i)
+            put_le16(ram_image + 512 + i * 2, (uint16_t)(i + 1));
+        put_le16(ram_image + 512 + 18 * 2, 0xFFFF);
+        put_le16(ram_image + 512 + 19 * 2, 0xFFFF);
+        for (i = 0; i < 255; ++i)
+            ram_image[(3 + i / 16) * 512 + (i % 16) * 32] = 0xE5;
+        put_dirent(ram_image + 18 * 512 + 15 * 32, "LAST    TXT", 19, 1);
+    }
+    {
+        uint8_t *p = (uint8_t *)cpm_dir_sclust;
+        memset(p, 0, 16);
+        p[0] = 2;
+    }
+    pack_drv = 0;
+    rc = pack_drive_run();
+    expect("pack_entry_256", rc == 0 && (fat_files[0] & 0x80) &&
+           memcmp(fat_files + 13, "LAST    TXT", 11) == 0);
+
     puts(fails ? "V3MAP_BAD" : "V3MAP_OK");
     return fails ? 1 : 0;
 }

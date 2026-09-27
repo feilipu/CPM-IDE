@@ -1,3 +1,12 @@
+/*
+ * yash.c — CP/M-IDE ROM shell.
+ *
+ * Paths are 8.3. A component longer than 12 characters is refused.
+ * cp and mv share transfer(). Cluster 0 in cpm_dir_sclust means that
+ * drive is unmounted, so a FAT16 root cannot be A:.
+ * Built-in commands return 1 to keep the prompt, 0 to leave it.
+ */
+
 #ifndef YASH_TEST
 #include <unistd.h>
 #endif
@@ -85,6 +94,12 @@ uint8_t ya_num_builtins(void) {
   helper functions
  */
 
+/**
+   @brief Fold a host component into an 11-byte 8.3 name, upper case.
+   @param dst 11-byte buffer, space padded.
+   @param src One component. No slash. Longer than 8.3 is truncated here;
+          path_split refuses a component longer than 12 before this runs.
+ */
 static void name83(uint8_t *dst, const char *src)
 {
     uint8_t i;
@@ -120,8 +135,11 @@ static void name83(uint8_t *dst, const char *src)
     }
 }
 
-/* Host FAT tools sometimes store "MAIN.C" in the 11-byte SFN (dot in
- * the name field) instead of "MAIN    C  ". */
+/**
+   @brief Pack a display name into 11 bytes, keeping a dot in the stem.
+   @param dst 11-byte buffer, space padded.
+   @param src Name from sfn_to_name. Host tools sometimes store "MAIN.C".
+ */
 static void name_pack11(uint8_t *dst, const char *src)
 {
     uint8_t i;
@@ -200,7 +218,12 @@ static uint8_t dir_find_try(uint8_t *n)
     return dir_find(alt);
 }
 
-/* One path component. "." keeps clst. ".." is the parent dirent. */
+/**
+   @brief Step one directory component.
+   @param clst In: directory to search. Out: the child directory cluster.
+   @param comp One component. "." leaves clst. ".." reads the parent entry.
+   @return 0, or a FatFs result. A non-directory match is FR_NO_PATH.
+ */
 static uint8_t dir_walk(uint32_t *clst, const char *comp)
 {
     uint8_t n[11];
@@ -231,6 +254,12 @@ static uint8_t dir_walk(uint32_t *clst, const char *comp)
     return 0;
 }
 
+/**
+   @brief Resolve a path to a directory cluster.
+   @param path Absolute or relative. Empty means fat_cwd.
+   @param out Receives the directory cluster. 0 is the FAT16 root.
+   @return 0, or FR_INVALID_NAME when a component is longer than 12 characters.
+ */
 static uint8_t path_to_dir(const char *path, uint32_t *out)
 {
     uint32_t clst;
@@ -256,6 +285,8 @@ static uint8_t path_to_dir(const char *path, uint32_t *out)
         ci = 0;
         while (*path && *path != '/' && *path != '\\' && ci < 12)
             comp[ci++] = *path++;
+        if (*path && *path != '/' && *path != '\\')
+            return FR_INVALID_NAME;
         comp[ci] = 0;
         while (*path == '/' || *path == '\\')
             ++path;
@@ -279,7 +310,13 @@ static uint8_t is_dot_name(const uint8_t *n)
     return n[0] == '.' && (n[1] == ' ' || (n[1] == '.' && n[2] == ' '));
 }
 
-/* Walk all but the last component. Leaf 8.3 in name11. */
+/**
+   @brief Walk every component except the last. The leaf is an 8.3 name.
+   @param path File or directory path.
+   @param parent Receives the parent directory cluster.
+   @param name11 Receives the leaf, space padded.
+   @return 0, FR_INVALID_NAME, or the dir_walk result.
+ */
 static uint8_t path_split(const char *path, uint32_t *parent, uint8_t *name11)
 {
     uint32_t clst;
@@ -303,6 +340,8 @@ static uint8_t path_split(const char *path, uint32_t *parent, uint8_t *name11)
         ci = 0;
         while (*path && *path != '/' && *path != '\\' && ci < 12)
             comp[ci++] = *path++;
+        if (*path && *path != '/' && *path != '\\')
+            return FR_INVALID_NAME;
         comp[ci] = 0;
         while (*path == '/' || *path == '\\')
             ++path;
@@ -320,8 +359,14 @@ static uint8_t path_split(const char *path, uint32_t *parent, uint8_t *name11)
     return FR_INVALID_NAME;
 }
 
-/* Dest for cp/mv. A trailing / or an existing directory keeps the source 8.3
- * name and uses that directory as the parent. */
+/**
+   @brief Resolve a cp/mv destination.
+   @param dst Destination path.
+   @param sn Source 8.3, used when dst is a directory or ends in a slash.
+   @param parent Receives the directory that will hold the leaf.
+   @param name11 Receives the destination 8.3.
+   @return 0 or a FatFs result.
+ */
 static uint8_t dest_resolve(const char *dst, const uint8_t *sn,
     uint32_t *parent, uint8_t *name11)
 {
@@ -354,7 +399,13 @@ static uint8_t dest_resolve(const char *dst, const uint8_t *sn,
     return FR_OK;
 }
 
-/* Split path, refuse . / .., open the parent, find the leaf. 0 = found. */
+/**
+   @brief Open the parent and find the leaf. "." and ".." are refused.
+   @param path File path.
+   @param parent Receives the parent cluster.
+   @param n Receives the 8.3 name. dir_ptr is the found entry.
+   @return 0 when found.
+ */
 static uint8_t open_leaf(const char *path, uint32_t *parent, uint8_t *n)
 {
     uint8_t rc;
@@ -371,7 +422,11 @@ static uint8_t open_leaf(const char *path, uint32_t *parent, uint8_t *n)
     return FR_OK;
 }
 
-/* 1 if the directory contains only . / .. (and deleted / LFN / volume). */
+/**
+   @brief Report whether a directory holds anything besides dot and dot-dot.
+   @param clst Directory cluster.
+   @return 1 when only dot entries, deleted, LFN, or volume labels remain.
+ */
 static uint8_t dir_is_empty(uint32_t clst)
 {
     uint8_t ent[32];
@@ -390,6 +445,13 @@ static uint8_t dir_is_empty(uint32_t clst)
     return 1;
 }
 
+/**
+   @brief Write cluster, size, and attribute into the current directory entry and sync.
+   @param attr FAT attribute byte.
+   @param clst Start cluster.
+   @param size File size in bytes.
+   @return 0 when the window reached the card.
+ */
 static uint8_t dir_fill(uint8_t attr, uint32_t clst, uint32_t size)
 {
     uint8_t *e = fat_dir_ptr;
@@ -407,6 +469,12 @@ static uint8_t dir_fill(uint8_t attr, uint32_t clst, uint32_t size)
     return fat_sync();
 }
 
+/**
+   @brief Zero a new directory cluster and write the . and .. entries.
+   @param clst Cluster just allocated.
+   @param parent Parent cluster. The FAT16 root is stored as 0 in dot-dot.
+   @return 0, or 1 when the sector write fails.
+ */
 static uint8_t zero_cluster(uint32_t clst, uint32_t parent)
 {
     uint32_t lba;
@@ -453,7 +521,14 @@ static void drop_chain(uint32_t first)
     }
 }
 
-/* 0 and *out_size == size only when the whole source chain was copied. */
+/**
+   @brief Copy a cluster chain into newly allocated clusters.
+   @param src Source start cluster.
+   @param size Bytes to copy. A short chain fails.
+   @param out_first Receives the new chain, or 0 on failure.
+   @param out_size Receives size only when the whole chain was copied.
+   @return 0 on success. Failure frees the new chain when the FAT write works.
+ */
 static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint32_t *out_size)
 {
     uint32_t last = 0, first = 0, lbas, lbad, nxt, remain, chunk;
@@ -509,6 +584,10 @@ copy_fail:
     return 1;
 }
 
+/**
+   @brief Bind A:–D: from CPMIDE.CFG in the working directory or the root.
+   @return 0 when A: was set. One sector is read. Parsing stops at the file length.
+ */
 static uint8_t read_cfg(void)
 {
     uint8_t n[11];
@@ -581,7 +660,10 @@ static uint8_t read_cfg(void)
 }
 
 
-/* Named FatFs FRESULT (ChaN). rc=0 is silent. */
+/**
+   @brief Print a ChaN FRESULT name. rc 0 is silent.
+   @param rc FatFs result code.
+ */
 void put_rc(uint8_t rc)
 {
     static const char names[] =
@@ -645,6 +727,10 @@ static uint8_t hist_skip_store(const char *s)
     return 0;
 }
 
+/**
+   @brief Push a non-empty line onto the history ring. A repeat of the last line is dropped.
+   @param line The line just entered.
+ */
 static void hist_store(const char *line)
 {
     uint8_t last, n;
@@ -667,6 +753,13 @@ static void hist_store(const char *line)
         ++hist_used;
 }
 
+/**
+   @brief Replace the visible input line with src and update the cursor length.
+   @param line Edit buffer.
+   @param pos In/out length of the visible line.
+   @param maxlen Room in line, not counting the NUL.
+   @param src Text to show.
+ */
 static void line_redraw(char *line, uint16_t *pos, uint16_t maxlen, const char *src)
 {
     uint16_t old, n, i;
@@ -737,6 +830,12 @@ static void put_hex(uint16_t v, uint8_t digits)
     }
 }
 
+/**
+   @brief Print one hex dump row: offset, bytes, and ASCII.
+   @param buff Bytes to show.
+   @param ofs Offset printed at the left.
+   @param cnt How many bytes.
+ */
 void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt)
 {
     uint8_t i;
@@ -1211,17 +1310,17 @@ int8_t ya_mkdir(char ** args)
 
 
 /**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "cp". args[1] src, args[2] dst.
-   @return Always returns 1, to continue executing.
+   @brief Copy or move one file.
+   @param args args[0] is the command name, args[1] the source, args[2] the destination.
+   @param move 0 copies the chain. 1 renames in the same directory or relinks the cluster.
+   @return Always 1, so the prompt continues.
  */
-int8_t ya_cp(char ** args)
+static int8_t transfer(char **args, uint8_t move)
 {
     uint32_t sp, dp, src, size, first, copied, old, old_size;
-    uint8_t sn[11], dn[11];
-    uint8_t dest_exists, old_attr;
+    uint8_t sn[11], dn[11], attr, old_attr;
 
-    if (need_args(args, 2, "cp"))
+    if (need_args(args, 2, move ? "mv" : "cp"))
         return 1;
     if (put_fail(open_leaf(args[1], &sp, sn)))
         return 1;
@@ -1229,6 +1328,7 @@ int8_t ya_cp(char ** args)
         put_rc(FR_DENIED);
         return 1;
     }
+    attr = fat_dir_ptr[11];
     src = fat_found_sclust;
     size = fat_found_size;
 
@@ -1236,6 +1336,43 @@ int8_t ya_cp(char ** args)
         return 1;
     if (sp == dp && memcmp(sn, dn, 11) == 0)
         return 1;
+
+    if (move && sp == dp) {
+        if (fat_dir_open(&sp) || dir_find_try(sn)) {
+            put_rc(1);
+            return 1;
+        }
+        memcpy(fat_dir_ptr, dn, 11);
+        fat_dirty();
+        if (fat_sync())
+            put_rc(1);
+        return 1;
+    }
+
+    if (move) {
+        if (fat_dir_open(&dp)) {
+            put_rc(1);
+            return 1;
+        }
+        if (dir_find_try(dn) == 0) {
+            put_rc((fat_dir_ptr[11] & AM_DIR) ? FR_DENIED : FR_EXIST);
+            return 1;
+        }
+        if (dir_create(dn)) {
+            put_rc(1);
+            return 1;
+        }
+        if (dir_fill(attr, src, size)) {
+            dir_zap();
+            fat_sync();
+            put_rc(1);
+            return 1;
+        }
+        if (fat_dir_open(&sp) || dir_find_try(sn) || dir_zap() || fat_sync())
+            put_rc(1);
+        return 1;
+    }
+
     if (copy_file(src, size, &first, &copied)) {
         put_rc(1);
         return 1;
@@ -1245,9 +1382,8 @@ int8_t ya_cp(char ** args)
         put_rc(1);
         return 1;
     }
-    dest_exists = (uint8_t)(dir_find_try(dn) == 0);
-    if (dest_exists) {
-        if (fat_dir_ptr[11] & AM_DIR) {
+    if (dir_find_try(dn) == 0) {
+        if (fat_dir_ptr[11] & (AM_DIR | AM_RDO)) {
             drop_chain(first);
             put_rc(FR_DENIED);
             return 1;
@@ -1279,6 +1415,16 @@ int8_t ya_cp(char ** args)
     return 1;
 }
 
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "cp". args[1] src, args[2] dst.
+   @return Always returns 1, to continue executing.
+ */
+int8_t ya_cp(char ** args)
+{
+    return transfer(args, 0);
+}
+
 
 /**
    @brief Builtin command:
@@ -1287,51 +1433,7 @@ int8_t ya_cp(char ** args)
  */
 int8_t ya_mv(char ** args)
 {
-    uint32_t sp, dp, sclust, ssize;
-    uint8_t sn[11], dn[11], attr;
-
-    if (need_args(args, 2, "mv"))
-        return 1;
-    if (put_fail(open_leaf(args[1], &sp, sn)))
-        return 1;
-    if (fat_dir_ptr[11] & AM_DIR) {
-        put_rc(FR_DENIED);
-        return 1;
-    }
-    attr = fat_dir_ptr[11];
-    sclust = fat_found_sclust;
-    ssize = fat_found_size;
-
-    if (put_fail(dest_resolve(args[2], sn, &dp, dn)))
-        return 1;
-    if (sp == dp && memcmp(sn, dn, 11) == 0)
-        return 1;
-    if (fat_dir_open(&dp)) {
-        put_rc(1);
-        return 1;
-    }
-    if (dir_find_try(dn) == 0) {
-        put_rc((fat_dir_ptr[11] & AM_DIR) ? FR_DENIED : FR_EXIST);
-        return 1;
-    }
-    if (sp == dp) {
-        if (fat_dir_open(&sp) || dir_find_try(sn)) {
-            put_rc(1);
-            return 1;
-        }
-        memcpy(fat_dir_ptr, dn, 11);
-        fat_dirty();
-        if (fat_sync())
-            put_rc(1);
-        return 1;
-    }
-    if (dir_create(dn) || dir_fill(attr, sclust, ssize)) {
-        put_rc(1);
-        return 1;
-    }
-    if (fat_dir_open(&sp) || dir_find_try(sn) || dir_zap() || fat_sync())
-        put_rc(1);
-    return 1;
+    return transfer(args, 1);
 }
 
 
@@ -1661,6 +1763,7 @@ void ya_split_line(char ** tokens, char * line)
 
 /**
    @brief Allocate buffers, then loop getting input and executing it.
+   @return Nothing. Returns early when a buffer cannot be allocated.
  */
 void ya_loop(void)
 {
@@ -1704,11 +1807,19 @@ void ya_loop(void)
 }
 
 #ifdef YASH_TEST
+/**
+   @brief Test entry for copy_file.
+   @return The copy_file result.
+ */
 uint8_t yash_copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint32_t *out_size)
 {
     return copy_file(src, size, out_first, out_size);
 }
 
+/**
+   @brief Test entry for read_cfg.
+   @return The read_cfg result.
+ */
 uint8_t yash_read_cfg(void)
 {
     return read_cfg();

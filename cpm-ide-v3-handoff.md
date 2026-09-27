@@ -1,7 +1,7 @@
 # CP/M-IDE v3 — handoff
 
 **Date:** 2026-09-27  
-**HEAD:** this commit on `master` (boot no longer calls mini-FAT with RAM latched; directory writes clear `erflag`; ROMs rebuilt here)  
+**HEAD:** this commit (bad start clusters are not packed; `fat_fatent` rejects cluster < 2; the shell shares one copy/move path)  
 **Repo (Ubuntu):** `/data/CPM-IDE` (`feilipu/CPM-IDE`)  
 **Same bytes on macOS:** `/Users/phillip/Container/ubuntu-data/CPM-IDE`  
 **Branch:** `master` (v3; written on `cpm-ide-v3` before merge)  
@@ -38,7 +38,7 @@ v2 `cpm file.a …` + `_cpm_dsk0_base[]` is **gone**. Shell `cpm` writes directo
 
 ## Where we stopped
 
-Four HEX files are on `master` and were rebuilt with this boot fix: `rc2014-cpm22-8085-cf-acia.hex`, `rc2014-cpm22-z80-cf-acia.hex`, `rc2014-cpm22-z80-cf-sio.hex`, `rc2014-cpm22-z80-pata-sio.hex`. They have **not** been run on hardware.
+The four HEX files were rebuilt in this commit: `rc2014-cpm22-8085-cf-acia.hex`, `rc2014-cpm22-z80-cf-acia.hex`, `rc2014-cpm22-z80-cf-sio.hex`, `rc2014-cpm22-z80-pata-sio.hex`. They have **not** been run on hardware.
 
 `test/fatfs/run.sh` (`+test`, not the ROM) was green on this mini-FAT: `bios_fails 0`, `V3BIOS_OK`, `V3MAP_OK`, `MINIFAT_OK`, `REDTEAM_CLEAN`. That harness does not touch CF ports.
 
@@ -53,12 +53,13 @@ Last product decisions:
 - Shell: `ls` `cd` `pwd` `rm` `rmdir` `mkdir` `cp` `mv` `frag` `free` `mount` `ds` `dd` `md` `cpm` `hload`. No `type`. No ChaN `ff_ro`.
 - Mount accepts a non-zero power-of-two `csize`. The CP/M block stays 4096 bytes. The host map masks the sector inside that block with `(csize-1)`. JumpBoot and the media byte are not checked. A new cluster is not zeroed. Pack I/O failure returns through `pd_abort` and leaves `drv_packed` clear.
 - `writehst` on every tree sets `erflag` when the host sector cannot be mapped, when `fat_wrual_bind` cannot allocate, and when the IDE write fails.
-- A packed directory stops at 64 names. The 65th directory create sets `unamap_idx` to 64 and `erflag`. `fat_wrual_bind` also requires `unamap_on`, so that write is not applied to an older slot. A cluster-0 dirent with a nonzero size is still packed; rejecting it at pack time did not fit in the Z80 PATA SIO image.
+- A packed directory stops at 64 names and at 256 raw directory entries (offset 8192) on both CPUs. The 8085 walk used to stop one entry earlier; that cap is gone. The 65th directory create sets `unamap_idx` to 64 and `erflag`. `fat_wrual_bind` also requires `unamap_on`, so that write is not applied to an older slot. A non-empty file whose start cluster is below 2, at or past `n_fatent`, the FAT32 root, or this directory's own cluster is skipped and the other names are kept. An empty file (size 0, cluster 0) is still packed.
 - `_fat_free` drops `clst_cache`. `create_chain` does not: extending the same chain is still a forward walk.
 - `copy_build` runs with RAM latched over `$0000–$7FFF`. It only fills `ldi_body`. It does not call `fat_win_inval`. `fat_mount` invalidates the window and the cluster cache while the ROM is switched in.
 - `wrdir_cpm` clears `erflag` on entry. A failed host flush in `nomatch` returns that error and leaves the dirty sector in `hstbuf`.
-- `dir_find` keeps 28 bits of a FAT32 start cluster. `synth_fi` is gone. `synth_want` and `synth_seen` are still the directory-synthesis walk.
-- Shell: `cp` fails when the source chain is shorter than the recorded size and frees the new chain. `mkdir` zeros the cluster before the directory entry is published. `CPMIDE.CFG` is parsed in place and stops at the file length. `rmdir` refuses a read-only directory. `mount` keeps `fat_cwd`.
+- `fat_fatent` returns no carry for cluster < 2. The old `ret C` handed that borrow back as success, so `get_fat` / `put_fat` treated cluster 0 and 1 as a located slot.
+- `dir_find` keeps 28 bits of a FAT32 start cluster. `synth_fi` is gone. `synth_want` and `synth_seen` are the directory-synthesis walk. `fat_dir_read` still returns the entry it just copied; if the following step fails it points `dir_ptr` at a zero so the next read is the end.
+- Shell: `cp` and `mv` share one transfer. A path component longer than 12 characters is refused. `cp` will not overwrite a read-only file. A cross-directory `mv` removes the new directory entry if publishing it fails. Same-directory `mv` rewrites the 8.3 in place. `cp` fails when the source chain is shorter than the recorded size and frees the new chain. `mkdir` zeros the cluster before the directory entry is published. `CPMIDE.CFG` is parsed in place and stops at the file length. `rmdir` refuses a read-only directory. `mount` keeps `fat_cwd`. Cluster 0 remains the unmounted drive sentinel, so a FAT16 root is not A:.
 - UART reset writes a non-zero channel flag, and the UART shells reset both channels before the prompt. Those images are not shipped.
 
 ---
@@ -83,10 +84,10 @@ Shipped image sizes after this rebuild (bytes free before 32768, or before `$7F8
 
 | Image | Size |
 |-------|------|
-| Z80 PATA SIO | 32731 bytes, 37 free |
-| Z80 CF SIO | 32525 bytes, 243 free |
-| Z80 CF ACIA | 32011 bytes, 757 free |
-| 8085 CF ACIA | `__CODE_END = $7F57`, 42 bytes free before `$7F81` |
+| Z80 PATA SIO | 32676 bytes, 92 free |
+| Z80 CF SIO | 32468 bytes, 300 free |
+| Z80 CF ACIA | 31953 bytes, 815 free |
+| 8085 CF ACIA | `__CODE_END = $7F57`, 42 bytes free before `$7F81` (image 32726) |
 
 SIO TX is **8** via `UNDEFINE __IO_SIO_TX_SIZE` / `defc = 0x08` in `cpm22bios.asm` (not a z88dk `config_sio.m4` change). Rings are in this BIOS file. Do not shrink RX.
 
@@ -145,7 +146,7 @@ BDOS never pages. Directory `WRITE C=1` is not this loop (`wrdir_cpm` every time
 | BIOS code PHASE | `0xF200` | **`$E500`** |
 | BIOS BSS | `0xF800` | **`$EA70`** (follows DPH/DPB) |
 | TPA | ~56 KB | **51.00 KB** (`$CD00−$0100` = 52224) |
-| ROM image | ~29 KB | **32525** bytes. **243** bytes free |
+| ROM image | ~29 KB | **32468** bytes. **300** bytes free |
 | DRM / AL0 | 2047 / `$FF $FF` | **255** / **`$C0 $00`** |
 | FILE_MAX | n/a | **64** names/drive, **24**-byte rows |
 | SIO TX | 16 | **8** |
@@ -202,7 +203,7 @@ Linked SIO (TX=8, RX=128) — **do not shrink RX**:
 
 Predicted ACIA (TX=32, RX=256): shadow `$FEC0`, Tx `$FEE0`, Rx `$FF00` (page). UART (RX=128, no software Tx): shadow `$FEE0`, A `$FF00`, B `$FF80`. 8085 ACIA has no 32-byte shadow: Tx `$FEE0`, Rx `$FF00`. 8085 UART: A `$FF00`, B `$FF80`.
 
-Same size per chip on every board. Shrink **TX first**, then RX, only if the init tail would collide with the first serial ALIGN. The shipped PATA SIO image already contains the 16-bit IDE driver and has 37 bytes free.
+Same size per chip on every board. Shrink **TX first**, then RX, only if the init tail would collide with the first serial ALIGN. The shipped PATA SIO image already contains the 16-bit IDE driver and has 92 bytes free.
 
 ---
 
