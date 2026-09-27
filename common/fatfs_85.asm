@@ -135,7 +135,9 @@ PUBLIC  _fat_getfree        ;C: count free clusters into dword at (HL)
 ; fat_copy
 ; Copy BC bytes from HL to DE.
 ; IN: HL = source, DE = destination, BC = count. OUT: HL and DE advanced. Clobbers AF, BC.
-; Caveat: a zero count returns at once. The trip is dec bc / inc b / inc c, not dec bc / jp nz.
+; Caveat: a zero count returns at once. This is the nested trip
+; (dec bc / inc b / inc c, then dec c / jp NZ / dec b / jp NZ).
+; It is not the flat preamble trip (ld bc,N-1 / dec bc / jp NK).
 fat_copy:
     ld      a,b
     or      c

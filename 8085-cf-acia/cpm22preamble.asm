@@ -25,6 +25,9 @@ _code_preamble_head:
 PUBLIC pboot
 
     ; set up COMMON_AREA CCP/BDOS
+    ; Flat 8085 loop: ld bc,N-1 / body / dec bc / jp NK.
+    ; K sets when dec rolls BC from 0 to $FFFF, so the body runs N times.
+    ; The nested dec bc / inc b / inc c form is a different loop. Do not add it here.
 
 pboot:                      ; preamble code also used by wboot
     ld hl,_rodata_cpm_ccp_head
