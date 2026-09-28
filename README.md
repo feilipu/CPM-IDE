@@ -44,7 +44,7 @@ The IDE Hard Drive Module supports both PATA hard drives (including 3 1/2" magne
 
 **v3** (`master`) mounts **FAT directories** as CP/M A:–D:. Files in those directories are native 8.3 FAT files (`FOO.COM`). The host USB/CF caddy and CP/M see the same names. **v2.x** (`cpm-ide-v2.5` branch and tag) instead mounted opaque 8 MB `.CPM` container files via a ChaN `ff_ro` shell. How that works, and what changed, is under [CP/M-IDE v3](#cpm-ide-v3).
 
-All seven firmware builds provide **51.00 KB** of TPA (BIOS origin `0xE500`, CCP `0xCD00`). Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). A 65th name is a BIOS error and is not attached to another file. Pack also stops after 256 raw directory entries. A non-empty file whose start cluster is below 2, past the end of the FAT, or the directory's own cluster is left out of the map; an empty file is kept. Four live drives maximum. The 8.3 is stored in the 24-byte map row when the directory is packed, and `DIR` reads that row. Mini-FAT, IDE, and host sector I/O run from ROM (the RAM BIOS pages ROM in on disk I/O; serial ISRs stay in high RAM). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
+The 8085 builds provide **51.00 KB** of TPA (CCP `0xCD00`). The Z80 builds provide **51.22 KB** (CCP `0xCDE0`). BIOS origin is `0xE500` on every port. Up to 64 FAT names are visible per drive (each name can still occupy many CP/M extents, including one 8 MB file). A 65th name is a BIOS error and is not attached to another file. Pack also stops after 256 raw directory entries. A non-empty file whose start cluster is below 2, past the end of the FAT, or the directory's own cluster is left out of the map; an empty file is kept. Four live drives maximum. The 8.3 is stored in the 24-byte map row when the directory is packed, and `DIR` reads that row. Mini-FAT, IDE, and host sector I/O run from ROM (the RAM BIOS pages ROM in on disk I/O; serial ISRs stay in high RAM). Serial rings stay pinned at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`).
 
 <div>
 <table style="border: 2px solid #cccccc;">
@@ -214,7 +214,7 @@ v3 is `master`. It stops treating the FAT volume as a bag of opaque 8 MB `.CPM` 
 
 Format the card FAT16/32 on a host, make directories, copy 8.3 files in. No container template. Old `.CPM` containers remain ordinary host files; they are no longer what `cpm` mounts.
 
-Mini-FAT and IDE stay in ROM. CCP is `$CD00` and BIOS is `$E500` on every port. TPA is 51.00 KB. `REGISTER_SP` sits at the CCP origin.
+Mini-FAT and IDE stay in ROM. BIOS is `$E500` on every port. The Z80 CCP and `REGISTER_SP` are `$CDE0`. The 8085 CCP and `REGISTER_SP` stay `$CD00`.
 
 Shell (`ya_getline`):
 
@@ -230,7 +230,7 @@ BIOS: DPH `DIRBUF` overlays `hstbuf`. After IDE/PPIDE, wait for DRQ only. Do not
 #### Technical changes
 
 - Mini-FAT16/32 in ROM (`SECTION code_lib`), not ChaN `ff_ro`. Fail-closed mount/pack.
-- DRI CCP/BDOS unchanged except `DIRBUF` public, APN 02 DEL=BS, CCP `$CD00`, BDOS stack `ALIGN $20` (BIOS `$E500`).
+- DRI CCP/BDOS unchanged except `DIRBUF` public, APN 02 DEL=BS, Z80 CCP `$CDE0`, 8085 CCP `$CD00`, BDOS stack `ALIGN $20` (BIOS `$E500`).
 - Four resident maps, **64** FAT names per drive (a name may still occupy many extents, including one 8 MB file). The 8.3 is stored in the map row at pack time.
 - Mini-FAT, IDE, and host-sector I/O run from ROM; RAM BIOS pages ROM in on disk I/O. Serial ISRs stay in high RAM.
 - Shell `ls` / `cd` / `mkdir` / `cp` / `mv` / `rm` / `rmdir` operate on the FAT tree. `frag` and `free` report cluster runs and free space.
@@ -271,7 +271,7 @@ Directory records are synthesized from the four resident FAT file maps. The 8.3 
 
 DPH `DIRBUF` overlays `hstbuf`. When DMA already lies in the 512-byte host window, `READ` does not copy; the BIOS writes the active 128-byte slice address into the BDOS `DIRBUF` word so `FCB2HL` / `CHECKSUM` / `MOVEDIR` see the record in place. User DMA still copies.
 
-CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, BDOS function 10 treats `DEL` as backspace (DRI APN 02), and a nameless `.COM` missing on the current drive is retried on A: (explicit `d:` does not fall back). CCP origin is `$CD00`; BIOS is `$E500` (FAT/IDE in ROM).
+CCP/BDOS sources are unchanged except `DIRBUF` is `PUBLIC` so the BIOS can retarget it, BDOS function 10 treats `DEL` as backspace (DRI APN 02), and a nameless `.COM` missing on the current drive is retried on A: (explicit `d:` does not fall back). Z80 CCP origin is `$CDE0`; 8085 CCP origin is `$CD00`. BIOS is `$E500` (FAT/IDE in ROM).
 
 The window test is `or a` / `sbc hl,de` on Z80. 8085 has no `sbc hl,de`; that path uses `ld bc,de` / `sub hl,bc`, and `sra hl` for the slice shift.
 
@@ -483,7 +483,7 @@ Alternate z88dk command lines to build the CP/M-IDE for the 8085 CPU Module is b
 
 __NOTE:__ UART images are not shipped and were not rebuilt with the later pack and shell edits. The 8085 startup copy is 127 bytes and must start at `$7F81` or at a lower address. Last measured `8085-cf-uart` ends at `__CODE_END = $804D` (overlaps the DATA section) and `8085-pata-uart` was already past `$7F81`. Do not burn either. The Z80 CF UART image was 32370 bytes, with 398 bytes free, and stays out of the repository.
 
-__NOTE:__ These images fit in 32 KB. Z80 PATA SIO has 72 bytes free (32696 bytes, linked with the 16-bit PATA library). Z80 CF SIO has 279 bytes free (32489 bytes). Z80 CF ACIA has 795 bytes free (31973 bytes). The 8085 CF ACIA image ends at `__CODE_END = $7F6E`, with 19 bytes free before `$7F81`.
+__NOTE:__ These images fit in 32 KB. Z80 PATA SIO has 296 bytes free (32472 bytes, linked with the 16-bit PATA library). Z80 CF SIO has 503 bytes free (32265 bytes). Z80 CF ACIA has 1019 bytes free (31749 bytes). The 8085 CF ACIA image is unchanged and ends at `__CODE_END = $7F6E`, with 19 bytes free before `$7F81`.
 
 `tools/md5` is the on-card digest program. With `PATH` and `ZCCCFG` set for z88dk, `make` in that directory builds both CPUs: `md5i85.com` is `zcc +cpm -clib=8085`, and `md5z80.com` is `zcc +cpm`. The stack pragmas live in `md5main.c`. `md5self.c` is the host self-check and is not linked into either COM.
 

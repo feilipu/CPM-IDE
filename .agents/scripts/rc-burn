@@ -1,0 +1,230 @@
+#!/bin/zsh
+# Program or check an RC2014 CP/M-IDE ROM on the XGecu T48.
+# Default part: SST27SF256 @ DIP28, passed to minipro as -p.
+# See: rc-burn --help
+
+set -euo pipefail
+
+export PATH="/opt/homebrew/bin:$HOME/bin:$PATH"
+
+part="SST27SF256@DIP28"
+root="${RC_BURN_ROOT:-$HOME/Container/ubuntu-data/CPM-IDE}"
+default="$root/rc2014-cpm22-8085-cf-acia.hex"
+action="write"
+src=""
+
+usage() {
+    cat <<EOF
+rc-burn — program or check an RC2014 ROM on the XGecu T48
+
+What to do
+  1. Plug in the T48. Seat the chip with pin 1 at the socket mark.
+  2. See what is already in the socket:
+       rc-burn --peek
+     An empty socket reads as FF.
+     An 8085 image starts C3 80 00 (JP \$0080).
+     A Z80 image starts F3 ED 56 C3 (DI, IM 1, JP __Start).
+     Both have the Z88DK marker at \$000B.
+  3. Erase, blank-check, write, and verify the default ROM
+     (8085 CF ACIA):
+       rc-burn
+     Or name another image:
+       rc-burn z80-pata-sio
+       rc-burn rc2014-cpm22-z80-cf-sio.hex
+  4. Check a chip that is already programmed. This does not erase
+     or write. minipro compares the socket with the file (-m):
+       rc-burn --verify
+       rc-burn --verify z80-cf-acia
+
+Chip type
+  The part is passed through to minipro with -p, the same flag
+  minipro uses. The default is SST27SF256@DIP28 (32 KiB).
+       rc-burn -p 'SST27SF256@DIP28'
+       rc-burn -p 'SST27SF256@DIP28' --verify some.hex
+  Look up another name with:
+       minipro -L 27sf
+
+  This T48 reports chip ID 0xDA02 or 0xDF02 and calls that a W27C257.
+  The SST27SF256 ID is 0xBFA3. rc-burn passes minipro -y, so that
+  mismatch does not stop the command.
+
+Files
+  A .hex or .ihx is filled to the device size with 0xFF (srec_cat).
+  Bytes past the end of the device are left out.
+  A .bin must already be exactly that size.
+  A short name such as z80-pata-sio selects
+  rc2014-cpm22-<name>.hex in:
+       $root
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --peek)
+            action="peek"
+            ;;
+        --verify|-m)
+            action="verify"
+            ;;
+        -p|--part)
+            shift
+            if [[ -z ${1:-} ]]; then
+                print -u2 -r -- "rc-burn: -p needs a minipro device name"
+                exit 1
+            fi
+            part=$1
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            print -u2 -r -- "rc-burn: unknown option: $1"
+            usage >&2
+            exit 1
+            ;;
+        *)
+            if [[ -n $src ]]; then
+                print -u2 -r -- "rc-burn: extra argument: $1"
+                exit 1
+            fi
+            src=$1
+            ;;
+    esac
+    shift
+done
+
+if [[ $# -gt 0 ]]; then
+    if [[ -n $src ]]; then
+        print -u2 -r -- "rc-burn: extra argument: $1"
+        exit 1
+    fi
+    src=$1
+fi
+
+if ! command -v minipro >/dev/null; then
+    print -u2 -r -- "rc-burn: minipro is not on PATH"
+    exit 1
+fi
+
+device_bytes() {
+    local info
+    info=$(minipro -q T48 -d "$part" 2>&1) || {
+        print -u2 -r -- "$info"
+        print -u2 -r -- "rc-burn: minipro does not know '$part'. Try: minipro -L <name>"
+        exit 1
+    }
+    local n
+    n=$(print -r -- "$info" | sed -n 's/^Memory: \([0-9][0-9]*\) Bytes$/\1/p')
+    if [[ -z $n || $n -le 0 ]]; then
+        print -u2 -r -- "$info"
+        print -u2 -r -- "rc-burn: no memory size for '$part'"
+        exit 1
+    fi
+    print -r -- "$n"
+}
+
+if [[ $action == peek ]]; then
+    out=/tmp/rc-burn-peek.bin
+    print -r -- "Reading $part (ID mismatch is expected)"
+    minipro -p "$part" -y -r "$out"
+    print -r -- "size $(wc -c < "$out" | tr -d ' ')  head $(xxd -l 16 -p "$out")"
+    print -r -- "saved $out"
+    exit 0
+fi
+
+if [[ -z $src ]]; then
+    src=$default
+fi
+
+if [[ ! -f $src ]]; then
+    for candidate in \
+        "$root/$src" \
+        "$root/$src.hex" \
+        "$root/rc2014-cpm22-$src.hex" \
+        "$root/rc2014-cpm22-$src.ihx"
+    do
+        if [[ -f $candidate ]]; then
+            src=$candidate
+            break
+        fi
+    done
+fi
+
+if [[ ! -f $src ]]; then
+    print -u2 -r -- "rc-burn: no such image: $src"
+    usage >&2
+    exit 1
+fi
+
+src=${src:A}
+bytes=$(device_bytes)
+base=${src:t:r}
+bin=/tmp/${base}.32k.bin
+end=$(printf '0x%X' "$bytes")
+
+case ${src:l} in
+    *.bin)
+        cp -f "$src" "$bin"
+        ;;
+    *.hex|*.ihx)
+        if ! command -v srec_cat >/dev/null; then
+            print -u2 -r -- "rc-burn: srec_cat is not on PATH"
+            exit 1
+        fi
+        srec_cat "$src" -intel -fill 0xFF 0x0000 "$end" -o "$bin" -binary
+        ;;
+    *)
+        print -u2 -r -- "rc-burn: want a .hex, .ihx, or .bin file: $src"
+        exit 1
+        ;;
+esac
+
+python3 - "$bin" "$bytes" "$part" <<'PY'
+import sys
+p, nbytes, part = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+d = open(p, "rb").read()
+print(f"part {part}")
+print(f"image {p}")
+print(f"size {len(d)}  device {nbytes}  head {d[:16].hex()}")
+if len(d) != nbytes:
+    sys.exit(f"rc-burn: image is {len(d)} bytes; {part} holds {nbytes}")
+# SST27SF256 images must be a CP/M-IDE reset page.
+# 8085 classic CRT is JP $0080 (C3 80 00): __Start follows page zero.
+# Z80 newlib CRT is DI / IM 1 / JP __Start (F3 ED 56 C3). On the
+# shipped images __Start is $006E (CF ACIA) or $0073 (SIO), so the
+# high byte stays 0 and there is no JP $0080.
+# Both CRTs plant "Z88DK" at $000B.
+if part == "SST27SF256@DIP28":
+    i8085 = d[:3] == b"\xc3\x80\x00"
+    z80 = d[:4] == b"\xf3\xed\x56\xc3" and d[5] == 0x00
+    if not (i8085 or z80) or d[0x0B:0x10] != b"Z88DK":
+        sys.exit(
+            "rc-burn: not a CP/M-IDE reset image "
+            "(want C3 80 00, or F3 ED 56 C3 xx 00, and Z88DK at $000B)"
+        )
+PY
+
+print -r -- "=== chip ID ($part; mismatch is expected) ==="
+minipro -p "$part" -y -D || true
+
+if [[ $action == verify ]]; then
+    print -r -- "=== verify $bin against the chip (no erase, no write) ==="
+    minipro -p "$part" -y -m "$bin"
+    print -r -- "rc-burn: verify finished. The chip was not changed."
+    exit 0
+fi
+
+print -r -- "=== erase ==="
+minipro -p "$part" -y -E
+print -r -- "=== blank check ==="
+minipro -p "$part" -y -b
+print -r -- "=== write $bin ==="
+minipro -p "$part" -y -w "$bin"
+print -r -- "=== verify ==="
+minipro -p "$part" -y -m "$bin"
+print -r -- "rc-burn: verify finished. The chip is still in the T48."

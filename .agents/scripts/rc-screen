@@ -1,0 +1,635 @@
+#!/bin/zsh
+# RC2014 console via GNU screen on USB CDC or FTDI.
+# Both are 115200 8N2, no XON/XOFF. A holder owns the serial node:
+# Apple screen clears CSTOPB on open, so two stop bits would not
+# survive a direct attach. FTDI pin 6 is RTS; the holder asserts it.
+# Screen talks to the holder's PTY.
+#
+# SparkFun FTDI Basic on the UX Module has Propeller /RES on DTR.
+# That port belongs to ux-screen, which holds DTR off. Do not point
+# rc-screen at it.
+#
+# Usage:
+#   rc-screen
+#   rc-screen cdc
+#   rc-screen ftdi
+#   rc-screen /dev/cu.usbmodem01031
+#   rc-screen /dev/cu.usbserial-A50285BI
+#   rc-screen A50285BI
+#   rc-screen --list
+#   rc-screen --quit
+#   rc-screen --send FILE
+#   rc-screen --send --1k FILE
+#   rc-screen --recv FILE
+# Detach: C-a d    Quit: C-a k
+# XMODEM send:    C-a s   then file path
+# XMODEM receive: C-a r   then file path
+# Agent send:     CP/M  xmodem NAME /r /q
+#                 then  rc-screen --send FILE
+
+set -euo pipefail
+
+me="${0:A}"
+here="${me:h}"
+export PATH="/opt/homebrew/bin:$HOME/bin:$PATH"
+
+sock="rc2014"
+baud="${RC_SCREEN_BAUD:-115200}"
+devfile="/tmp/rc-screen-${UID}.dev"
+screenbin="/usr/bin/screen"
+# Apple screen 4.00.03 keeps sockets in $TMPDIR/.screen. That path
+# changes per Terminal / agent, so `screen -S rc2014` then fails.
+# Keep one directory so every shell sees the same session.
+screendir="${RC_SCREEN_DIR:-$HOME/.screen-rc2014}"
+mkdir -p -m 700 "$screendir"
+export SCREENDIR="$screendir"
+if [[ -n "${RC_SCREEN_RC:-}" && -f ${RC_SCREEN_RC} ]]; then
+  rc="$RC_SCREEN_RC"
+elif [[ -f $HOME/.screenrc-rc ]]; then
+  rc="$HOME/.screenrc-rc"
+elif [[ -f $here/screenrc-rc ]]; then
+  rc="$here/screenrc-rc"
+else
+  rc="$HOME/.screenrc-rc"
+fi
+
+usage() {
+  print -u2 "usage: ${me:t} [cdc|ftdi|device|suffix]"
+  print -u2 "       ${me:t} --list | --quit"
+  print -u2 "       ${me:t} --send [--1k] FILE"
+  print -u2 "       ${me:t} --recv FILE"
+  print -u2 "       ${me:t} --stuff STRING"
+  print -u2 "       ${me:t} --hardcopy [FILE]"
+}
+
+die() {
+  print -u2 "rc-screen: $*"
+  exit 1
+}
+
+list_ports() {
+  setopt localoptions nullglob
+  local p
+  for p in /dev/cu.usbserial* /dev/cu.usbmodem*; do
+    [[ -e "$p" ]] && print -r -- "$p"
+  done
+}
+
+port_kind() {
+  case "$1" in
+    *usbmodem*) print CDC ;;
+    *usbserial*) print FTDI ;;
+    *) print serial ;;
+  esac
+}
+
+# cdc → usbmodem, ftdi → usbserial. Empty when $1 is not a type name.
+port_type() {
+  case "${1:l}" in
+    cdc) print cdc ;;
+    ftdi) print ftdi ;;
+  esac
+}
+
+ports_of_type() {
+  local kind="$1" p
+  list_ports | while read -r p; do
+    case "$kind" in
+      cdc) [[ "$p" == *usbmodem* ]] && print -r -- "$p" ;;
+      ftdi) [[ "$p" == *usbserial* ]] && print -r -- "$p" ;;
+    esac
+  done
+}
+
+match_port() {
+  local want="$1" p
+  [[ -e "$want" ]] && { print -r -- "$want"; return 0 }
+  [[ "$want" != */* ]] || return 1
+  list_ports | while read -r p; do
+    [[ "$p" == *"$want"* ]] && print -r -- "$p"
+  done
+}
+
+session_line() {
+  $screenbin -ls 2>/dev/null | grep "\.${sock}" || true
+}
+
+session_id() {
+  local ids
+  ids="$($screenbin -ls 2>/dev/null || true)"
+  if [[ "$ids" =~ ([0-9]+\.${sock}) ]]; then
+    print -r -- "$match[1]"
+  fi
+  return 0
+}
+
+session_exists() {
+  [[ -n "$(session_id)" ]]
+}
+
+screen_x() {
+  local id
+  id="$(session_id)"
+  [[ -n $id ]] || die "no session $sock (SCREENDIR=$SCREENDIR). Start with rc-screen"
+  $screenbin -S "$id" -X "$@"
+}
+
+pick_port() {
+  local -a found matches
+  local want="${1:-${RC_SCREEN_DEV:-}}" p n kind
+
+  found=("${(@f)$(list_ports)}")
+
+  if [[ -n "$want" ]]; then
+    kind="$(port_type "$want")"
+    if [[ -n "$kind" ]]; then
+      matches=("${(@f)$(ports_of_type "$kind")}")
+    else
+      matches=("${(@f)$(match_port "$want")}")
+    fi
+    # An empty command substitution still leaves one blank array slot.
+    if (( ${#matches} == 1 )) && [[ -n "${matches[1]}" ]]; then
+      print -r -- "${matches[1]}"
+      return 0
+    fi
+    if (( ${#matches} == 0 )) || [[ -z "${matches[1]:-}" ]]; then
+      if [[ -n "$kind" ]]; then
+        die "no $kind device (cdc is /dev/cu.usbmodem*, ftdi is /dev/cu.usbserial*)"
+      fi
+      die "no serial device matching $want"
+    fi
+    print -u2 "rc-screen: $want matches more than one device:"
+    print -u2 "  ${matches[@]}"
+    return 1
+  fi
+
+  if (( ${#found} == 0 )); then
+    print -u2 "rc-screen: no /dev/cu.usbmodem* or /dev/cu.usbserial*"
+    return 1
+  fi
+  if (( ${#found} == 1 )); then
+    print -r -- "${found[1]}"
+    return 0
+  fi
+
+  print -u2 "rc-screen: ${#found} serial devices; one per session:"
+  n=1
+  for p in "${found[@]}"; do
+    print -u2 "  $n) $p  ($(port_kind "$p"))"
+    (( n++ ))
+  done
+  if [[ ! -t 0 ]]; then
+    print -u2 "pass cdc, ftdi, a path, or a unique suffix, or set RC_SCREEN_DEV"
+    return 1
+  fi
+  print -u2 -n "pick 1-${#found}: "
+  read -r n || return 1
+  if [[ "$n" != <-> ]] || (( n < 1 || n > ${#found} )); then
+    die "bad pick"
+  fi
+  print -r -- "${found[n]}"
+}
+
+relay_holds() {
+  local d="$1"
+  local pidfile="/tmp/ux-relay-${UID}.pid"
+  local rdev="/tmp/ux-relay-${UID}.dev"
+  local pid
+  [[ -f $rdev ]] || return 1
+  [[ "$(<"$rdev")" == "$d" ]] || return 1
+  [[ -f $pidfile ]] || return 1
+  pid="$(<"$pidfile")"
+  [[ "$pid" == <-> ]] && kill -0 "$pid" 2>/dev/null
+}
+
+hold_pidfile="/tmp/rc-hold-${UID}.pid"
+hold_devfile="/tmp/rc-hold-${UID}.dev"
+hold_pty="/tmp/rc-pty-${UID}"
+hold_log="/tmp/rc-hold-${UID}.log"
+
+hold_alive() {
+  local pid
+  [[ -f $hold_pidfile ]] || return 1
+  pid="$(<"$hold_pidfile")"
+  [[ "$pid" == <-> ]] && kill -0 "$pid" 2>/dev/null
+}
+
+hold_dev() {
+  [[ -f $hold_devfile ]] && print -r -- "$(<"$hold_devfile")"
+}
+
+stop_hold() {
+  local pid
+  if [[ -f $hold_pidfile ]]; then
+    pid="$(<"$hold_pidfile")"
+    if [[ "$pid" == <-> ]]; then
+      kill "$pid" 2>/dev/null || true
+      local _
+      for _ in {1..20}; do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.05
+      done
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  fi
+  rm -f "$hold_pidfile" "$hold_devfile" "$hold_pty"
+}
+
+# FTDI pin 6 is RTS. Hold the node open with RTS asserted and hand
+# screen a PTY. A later attach must not reopen the FTDI.
+start_hold() {
+  local dev="$1"
+  rm -f "$hold_pty"
+  python3 - "$dev" "$hold_pty" >>"$hold_log" 2>&1 <<'PY' &
+import errno, fcntl, os, pty, select, signal, struct, sys, termios, time
+serial_path, link = sys.argv[1], sys.argv[2]
+
+def die(msg):
+    print(f"rc-screen: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+def raw_tty(fd):
+    iflag, oflag, cflag, lflag, ispeed, ospeed, cc = termios.tcgetattr(fd)
+    # 8N2. CSTOPB is the second stop bit. Apple screen clears it if
+    # screen opens this node itself.
+    cflag &= ~(termios.CSIZE | termios.PARENB | termios.CRTSCTS | termios.HUPCL)
+    cflag |= termios.CS8 | termios.CSTOPB | termios.CREAD | termios.CLOCAL
+    cc[termios.VMIN] = 0
+    cc[termios.VTIME] = 0
+    termios.tcsetattr(fd, termios.TCSANOW, [0, 0, cflag, 0, termios.B115200, termios.B115200, cc])
+
+def rts_on(fd):
+    fcntl.ioctl(fd, termios.TIOCMBIS, struct.pack("i", termios.TIOCM_RTS))
+
+def modem(fd):
+    buf = bytearray(struct.pack("i", 0))
+    fcntl.ioctl(fd, termios.TIOCMGET, buf, True)
+    return struct.unpack("i", buf)[0]
+
+try:
+    os.setsid()
+except OSError:
+    pass
+
+sfd = os.open(serial_path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+raw_tty(sfd)
+err = None
+for _ in range(20):
+    try:
+        rts_on(sfd)
+        err = None
+        break
+    except OSError as e:
+        err = e
+        time.sleep(0.02)
+if err is not None:
+    die(f"RTS assert: {err}")
+bits = modem(sfd)
+line = termios.tcgetattr(sfd)[2]
+print(
+    f"hold {serial_path} 8N2 cflag {line:#x} CSTOPB {bool(line & termios.CSTOPB)} "
+    f"modem {bits:#x} RTS {bool(bits & termios.TIOCM_RTS)} DTR {bool(bits & termios.TIOCM_DTR)}",
+    flush=True,
+)
+
+master, slave = pty.openpty()
+raw_tty(master)
+raw_tty(slave)
+fcntl.fcntl(master, fcntl.F_SETFL, os.O_NONBLOCK)
+slave_name = os.ttyname(slave)
+try:
+    os.unlink(link)
+except FileNotFoundError:
+    pass
+os.symlink(slave_name, link)
+os.close(slave)
+
+stop = False
+def on_stop(signum, frame):
+    global stop
+    stop = True
+signal.signal(signal.SIGINT, on_stop)
+signal.signal(signal.SIGTERM, on_stop)
+signal.signal(signal.SIGHUP, signal.SIG_IGN)
+
+def write_all(fd, data):
+    view = memoryview(data)
+    while view:
+        try:
+            n = os.write(fd, view)
+        except OSError as e:
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                select.select([], [fd], [], 0.5)
+                continue
+            raise
+        if n <= 0:
+            raise OSError(errno.EPIPE, "short write")
+        view = view[n:]
+
+try:
+    while not stop:
+        try:
+            rts_on(sfd)
+        except OSError:
+            pass
+        try:
+            ready, _, _ = select.select([sfd, master], [], [], 0.5)
+        except (OSError, ValueError):
+            time.sleep(0.1)
+            continue
+        if sfd in ready:
+            try:
+                data = os.read(sfd, 1024)
+            except OSError as e:
+                if e.errno in (errno.ENXIO, errno.ENODEV, errno.EIO):
+                    die(f"serial gone: {e}")
+                data = b""
+            if data:
+                try:
+                    write_all(master, data)
+                except OSError as e:
+                    if e.errno not in (errno.EIO, errno.EAGAIN, errno.EWOULDBLOCK):
+                        print(f"rc-screen: pty write: {e}", file=sys.stderr)
+        if master in ready:
+            try:
+                data = os.read(master, 1024)
+            except OSError:
+                data = b""
+            if data:
+                try:
+                    write_all(sfd, data)
+                except OSError as e:
+                    print(f"rc-screen: serial write: {e}", file=sys.stderr)
+finally:
+    try:
+        os.unlink(link)
+    except FileNotFoundError:
+        pass
+    os.close(master)
+    os.close(sfd)
+PY
+  local pid=$!
+  print -r -- "$pid" > "$hold_pidfile"
+  print -r -- "$dev" > "$hold_devfile"
+  local _
+  for _ in {1..50}; do
+    if [[ -L $hold_pty ]] && hold_alive; then
+      print -r -- "$hold_pty"
+      return 0
+    fi
+    sleep 0.05
+  done
+  print -u2 "rc-screen: FTDI holder did not open $dev"
+  [[ -f $hold_log ]] && tail -n 20 "$hold_log" >&2
+  stop_hold
+  return 1
+}
+
+ensure_hold() {
+  local dev="$1" old
+  if hold_alive && [[ -L $hold_pty ]]; then
+    old="$(hold_dev || true)"
+    if [[ "$old" == "$dev" ]]; then
+      print -r -- "$hold_pty"
+      return 0
+    fi
+    print -u2 "rc-screen: holder has ${old:-another port}; restarting for $dev"
+    stop_hold
+  elif hold_alive || [[ -L $hold_pty ]]; then
+    stop_hold
+  fi
+  start_hold "$dev"
+}
+
+assert_free_device() {
+  local d="$1"
+  if relay_holds "$d"; then
+    die "$d is held by ux-ftdi-relay (session uxmod). Stop that path first:
+  $screenbin -S uxmod -X quit
+  ux-screen --stop"
+  fi
+  if [[ "$d" == *usbserial* ]] && hold_alive; then
+    local mine
+    mine="$(hold_dev || true)"
+    if [[ -n "$mine" && "$mine" != "$d" ]]; then
+      die "FTDI holder has $mine. --quit first"
+    fi
+  fi
+}
+
+remember_dev() {
+  print -r -- "$1" > "$devfile"
+}
+
+current_dev() {
+  if [[ -f $devfile ]]; then
+    print -r -- "$(<"$devfile")"
+    return 0
+  fi
+  return 1
+}
+
+need_lsx() {
+  command -v lsx >/dev/null || die "lsx not on PATH (brew install lrzsz)"
+  command -v lrx >/dev/null || die "lrx not on PATH (brew install lrzsz)"
+}
+
+need_session() {
+  session_exists || die "no session $sock. Start it with rc-screen"
+}
+
+abs_file() {
+  local f="$1"
+  [[ -n "$f" ]] || die "missing file path"
+  [[ "$f" != *[[:space:]]* ]] || die "file path has spaces; screen -X cannot quote them"
+  f="${f:A}"
+  [[ -e "$f" || "$2" == recv ]] || die "no such file $f"
+  print -r -- "$f"
+}
+
+do_list() {
+  local -a found
+  local p line
+  print -u2 "devices:"
+  found=("${(@f)$(list_ports)}")
+  if (( ${#found} )); then
+    for p in "${found[@]}"; do
+      if relay_holds "$p"; then
+        print -u2 "  $p  ($(port_kind "$p"), held by ux-ftdi-relay / uxmod)"
+      elif hold_alive && [[ "$(hold_dev || true)" == "$p" ]]; then
+        print -u2 "  $p  ($(port_kind "$p"), RTS held, screen on $hold_pty)"
+      else
+        print -u2 "  $p  ($(port_kind "$p"))"
+      fi
+    done
+  else
+    print -u2 "  (none)"
+  fi
+  print -u2 "sockets: $SCREENDIR"
+  line="$(session_line)"
+  if [[ -n "$line" ]]; then
+    print -u2 "session:${line}"
+    print -u2 "id:      $(session_id)"
+    if [[ -f $devfile ]]; then
+      print -u2 "device:  $(<"$devfile")  ($(port_kind "$(<"$devfile")"))"
+    fi
+  else
+    print -u2 "session: (none)"
+  fi
+}
+
+do_quit() {
+  local id
+  id="$(session_id)"
+  if [[ -z $id ]]; then
+    stop_hold
+    rm -f "$devfile"
+    print -u2 "rc-screen: no session $sock (SCREENDIR=$SCREENDIR)"
+    return 0
+  fi
+  $screenbin -S "$id" -X quit || true
+  sleep 0.15
+  stop_hold
+  rm -f "$devfile"
+  if session_exists; then
+    die "session $id still listed"
+  fi
+  print -u2 "rc-screen: session $id quit"
+}
+
+do_send() {
+  local k1k=0 file lsxbin
+  if [[ "${1:-}" == --1k || "${1:-}" == -k ]]; then
+    k1k=1
+    shift
+  fi
+  need_session
+  need_lsx
+  file="$(abs_file "${1:-}")"
+  lsxbin="$(command -v lsx)"
+  if (( k1k )); then
+    screen_x exec !! "$lsxbin" -b -q -X -k --delay-startup 1 "$file"
+  else
+    screen_x exec !! "$lsxbin" -b -q -X --delay-startup 1 "$file"
+  fi
+  print -u2 "rc-screen: XMODEM send $file"
+}
+
+do_recv() {
+  local file lrxbin
+  need_session
+  need_lsx
+  file="$(abs_file "${1:-}" recv)"
+  lrxbin="$(command -v lrx)"
+  screen_x exec !! "$lrxbin" -b -q -X --delay-startup 1 "$file"
+  print -u2 "rc-screen: XMODEM receive $file"
+}
+
+do_stuff() {
+  [[ -n "${1:-}" ]] || die "missing stuff string"
+  screen_x stuff "$1"
+}
+
+do_hardcopy() {
+  local f="${1:-/tmp/rc2014-${UID}.hardcopy}"
+  f="${f:A}"
+  rm -f "$f"
+  screen_x hardcopy "$f"
+  print -u2 "rc-screen: hardcopy $f"
+}
+
+start_or_attach() {
+  local dev="$1"
+  local live screen_dev
+  if [[ ! -f $rc ]]; then
+    die "missing $rc"
+  fi
+  if [[ "$dev" != *usbserial* && "$dev" != *usbmodem* ]]; then
+    die "$dev is not a CDC (usbmodem) or FTDI (usbserial) console"
+  fi
+  if session_exists; then
+    live="$(current_dev || true)"
+    if [[ -n "$live" && "$live" != "$dev" ]]; then
+      die "session $sock is on $live. --quit first, then attach $dev"
+    fi
+    if ! hold_alive; then
+      die "session $sock is up but the serial holder is gone. rc-screen --quit, then start again"
+    fi
+    if [[ -t 0 ]]; then
+      print -u2 "rc-screen: reattach session $sock"
+      $screenbin -d -r "$sock" || true
+    else
+      print -u2 "rc-screen: session $sock already running"
+      print -u2 -- "$(session_line)"
+    fi
+    return 0
+  fi
+  assert_free_device "$dev"
+  # No baud argument on the PTY. Apple screen treats a PTY baud as a
+  # modem, and a direct serial open clears CSTOPB. The holder sets
+  # 115200 8N2 and, on FTDI, RTS.
+  screen_dev="$(ensure_hold "$dev")" || exit 1
+  local slave
+  slave="$(readlink "$hold_pty" 2>/dev/null || true)"
+  [[ -n "$slave" ]] && stty -f "$slave" raw -echo -ixon -ixoff 2>/dev/null || true
+  remember_dev "$dev"
+  if [[ "$dev" == *usbserial* ]]; then
+    print -u2 "RC2014  $dev  FTDI RTS  via $screen_dev  $baud 8N2  session $sock"
+  else
+    print -u2 "RC2014  $dev  CDC  via $screen_dev  $baud 8N2  session $sock"
+  fi
+  print -u2 "XMODEM: C-a s send / C-a r receive, or ${me:t} --send FILE"
+  if [[ -t 0 ]]; then
+    $screenbin -S "$sock" -fn -c "$rc" "$screen_dev" || true
+  else
+    $screenbin -d -m -S "$sock" -fn -c "$rc" "$screen_dev" || die "screen failed to start"
+    if ! session_exists; then
+      rm -f "$devfile"
+      stop_hold
+      die "screen did not create session $sock"
+    fi
+    print -u2 "started detached. Attach with ${me}"
+  fi
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  --list)
+    do_list
+    exit 0
+    ;;
+  --quit|--stop)
+    do_quit
+    exit 0
+    ;;
+  --send)
+    shift
+    do_send "$@"
+    exit 0
+    ;;
+  --recv)
+    shift
+    do_recv "$@"
+    exit 0
+    ;;
+  --stuff)
+    shift
+    do_stuff "${1:-}"
+    exit 0
+    ;;
+  --hardcopy)
+    shift
+    do_hardcopy "${1:-}"
+    exit 0
+    ;;
+  --*)
+    usage
+    die "unknown flag $1"
+    ;;
+esac
+
+dev="$(pick_port "${1:-}")" || exit 1
+start_or_attach "$dev"
