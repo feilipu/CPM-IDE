@@ -3293,10 +3293,16 @@ GETNEXT:
     LD      B,A             ;mask extent byte.
     LD      A,(EXTMASK)
     AND     B
-    LD      HL,CLOSEFLG     ;check close flag (0ffh is ok).
-    AND     (HL)
-    JP      Z,GTNEXT2       ;if zero, we must read in next extent.
-    JP      GTNEXT3         ;else, it is already in memory.
+    JP      Z,GTNEXT2       ;next physical directory entry.
+    LD      HL,CLOSEFLG     ;write just refreshed this entry.
+    INC     (HL)
+    JP      Z,GTNEXT3
+    DEC     (HL)
+    LD      C,15            ;read: same entry, search from the front.
+    CALL    FINDFST
+    CALL    CKFILPOS
+    JP      NZ,GTNEXT3
+    JP      GTNXMIS
 GTNEXT1:
     LD      BC,2            ;Point to the 's2' byte.
     ADD     HL,BC
@@ -3334,6 +3340,7 @@ GTNXHIT:
     LD      (GTNXRUN),A
     POP     AF
     JP      NZ,GTNEXT3
+GTNXMIS:
     LD      A,(RDWRTFLG)    ;no extent present. Can we open an empty one?
     INC     A               ;0ffh means reading (so not possible).
     JP      Z,GTNEXT5       ;or an error.

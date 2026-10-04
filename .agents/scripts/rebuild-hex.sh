@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Rebuild the four CP/M-IDE ROMs that fit (README zcc lines, no ff_ro).
-# PATA first (__IO_CF_8_BIT = 0, rc2014.lib), then CF (flag = 1, both libs).
-# UART images are not built. The flag is left at 1.
+# Rebuild the seven CP/M-IDE ROMs (README zcc lines, no ff_ro).
+# PATA first (__IO_CF_8_BIT = 0, both libraries), then CF (flag = 1, both libs).
+# The flag is left at 1.
 # One zcc per firmware tree; isolated TMPDIR. Parallel zcc in one cwd corrupts
 # zcc_opt.def.
 # Fail-closed: zcc, a .bin over 32768 bytes, an 8085 __CODE_END past $7F81,
@@ -9,6 +9,9 @@
 # product. Job-dir rm is not success.
 #
 # Env: Z88DK, ZCCCFG, PATH, MAXJOBS (default 2), WORK (log dir).
+# Optional arg: cf — the three CF ROMs that are the usual CF set (ACIA, SIO,
+# 8085 ACIA). Skips the library rebuild when __IO_CF_8_BIT is already 0x01.
+# Default (no arg) is PATA (Z80 SIO and 8085 UART), then all five CF ROMs.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -127,12 +130,32 @@ reap() {
 }
 wait_all() { while (( running > 0 )); do reap; done; }
 
-HEX_OUTS=(
-  rc2014-cpm22-z80-pata-sio
-  rc2014-cpm22-z80-cf-acia
-  rc2014-cpm22-z80-cf-sio
-  rc2014-cpm22-8085-cf-acia
-)
+MODE="${1:-all}"
+case "$MODE" in
+  all|cf) ;;
+  *)
+    echo "usage: rebuild-hex.sh [all|cf]" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "$MODE" == "cf" ]]; then
+  HEX_OUTS=(
+    rc2014-cpm22-z80-cf-acia
+    rc2014-cpm22-z80-cf-sio
+    rc2014-cpm22-8085-cf-acia
+  )
+else
+  HEX_OUTS=(
+    rc2014-cpm22-z80-pata-sio
+    rc2014-cpm22-8085-pata-uart
+    rc2014-cpm22-z80-cf-acia
+    rc2014-cpm22-z80-cf-sio
+    rc2014-cpm22-z80-cf-uart
+    rc2014-cpm22-8085-cf-acia
+    rc2014-cpm22-8085-cf-uart
+  )
+fi
 
 # Linked IDE bytes. Ports are relocated in the library and only become
 # immediate operands in the ROM. CF feature set is ld a,1 / out (11h),a.
@@ -264,31 +287,50 @@ spawn() {
   running=$((running + 1))
 }
 
-say "BEGIN  root=$ROOT  ZCCCFG=$ZCCCFG"
+say "BEGIN  root=$ROOT  mode=$MODE  ZCCCFG=$ZCCCFG"
 say "       zcc=$(zcc 2>&1 | sed -n 's/.*\(v[0-9].*\)/\1/p' | head -1)"
 
-say "PATA library"
-set_flag 0x00
-LIBS_CF=0
-rebuild_z80_lib pata
-inc_is "$INC_Z80" 0x00
-inc_is "$INC_OBJ" 0x00
+cf_selected() {
+  inc_is "$INC_Z80" 0x01 &&
+    inc_is "$INC_OBJ" 0x01 &&
+    inc_is "$INC_85" 0x01
+}
 
-spawn z80-pata-sio build_z80 z80-pata-sio sio rc2014-cpm22-z80-pata-sio pata
-wait_all
+if [[ "$MODE" == "all" ]]; then
+  say "PATA libraries"
+  set_flag 0x00
+  LIBS_CF=0
+  rebuild_z80_lib pata
+  rebuild_8085_lib
+  inc_is "$INC_Z80" 0x00
+  inc_is "$INC_OBJ" 0x00
+  inc_is "$INC_85" 0x00
 
-say "CF libraries"
-set_flag 0x01
-rebuild_z80_lib cf
-rebuild_8085_lib
-inc_is "$INC_Z80" 0x01
-inc_is "$INC_OBJ" 0x01
-inc_is "$INC_85" 0x01
-LIBS_CF=1
+  spawn z80-pata-sio   build_z80  z80-pata-sio   sio    rc2014-cpm22-z80-pata-sio   pata
+  spawn 8085-pata-uart build_8085 8085-pata-uart uart85 rc2014-cpm22-8085-pata-uart pata
+  wait_all
+fi
+
+if [[ "$MODE" == "cf" ]] && cf_selected; then
+  say "CF libraries already selected"
+  LIBS_CF=1
+else
+  say "CF libraries"
+  set_flag 0x01
+  LIBS_CF=0
+  rebuild_z80_lib cf
+  rebuild_8085_lib
+  inc_is "$INC_Z80" 0x01
+  inc_is "$INC_OBJ" 0x01
+  inc_is "$INC_85" 0x01
+  LIBS_CF=1
+fi
 
 spawn z80-cf-acia    build_z80   z80-cf-acia    acia   rc2014-cpm22-z80-cf-acia    cf
 spawn z80-cf-sio     build_z80   z80-cf-sio     sio    rc2014-cpm22-z80-cf-sio     cf
+spawn z80-cf-uart    build_z80   z80-cf-uart    uart   rc2014-cpm22-z80-cf-uart    cf
 spawn 8085-cf-acia   build_8085  8085-cf-acia   acia85 rc2014-cpm22-8085-cf-acia   cf
+spawn 8085-cf-uart   build_8085  8085-cf-uart   uart85 rc2014-cpm22-8085-cf-uart   cf
 wait_all
 
 if (( fail != 0 )); then
