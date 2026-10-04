@@ -229,7 +229,7 @@ BDOS starts on a 256-byte page (`_cpm_bdos_head`). CCP starts earlier where need
 | 8085-cf-uart | `$DAE0` | `$E300` | `$F200` | CF 8-bit |
 | 8085-pata-uart | `$DAE0` | `$E300` | `$F200` | PATA 16-bit |
 
-`_cpm_dsk0_base` stays at `$F800` on every port.
+`_cpm_dsk0_base` stays at `$F800` on every port. None of the seven builds has a free page under that head.
 
 BDOS function 10 treats DEL as backspace (DRI APN 02). A nameless `.COM` that is not on the current drive is retried on `A:`. An explicit `d:` does not fall back. `DIRBUF` is `PUBLIC` so the BIOS can retarget it.
 
@@ -269,7 +269,9 @@ Directory I/O is different. BDOS snapshots DPH `DIRBUF` at `SELDSK` and then `SE
 
 That is **65 600 T-states saved** per 32 directory records (~2 050 T each, about 0.28 ms at 7.372 MHz), with the same number of CF/IDE reads. Open, search, rename, and other directory-heavy calls benefit; `PIP` / `MBASIC` / `.COM` load to TPA do not.
 
-TPA remains about 56 kB. CCP origins moved down in v2.5 so BDOS stays on a page. See [CP/M-IDE v2.5](#cpm-ide-v25). `_cpm_dsk0_base` stays at `$F800` on every port. The recovered `dirbf` is 128 bytes, which is not a full page. Moving that array to `$F900` would run `hstbuf` into the serial rings (`$FEC0` SIO/ACIA, `$FEE0`/`$FF00` UART). Serial rings stay at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`). The overlay is in the v2.5 HEX files.
+TPA remains about 56 kB. CCP origins moved down in v2.5 so BDOS stays on a page. See [CP/M-IDE v2.5](#cpm-ide-v25). `_cpm_dsk0_base` stays at `$F800` on every port. The recovered `dirbf` is 128 bytes, which is not a full page.
+
+The disk parameter block is the last fixed BIOS table. Bytes left before `$F800`: Z80 CF SIO 1, 8085 PATA UART 17, Z80 CF ACIA 40, 8085 CF UART 136, Z80 PATA SIO 129, 8085 CF ACIA 178, Z80 CF UART 250. A shared BIOS origin stays at `$F100` so the PATA SIO image still fits. Initialised BIOS data ends at `$FE2A` on every port. Serial rings stay at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`). The hole under those rings is 130 bytes with 16-byte SIO transmit buffers and 98 bytes with 32-byte buffers. The largest hole is the 8085 UART, 202 bytes under `$FF00`. The BDOS stack pad under the BIOS origin is 136 bytes on Z80 and 147 on 8085. A one-page rise of the shared head does not fit. The overlay is in the v2.5 HEX files.
 
 ### Installation
 
