@@ -54,32 +54,33 @@ struct Builtin {
     const char * help;
 };
 
+/* Help blurbs are short so the 8085 CF ACIA image fits in 32 KB. */
 struct Builtin builtins[] = {
   // CP/M related functions
-    { "cpm", &ya_mkcpm, "<dirA..D or parent> - mount A:-D:"},
-    { "hload", &ya_hload, "- load Intel HEX and run"},
+    { "cpm", &ya_mkcpm, "mount A:-D:"},
+    { "hload", &ya_hload, "load HEX"},
 
 // fat related functions
-    { "ls", &ya_ls, "[path] - directory listing"},
-    { "cd", &ya_cd, "<path> - change directory"},
-    { "pwd", &ya_pwd, "- show working directory"},
-    { "rm", &ya_rm, "<file> - delete a file"},
-    { "rmdir", &ya_rmdir, "<path> - remove an empty directory"},
-    { "mkdir", &ya_mkdir, "<path> - create a directory"},
-    { "cp", &ya_cp, "<src> <dst> - copy a file"},
-    { "mv", &ya_mv, "<src> <dst> - rename or move a file"},
-    { "mount", &ya_mount, "- mount a FAT file system"},
-    { "frag", &ya_frag, "<file> - cluster runs"},
-    { "free", &ya_free, "- free and total space"},
+    { "ls", &ya_ls, "[path]"},
+    { "cd", &ya_cd, "<path>"},
+    { "pwd", &ya_pwd, ""},
+    { "rm", &ya_rm, "<file>"},
+    { "rmdir", &ya_rmdir, "<path>"},
+    { "mkdir", &ya_mkdir, "<path>"},
+    { "cp", &ya_cp, "<src> <dst>"},
+    { "mv", &ya_mv, "<src> <dst>"},
+    { "mount", &ya_mount, "FAT"},
+    { "frag", &ya_frag, "<file>"},
+    { "free", &ya_free, ""},
 
 // disk related functions
-    { "ds", &ya_ds, "- disk status"},
-    { "dd", &ya_dd, "[sector] - dump sector (decimal)"},
+    { "ds", &ya_ds, ""},
+    { "dd", &ya_dd, "[sec]"},
 
 // system related functions
-    { "md", &ya_md, "[origin] - dump memory (hex)"},
-    { "help", &ya_help, "- this is it"},
-    { "exit", &ya_exit, "- exit and restart"}
+    { "md", &ya_md, "[adr]"},
+    { "help", &ya_help, ""},
+    { "exit", &ya_exit, ""}
 };
 
 /**

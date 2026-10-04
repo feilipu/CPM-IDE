@@ -104,6 +104,43 @@ static void cpm_dirent(uint8_t *d, uint8_t uu, const char *n11)
     memcpy(d + 1, n11, 11);
 }
 
+/* One file already on the card, at cluster 3. Clusters 4..9 stay free, which
+ * is as far as the 48-sector test card reaches at database 3 with 4 KiB
+ * clusters. pip_asm_pair needs four of them, one pair per output file. */
+static void fat_setup_min(void)
+{
+    uint8_t *v;
+    uint8_t *p;
+
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0xFF;
+    put_le16(ram_image + 512 + 4, 0xFFFF);      /* cluster 2, the A: dir */
+    put_le16(ram_image + 512 + 6, 0xFFFF);      /* cluster 3, OLD */
+    put_fat_dirent(ram_image + 3 * 512, "OLD     TXT", 3, 3);
+    memcpy(ram_image + 11 * 512, "old", 3);
+
+    v = (uint8_t *)&cpm_fat_vol;
+    v[0] = 2;               /* FAT16 */
+    v[1] = 8;               /* csize: one cluster is one 4K allocation block */
+    v[2] = 16;
+    v[4] = 10;              /* n_fatent */
+    v[8] = 1;
+    v[12] = 2;
+    v[16] = 3;              /* database; cluster 3 is at LBA 11 */
+    v[20] = 1;
+    v[24] = 1;
+
+    p = (uint8_t *)cpm_dir_sclust;
+    memset(p, 0, 16);
+    p[0] = 2;
+    fat_cwd = 2;
+    hstdsk = 0;
+}
+
 static uint8_t *find_fat(const char *n11)
 {
     uint8_t i;
@@ -128,6 +165,57 @@ static uint8_t *find_slot(const char *n11)
             return s;
     }
     return 0;
+}
+
+static uint16_t cl_of(const char *n11)
+{
+    uint8_t *e = find_fat(n11);
+
+    return e ? (uint16_t)(e[26] | ((uint16_t)e[27] << 8)) : 0;
+}
+
+static uint16_t nxt_cl(uint16_t cl)
+{
+    if (cl < 2 || cl > 250)
+        return 0;
+    return (uint16_t)(ram_image[512 + (uint16_t)cl * 2]
+                    | ((uint16_t)ram_image[512 + (uint16_t)cl * 2 + 1] << 8));
+}
+
+/* One 128-byte record into a host sector. WRUAL keeps it in hstbuf until the
+ * next host sector is written, so alternating sectors really does flush.
+ * The sector is the first block of the named file plus `blk` blocks in: the
+ * packed span is what the directory publishes, and a file that has grown hands
+ * its neighbour different block numbers than when it was made. */
+static uint8_t wr_chunk(uint8_t val, uint16_t sec)
+{
+    uint8_t rc;
+
+    memset(rec, val, 128);
+    bios_setdma(rec);
+    bios_setsec(sec);
+    rc = bios_write(WRUAL);
+    return rc;
+}
+
+static uint16_t blk_of(const char *n11, uint8_t blk)
+{
+    uint8_t *s = find_slot(n11);
+
+    return s ? (uint16_t)(s[9] + blk) * 32 : 0xFFFF;
+}
+
+/* Push the record WRUAL is holding out to the card. The BDOS does this itself
+ * when it takes the next host sector, and the directory read is the cheapest
+ * way to ask for it. A file that grows does so on this flush, so a test that
+ * wants the next block number has to flush first: the packed span is what the
+ * directory publishes, and a growing file may have moved its neighbour. */
+static void flush_rec(void)
+{
+    memset(rec, 0, 128);
+    bios_setdma(rec);
+    bios_setsec(0);
+    (void)bios_read();
 }
 
 /* PIP MAKE / two-block write / CLOSE / REN / ERA, then a second file. */
@@ -194,7 +282,7 @@ static void pip_copy(void)
     }
     expect("pip_own_chain",
            e && s && cl >= 5 && sz == 8192
-           && s[11] == 2 && s[12] == 0
+           && s[11] == 8 && s[12] == 0
            && data && data[0] == 0x4E
            && cl2 >= 5 && cl2 != cl && cl2 < 10
            && ram_image[(3 + (uint16_t)(cl2 - 2) * 8) * 512] == 0x4F
@@ -245,12 +333,19 @@ static void pip_copy(void)
            && find_fat("NEW     COM") == 0);
 }
 
-/* ONE covers AL 19 and 20. TWO's rename names block 20. The $$$ slot
- * must take that name; ONE must keep its own. */
+/* ONE covers AL 19 and 20 and grows to eight blocks. TWO is made in the blocks
+ * that leaves, then ONE's next extent slides TWO up, so TWO writes and closes
+ * on the block the directory publishes at the time, not the one it was given.
+ * Each file must keep its own name, span, and chain; a rule that followed the
+ * last file created gave both of them ONE's slot. */
 static void pip_keep(void)
 {
     uint8_t rc;
     uint8_t *one;
+    uint8_t *two;
+    uint8_t tblk;
+    uint16_t c1;
+    uint16_t c2;
 
     fat_setup();
     bios_init();
@@ -297,26 +392,44 @@ static void pip_keep(void)
     rc = bios_write(WRDIR);
     memset(rec, 0x54, 128);
     bios_setdma(rec);
-    bios_setsec(672);               /* AL 21, outside ONE */
+    /* AL 19 for ONE's second block: that is the extent ONE opens next, and
+     * the grow is what moves TWO out of the way. */
+    bios_setsec(blk_of("ONE     COM", 1));
+    rc |= bios_write(WRUAL);
+    flush_rec();
+    /* TWO is made but not written, so it slid up one extent. Read its block
+     * back the way the BDOS re-reads the directory at every extent step. */
+    tblk = find_slot("TWO     $$$")[9];
+    memset(rec, 0x54, 128);
+    bios_setdma(rec);
+    bios_setsec((uint16_t)tblk * 32);
     rc |= bios_write(WRUAL);
     memset(dir, 0, 128);
     cpm_dirent(dir, 0, "TWO     $$$");
-    dir[15] = 4;
-    dir[16] = 21;
+    dir[15] = 4;                    /* 512 bytes */
+    dir[16] = tblk;
     bios_setdma(dir);
     rc |= bios_write(WRDIR);
-    /* Rename names block 20, which ONE already covers. */
     memset(dir, 0, 128);
     cpm_dirent(dir, 0, "TWO     COM");
     dir[15] = 4;
-    dir[16] = 20;
+    dir[16] = tblk;
     bios_setdma(dir);
     rc |= bios_write(WRDIR);
     one = find_slot("ONE     COM");
+    two = find_slot("TWO     COM");
+    c1 = cl_of("ONE     COM");
+    c2 = cl_of("TWO     COM");
     expect("keep_both",
-           rc == 0 && one && one[9] == 19 && one[11] == 2
-           && find_slot("TWO     COM") && find_slot("TWO     $$$") == 0
-           && find_fat("ONE     COM") && find_fat("TWO     COM"));
+           rc == 0 && one && two
+           && one[9] == 19 && one[11] == 8
+           && two[9] == tblk && two[11] == 8
+           && find_slot("TWO     $$$") == 0
+           && find_fat("ONE     COM") && find_fat("TWO     COM")
+           && c1 >= 5 && c1 < 10 && c2 >= 5 && c2 < 10 && c1 != c2
+           && ram_image[(3 + (uint16_t)(c1 - 2) * 8) * 512] == 0x31
+           && ram_image[(3 + (uint16_t)(c2 - 2) * 8) * 512] == 0x54
+           && ram_image[11 * 512] == 'h');
 }
 
 /* Directory records are padded with E5 the way synth_dir fills a hole.
@@ -329,6 +442,7 @@ static void pip_span(void)
     uint8_t *newf;
     uint8_t *odata;
     uint8_t *ndata;
+    uint8_t nblk;
     uint16_t ocl;
     uint16_t ocl2;
     uint16_t ncl;
@@ -374,20 +488,23 @@ static void pip_span(void)
     cpm_dirent(dir, 0, "NEW     $$$");
     bios_setdma(dir);
     rc |= bios_write(WRDIR);
+    /* OLD grew when its first record was written, so NEW's block is wherever
+     * the directory now says it is. */
+    nblk = find_slot("NEW     $$$")[9];
     memset(rec, 0x54, 128);
     bios_setdma(rec);
-    bios_setsec(672);               /* AL 21, after OLD */
+    bios_setsec((uint16_t)nblk * 32);
     rc |= bios_write(WRUAL);
     memset(dir, 0xE5, 128);
     cpm_dirent(dir, 0, "NEW     $$$");
     dir[15] = 4;
-    dir[16] = 21;
+    dir[16] = nblk;
     bios_setdma(dir);
     rc |= bios_write(WRDIR);
     memset(dir, 0xE5, 128);
     cpm_dirent(dir, 0, "NEW     COM");
     dir[15] = 4;
-    dir[16] = 21;
+    dir[16] = nblk;
     bios_setdma(dir);
     rc |= bios_write(WRDIR);
 
@@ -421,6 +538,197 @@ static void pip_span(void)
            && ndata[0] == 0x54 && sz == 512);
 }
 
+/* A close or rename record: one CP/M dirent for the file, the rest $E5 holes.
+ * With one dirent per extent the synthesized directory publishes the extents a
+ * growing file has room for, but a file that stops at 512 bytes only ever
+ * writes extent 0, and the holes behind it are what the BDOS sends. */
+static void cpm_close(const char *n11, uint16_t blk, uint8_t rcs, const char *n11b)
+{
+    memset(dir, 0xE5, 128);
+    cpm_dirent(dir, 0, n11);
+    dir[15] = rcs;
+    dir[16] = (uint8_t)(blk & 0xFF);
+    dir[17] = (uint8_t)(blk >> 8);
+    if (n11b) {
+        dir[9] = n11b[0];
+        dir[10] = n11b[1];
+        dir[11] = n11b[2];
+    }
+    bios_setdma(dir);
+    (void)bios_write(WRDIR);
+}
+
+/* Directory extent, the bytes LOADAL copies into an FCB. */
+static uint8_t load_ext(uint8_t *fcb, const char *n11, uint8_t ex)
+{
+    uint8_t s;
+    uint8_t i;
+
+    for (s = 0; s < 16; ++s) {
+        bios_setdma(dir);
+        bios_settrk(0);
+        bios_setsec(s);
+        if (bios_read())
+            return 0;
+        for (i = 0; i < 4; ++i) {
+            uint8_t *e = dir + (uint16_t)i * 32;
+
+            if (e[0] == 0 && memcmp(e + 1, n11, 11) == 0
+                && e[12] == ex && (e[14] & 0x1F) == 0) {
+                memcpy(fcb, e, 32);
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* One sequential record, as WTSEQ does once the FCB holds the span. */
+static uint8_t wr_fcb(const uint8_t *fcb, uint8_t rec_in_ext, uint8_t tag)
+{
+    uint8_t bi;
+    uint16_t blk;
+
+    bi = (uint8_t)(rec_in_ext >> 5);
+    blk = (uint16_t)fcb[16 + (uint16_t)bi * 2]
+        | ((uint16_t)fcb[17 + (uint16_t)bi * 2] << 8);
+    if (blk < 2)
+        return 1;
+    return wr_chunk(tag, (uint16_t)(blk * 32 + (rec_in_ext & 31)));
+}
+
+/* ASM.COM: MAKE PRN, MAKE HEX, then function 21 in bursts of 6 records.
+ * LOADAL runs before each burst, which is what picks up a slide. */
+static void asm_bdos(void)
+{
+    uint8_t prn[32];
+    uint8_t hex[32];
+    uint8_t one[32];
+    uint8_t rc;
+    uint8_t bad;
+    uint8_t k;
+    uint8_t overlap;
+    uint16_t r;
+    uint16_t n;
+    uint16_t h0;
+    uint16_t h1;
+    uint16_t pcl;
+    uint16_t hcl;
+    uint16_t pcl2;
+    uint8_t *pd;
+    uint8_t *hd;
+    uint16_t pb[8];
+    uint16_t hb[4];
+
+    fat_setup();
+    bios_init();
+    unamap_on = 0;
+    pack_drv = 0;
+    rc = pack_drive_run();
+    expect("asm_pack", rc == 0);
+    bios_setdsk(0);
+    bios_home();
+    bios_settrk(0);
+    hstwrt = 0;
+
+    memset(dir, 0, 128);
+    cpm_dirent(dir, 0, "PRN     PRN");
+    bios_setdma(dir);
+    rc = bios_write(WRDIR);
+    memset(dir, 0, 128);
+    cpm_dirent(dir, 0, "HEX     HEX");
+    bios_setdma(dir);
+    rc |= bios_write(WRDIR);
+    expect("asm_make", rc == 0);
+    expect("asm_load_p", load_ext(prn, "PRN     PRN", 0));
+    expect("asm_load_h", load_ext(hex, "HEX     HEX", 0));
+    h0 = (uint16_t)hex[16] | ((uint16_t)hex[17] << 8);
+    expect("asm_spans", prn[16] >= 2 && h0 >= 2 && prn[16] != hex[16]);
+
+    bad = 0;
+    for (r = 0; r < 12; ) {
+        n = 6;
+        if (!load_ext(prn, "PRN     PRN", 0))
+            bad = 1;
+        for (k = 0; k < n; ++k) {
+            if (wr_fcb(prn, (uint8_t)(r + k), 0x50))
+                bad = 1;
+        }
+        if (!load_ext(hex, "HEX     HEX", 0))
+            bad = 1;
+        if (r == 0) {
+            h1 = (uint16_t)hex[16] | ((uint16_t)hex[17] << 8);
+            expect("asm_slid", h1 != h0 && h1 != 0);
+        }
+        for (k = 0; k < n; ++k) {
+            if (wr_fcb(hex, (uint8_t)(r + k), 0xA0))
+                bad = 1;
+        }
+        r = (uint16_t)(r + n);
+    }
+    if (!load_ext(prn, "PRN     PRN", 0) || wr_fcb(prn, 32, 0x52))
+        bad = 1;
+    flush_rec();
+    expect("asm_writes", bad == 0);
+
+    pcl = find_slot("PRN     PRN") ? (uint16_t)find_slot("PRN     PRN")[1]
+        | ((uint16_t)find_slot("PRN     PRN")[2] << 8) : 0;
+    hcl = find_slot("HEX     HEX") ? (uint16_t)find_slot("HEX     HEX")[1]
+        | ((uint16_t)find_slot("HEX     HEX")[2] << 8) : 0;
+    pcl2 = nxt_cl(pcl);
+    pd = (pcl >= 2 && pcl < 8) ? ram_image + (3 + (uint16_t)(pcl - 2) * 8) * 512 : (uint8_t *)0;
+    hd = (hcl >= 2 && hcl < 8) ? ram_image + (3 + (uint16_t)(hcl - 2) * 8) * 512 : (uint8_t *)0;
+    expect("asm_chains",
+           pcl >= 5 && pcl < 8 && hcl >= 5 && hcl < 8 && pcl != hcl
+           && pcl2 >= 5 && pcl2 < 8 && pcl2 != hcl && nxt_cl(pcl2) == 0xFFFF
+           && pd && hd && pd[0] == 0x50 && hd[0] == 0xA0
+           && ram_image[(3 + (uint16_t)(pcl2 - 2) * 8) * 512] == 0x52);
+
+    memset(dir, 0xE5, 128);
+    cpm_dirent(dir, 0, "PRN     PRN");
+    dir[15] = 64;
+    bios_setdma(dir);
+    rc = bios_write(WRDIR);
+    expect("asm_close", rc == 0 && load_ext(prn, "PRN     PRN", 0) && prn[15] == 64
+           && load_ext(prn, "PRN     PRN", 1) && prn[12] == 1 && prn[15] == 0);
+
+    overlap = 0;
+    if (!load_ext(hex, "HEX     HEX", 0))
+        overlap = 1;
+    for (k = 0; k < 4; ++k)
+        hb[k] = (uint16_t)hex[16 + (uint16_t)k * 2]
+              | ((uint16_t)hex[17 + (uint16_t)k * 2] << 8);
+    if (!load_ext(prn, "PRN     PRN", 0))
+        overlap = 1;
+    for (k = 0; k < 4; ++k)
+        pb[k] = (uint16_t)prn[16 + (uint16_t)k * 2]
+              | ((uint16_t)prn[17 + (uint16_t)k * 2] << 8);
+    if (!load_ext(prn, "PRN     PRN", 1))
+        overlap = 1;
+    for (k = 0; k < 4; ++k)
+        pb[4 + k] = (uint16_t)prn[16 + (uint16_t)k * 2]
+                  | ((uint16_t)prn[17 + (uint16_t)k * 2] << 8);
+    for (k = 0; k < 8; ++k) {
+        for (n = 0; n < 4; ++n) {
+            if (pb[k] != 0 && pb[k] == hb[n])
+                overlap = 1;
+        }
+    }
+    expect("asm_disjoint", overlap == 0 && pb[0] != 0 && hb[0] != 0 && pb[4] != 0);
+
+    memset(dir, 0, 128);
+    cpm_dirent(dir, 0, "RC1     DAT");
+    bios_setdma(dir);
+    rc = bios_write(WRDIR);
+    memset(dir, 0xE5, 128);
+    cpm_dirent(dir, 0, "RC1     DAT");
+    dir[15] = 1;
+    bios_setdma(dir);
+    rc |= bios_write(WRDIR);
+    expect("asm_rc1", rc == 0 && load_ext(one, "RC1     DAT", 0)
+           && one[12] == 0 && one[15] == 1);
+}
+
 /* FAT32, two FAT copies, first free cluster is 3. Two PIP files, and the
  * second directory write includes the first file the way BDOS writes a
  * 128-byte record. */
@@ -436,6 +744,7 @@ static void pip_fat32(void)
     uint16_t c2;
     uint8_t *d1;
     uint8_t *fat;
+    uint8_t tblk;
 
     memset(ram_image, 0, sizeof ram_image);
     memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
@@ -503,20 +812,14 @@ static void pip_fat32(void)
     slot = 0;
     while (slot < 4 && memcmp(dir + slot * 32 + 1, "ONE     $$$", 11) != 0)
         ++slot;
-    dir[slot * 32 + 15] = 4;        /* 512 bytes */
-    dir[slot * 32 + 16] = 2;
-    dir[slot * 32 + 17] = 0;
-    bios_setdma(dir);
-    rc |= bios_write(WRDIR);
-    dir[slot * 32 + 9] = 'C';
-    dir[slot * 32 + 10] = 'O';
-    dir[slot * 32 + 11] = 'M';
-    rc |= bios_write(WRDIR);
-    bios_setsec(0);
-    rc |= bios_read();
     printf("synth1 blk=%u %u rc=%u ex=%u name=%c\n",
            (unsigned)dir[16], (unsigned)dir[17],
            (unsigned)dir[15], (unsigned)dir[12], (unsigned)dir[1]);
+
+    cpm_close("ONE     $$$", 2, 4, "COM");
+    rc |= bios_write(WRDIR);
+    bios_setsec(0);
+    rc |= bios_read();
 
     bios_setsec(0);
     rc |= bios_read();
@@ -527,25 +830,15 @@ static void pip_fat32(void)
     memcpy(dir + slot * 32 + 1, "TWO     $$$", 11);
     bios_setdma(dir);
     rc |= bios_write(WRDIR);
+    /* ONE grew when its record was written, so TWO's block is whatever the
+     * directory publishes now, not what it was given. */
+    tblk = find_slot("TWO     $$$")[9];
     memset(rec, 0x22, 128);
     bios_setdma(rec);
-    bios_setsec(96);                /* AL 3 */
+    bios_setsec((uint16_t)tblk * 32);
     rc |= bios_write(WRUAL);
-    bios_setdma(dir);
-    bios_setsec(0);
-    rc |= bios_read();
-    slot = 0;
-    while (slot < 4 && memcmp(dir + slot * 32 + 1, "TWO     $$$", 11) != 0)
-        ++slot;
-    dir[slot * 32 + 15] = 4;
-    dir[slot * 32 + 16] = 3;
-    dir[slot * 32 + 17] = 0;
-    bios_setdma(dir);
-    rc |= bios_write(WRDIR);
-    dir[slot * 32 + 9] = 'C';
-    dir[slot * 32 + 10] = 'O';
-    dir[slot * 32 + 11] = 'M';
-    rc |= bios_write(WRDIR);
+    flush_rec();
+    cpm_close("TWO     $$$", tblk, 4, "COM");
 
     e1 = find_fat("ONE     COM");
     e2 = find_fat("TWO     COM");
@@ -572,6 +865,125 @@ static void pip_fat32(void)
            && ram_image[11 * 512] == 0
            && ram_image[(3 + (5 - 2) * 8) * 512] == 0x11
            && ram_image[(3 + (7 - 2) * 8) * 512] == 0x22);
+}
+
+/* ASM writes its .PRN listing and its .HEX image at the same time and switches
+ * between the two every few hundred bytes. Both files exist before the first
+ * data record, so nothing about "which file is open" can name the writer: the
+ * allocation block has to. Each output must end up with its own chain, its own
+ * blocks, and its own bytes, and the file already on the card must not move.
+ *
+ * One existing file, so the four clusters the two outputs need (4..7) are the
+ * highest the 48-sector test card can address at database 3 with 4 KiB
+ * clusters. Two blocks each is enough to show the chain growing per file
+ * while the other file is written in between. */
+static void pip_asm_pair(void)
+{
+    uint8_t rc;
+    uint8_t pass;
+    uint8_t *p;
+    uint8_t *h;
+    uint8_t pblk;
+    uint8_t hblk;
+    uint16_t pcl;
+    uint16_t hcl;
+    uint16_t pcl2;
+    uint16_t hcl2;
+    uint8_t *pd;
+    uint8_t *hd;
+
+    fat_setup_min();
+    bios_init();
+    unamap_on = 0;
+    pack_drv = 0;
+    rc = pack_drive_run();
+    expect("asm_pack", rc == 0);
+    bios_setdsk(0);
+    bios_home();
+    bios_settrk(0);
+    hstwrt = 0;
+
+    /* ASM opens the two outputs with their final names, so the BDOS creates
+     * both directory entries before the first data record. */
+    memset(dir, 0, 128);
+    cpm_dirent(dir, 0, "PRN     PRN");
+    bios_setdma(dir);
+    rc = bios_write(WRDIR);
+    memset(dir, 0, 128);
+    cpm_dirent(dir, 0, "HEX     HEX");
+    bios_setdma(dir);
+    rc |= bios_write(WRDIR);
+
+    /* Disjoint spans, one CP/M extent each, allocated back to back after
+     * OLD's single block. Nothing has been written yet, so nothing has
+     * grown. */
+    p = find_slot("PRN     PRN");
+    h = find_slot("HEX     HEX");
+    expect("asm_spans",
+           rc == 0 && p && h
+           && p[9] == 3 && p[10] == 0 && p[11] == 4 && p[12] == 0
+           && h[9] == 7 && h[10] == 0 && h[11] == 4 && h[12] == 0);
+
+    /* One record per file, alternating. The two host sectors differ, so every
+     * record flushes the previous one and each file's second block is a new
+     * bind in the middle of the other file's write. Each block comes from the
+     * slot, not a constant: the first PRN record widens PRN's span by an
+     * extent, which slides the still-unwritten HEX up, so HEX's second block
+     * is not the block it was made with. That is the ASM case. */
+    for (pass = 0; pass < 2; ++pass) {
+        rc |= wr_chunk((uint8_t)(0x70 + pass), blk_of("PRN     PRN", pass));
+        flush_rec();
+        rc |= wr_chunk((uint8_t)(0xA0 + pass), blk_of("HEX     HEX", pass));
+        flush_rec();
+    }
+    pblk = find_slot("PRN     PRN")[9];
+    hblk = find_slot("HEX     HEX")[9];
+    printf("asm p=%u h=%u pn=%u hn=%u rc=%u er=%u\n", pblk, hblk,
+           find_slot("PRN     PRN")[11], find_slot("HEX     HEX")[11], rc, erflag);
+    expect("asm_writes", rc == 0 && erflag == 0);
+    /* PRN's span grew over the blocks HEX was made with, so HEX slid up and
+     * the two spans no longer touch. */
+    expect("asm_slide", p && h && hblk > pblk + 4);
+
+    memset(dir, 0, 128);
+    cpm_dirent(dir, 0, "PRN     PRN");
+    dir[15] = 64;                   /* 64 records = 8192 bytes = 2 blocks */
+    dir[16] = pblk;
+    dir[18] = pblk + 1;
+    bios_setdma(dir);
+    rc |= bios_write(WRDIR);
+    memset(dir, 0, 128);
+    cpm_dirent(dir, 0, "HEX     HEX");
+    dir[15] = 64;
+    dir[16] = hblk;
+    dir[18] = hblk + 1;
+    bios_setdma(dir);
+    rc |= bios_write(WRDIR);
+
+    pcl = cl_of("PRN     PRN");
+    hcl = cl_of("HEX     HEX");
+    pcl2 = nxt_cl(pcl);
+    hcl2 = nxt_cl(hcl);
+    pd = pcl >= 4 && pcl < 8 ? ram_image + (3 + (uint16_t)(pcl - 2) * 8) * 512
+                              : (uint8_t *)0;
+    hd = hcl >= 4 && hcl < 8 ? ram_image + (3 + (uint16_t)(hcl - 2) * 8) * 512
+                              : (uint8_t *)0;
+    expect("asm_two_chains",
+           rc == 0 && erflag == 0
+           && find_fat("PRN     PRN") && find_fat("HEX     HEX")
+           /* two clusters each, and none of the four shared */
+           && pcl >= 4 && pcl < 8 && hcl >= 4 && hcl < 8
+           && pcl2 >= 4 && pcl2 < 8 && hcl2 >= 4 && hcl2 < 8
+           && nxt_cl(pcl2) == 0xFFFF && nxt_cl(hcl2) == 0xFFFF
+           && pcl != pcl2 && pcl != hcl && pcl != hcl2
+           && hcl != pcl2 && hcl != hcl2 && pcl2 != hcl2
+           /* each file's records landed in its own clusters */
+           && pd && hd && pd[0] == 0x70 && hd[0] == 0xA0
+           && ram_image[(3 + (uint16_t)(pcl2 - 2) * 8) * 512] == 0x71
+           && ram_image[(3 + (uint16_t)(hcl2 - 2) * 8) * 512] == 0xA1
+           /* the file that was already there did not move */
+           && fat_files[1] == 3 && ram_image[11 * 512] == 'o'
+           && find_fat("OLD     TXT"));
 }
 
 int main(void)
@@ -678,7 +1090,8 @@ int main(void)
            && (memcmp(rec + 1, "NEW     COM", 11) == 0
                || memcmp(rec + 33, "NEW     COM", 11) == 0
                || memcmp(rec + 65, "NEW     COM", 11) == 0
-               || memcmp(rec + 97, "NEW     COM", 11) == 0));
+               || memcmp(rec + 97, "NEW     COM", 11) == 0
+               || memcmp(rec + 129, "NEW     COM", 11) == 0));
 
     memset(dir, 0, 128);
     cpm_dirent(dir, 0xE5, "NEW     COM");
@@ -779,6 +1192,8 @@ int main(void)
     pip_keep();
     pip_span();
     pip_fat32();
+    pip_asm_pair();
+    asm_bdos();
 
     puts(fails ? "V3BIOS_BAD" : "V3BIOS_OK");
     return fails ? 1 : 0;

@@ -16,7 +16,7 @@ INCLUDE "config_rc2014_private.inc"
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_BIOS    ;base of bios
-defc    __COMMON_AREA_PHASE_BIOS    = 0xE500    ;meets BDOS STKAREA; FAT/IDE in ROM
+defc    __COMMON_AREA_PHASE_BIOS    = 0xF000    ;meets BDOS STKAREA; FAT/IDE in ROM
 
 ;------------------------------------------------------------------------------
 ; start of definitions

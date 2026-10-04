@@ -79,6 +79,7 @@ finish_hex() {
   fi
   ce=$(awk -F'[= ;]+' '/^__CODE_END_head/ {print $2; exit}' "${base}.map")
   ce=${ce#\$}
+  say "${out}  bytes=${bytes}  __CODE_END=\$${ce}"
   if [[ "$out" == *8085* ]]; then
     if (( 16#$ce > 16#7F81 )); then
       echo "${out} __CODE_END \$${ce} is past \$7F81" >&2

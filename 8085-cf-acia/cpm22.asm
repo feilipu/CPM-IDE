@@ -33,7 +33,7 @@ SECTION rodata_lib           ;read only library (code)
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xCD00    ;v3: BIOS 0xE500, FAT/IDE in ROM
+defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xD800    ;BIOS $F000, FAT/IDE in ROM
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -3229,6 +3229,43 @@ CLOSEIT7:
     DEC     (HL)
     RET
 ;
+
+;   Copy this extent's allocation blocks from the directory into the
+;   caller's FCB and mark them used. MAKE zeros those bytes, so the
+;   first sequential write would otherwise call FNDSPACE and ignore
+;   the span. A neighbour may also slide after the FCB was filled, so
+;   every sequential write calls this again. Bytes 0-15 and the current
+;   record stay as the caller left them. STATUS is preserved: a found
+;   extent leaves 0-3 there, and WTSEQ treats any non-zero as an error.
+;
+LOADAL:
+    LD      HL,(STATUS)
+    PUSH    HL
+    LD      C,15
+    CALL    FINDFST
+    CALL    CKFILPOS
+    JP      Z,LOADAL0
+    LD      C,1
+    CALL    SETFILE
+    CALL    FCB2HL
+    LD      BC,16
+    ADD     HL,BC
+    LD      DE,(PARAMS)
+    EX      DE,HL
+    LD      BC,16
+    ADD     HL,BC
+    EX      DE,HL
+    LD      C,16
+LOADAL1:
+    LD      A,(HL+)
+    LD      (DE+),A
+    DEC     C
+    JP      NZ,LOADAL1
+LOADAL0:
+    POP     HL
+    LD      (STATUS),HL
+    RET
+;
 ;   Routine to get the next empty space in the directory. It
 ;   will then be cleared for use.
 ;
@@ -3258,6 +3295,7 @@ GETMT1:
     LD      (HL),A
     CALL    CHKNMBR         ;keep (SCRATCH1) within bounds.
     CALL    FCBSET          ;write out this fcb entry to directory.
+    CALL    LOADAL          ;span blocks into the FCB, and mark them used.
     JP      SETS2B7         ;set 's2' byte bit 7 (unmodified at present).
 ;
 ;   Routine to close the current extent and open the next one
@@ -3367,6 +3405,7 @@ WTSEQ1:
     LD      HL,(PARAMS)
     CALL    CKROF1          ;check for read only file, (HL) already set to fcb.
     CALL    STRDATA         ;put updated data into fcb.
+    CALL    LOADAL          ;directory blocks, including a neighbour that slid.
     LD      A,(SAVNREC)     ;get record number to write.
     CP      128             ;within range?
     JP      NC,IOERR1       ;no, error(?).
@@ -4257,9 +4296,9 @@ CKSUMTBL:   DEFS    16,0
 ;
             DEFS    48,0    ;minimum BDOS stack allocation.
 ;
-ALIGN       0x100
+            DEFS    0xF000-$,0   ;STKAREA meets the BIOS
 ;
-STKAREA:                    ;top of BDOS stack.
+STKAREA:                    ;top of BDOS stack. BIOS grows up from here.
 ;
 PUBLIC  _cpm_bdos_bss_tail
 _cpm_bdos_bss_tail:         ;tail of the cpm bdos bss

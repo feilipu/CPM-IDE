@@ -51,12 +51,26 @@
 ; slot's place in the allocation map. It is not the FAT cluster.
 ; A BDOS write comes back through the other door. Data records name a block.
 ; fat_hst_map turns the block and the byte offset into a cluster on the
-; slot's chain. fat_wrual_bind calls create_chain when the block lies outside
-; the span and stores that cluster in the slot. A directory record is a CP/M
-; extent. wrdir_cpm keeps the 8.3 and the FCB length, and writes the slot's
-; cluster into the FAT entry. The block list in the CP/M extent is not stored.
-; A rename that keeps the 8-character stem updates the slot that already holds
-; the chain. ERA frees that chain.
+; slot's chain. Every file owns a fixed span of blocks, handed out when its
+; directory entry appears: wd_pempty sets first_al past every packed span
+; already on the drive and n_al to 4, one CP/M extent. synth_dir then lists
+; those block numbers, so a new file never falls through to BDOS's own
+; FNDSPACE, and map_al can always say which file a block belongs to.
+; fat_wrual_bind asks map_al who owns the block and calls create_chain when
+; that chain is shorter than the block, storing the cluster in that slot.
+; Picking the owner from the block, not from the last file created, is what
+; lets two files be written at once: ASM alternates its .PRN and .HEX output
+; every 768 bytes, and a "last file created" rule charged both to one slot.
+; The span is fixed for the life of the slot. Growing it would let a file
+; reach into the span wd_freespan handed to the next file, which is exactly
+; the case two output files make. One extent is 128 records, so a file larger
+; than 16 KB is refused: fat_hst_map finds no owner and writehst reports a
+; BIOS error instead of writing into a neighbour.
+; A directory record is a CP/M extent. wrdir_cpm keeps the 8.3 and
+; the FCB length, and writes the slot's cluster into the FAT entry. The block
+; list in the CP/M extent is not stored.
+; A rename that keeps the 8-character stem updates the armed slot. The chain
+; stays in the slot. ERA frees the chain.
 ; The two callers agree on the name, the start cluster, and the length. Each
 ; one parses only the record it wrote, so the layouts can differ.
 ;
@@ -2562,11 +2576,10 @@ sd_fi:
     ld      hl,1
     jr      Z,sd_nd
     ld      hl,de
-    ld      bc,7
+    ld      bc,3
     add     hl,bc
     sra     hl
-    sra     hl
-    sra     hl                       ;ceil(n_al/8)
+    sra     hl                       ;ceil(n_al/4)
 sd_nd:
     ex      de,hl                   ;DE = n_dirents
     ld      hl,(fat_work+10)
@@ -2612,13 +2625,11 @@ sd_mask:
     ld      (hl+),a
     dec     b
     jp      NZ,sd_mask
-    ld      hl,(fat_work+10)        ;e
-    add     hl,hl                   ;2e  (EXM=1)
-    ld      a,l
+    ld      a,(fat_work+10)
     and     $1F
-    ld      (de+),a                 ;EX
+    ld      (de+),a                 ;EX = e & $1F
     xor     a
-    ld      (de+),a                 ;S1
+    ld      (de+),a                 ;S1 = 0
     ld      a,(fat_work+10)
     or      a
     rra
@@ -2628,7 +2639,9 @@ sd_mask:
     rra
     or      a
     rra
-    ld      (de+),a                 ;S2 = e>>4
+    or      a
+    rra
+    ld      (de+),a                 ;S2 = e>>5
     push    de                      ;sd_rc uses DE; keep the dirent cursor
     call    sd_rc
     pop     de
@@ -2643,11 +2656,10 @@ sd_mask:
     ld      d,(hl)                  ;n_al
     ld      hl,(fat_work+10)
     add     hl,hl
-    add     hl,hl
-    add     hl,hl                   ;e*8
+    add     hl,hl                   ;e*4
     push    bc                      ;first_al
     ld      bc,hl
-    ex      de,hl                   ;HL=n_al, DE=e*8
+    ex      de,hl                   ;HL=n_al, DE=e*4
     sub     hl,bc
     jr      NC,sd_al_ok
     ld      hl,0
@@ -2656,7 +2668,7 @@ sd_al_ok:
     add     hl,de                   ;start AL
     pop     bc                      ;remaining
     pop     de                      ;dest
-    ld      a,8
+    ld      a,4
 sd_al:
     push    af
     ld      a,b
@@ -2678,8 +2690,8 @@ sd_al_n:
     jr      NZ,sd_al
     ret
 
-; RC: records in the last logical extent of this dirent (EXM=1).
-; records = (size+127)>>7; rem = records - e*256.
+; RC: records in this logical extent (one extent is 128 records).
+; records = (size+127)>>7; rem = records - e*128. 0, or 1..128.
 sd_rc:
     ld      hl,(fat_work)
     ld      bc,FF_SIZE
@@ -2713,26 +2725,40 @@ sd_rcshr:
     ld      a,e
     rra
     ld      e,a
-    dec     b                ;DE = records
+    dec     b                       ;HL:DE = records
     jp      NZ,sd_rcshr
-    ld      a,(fat_work+10)
-    ld      h,a
-    ld      l,0                     ;rec0 = e*256
-    ex      de,hl                   ;HL=records, DE=rec0
-    ld      bc,de
-    sub     hl,bc                   ;rem
+    push    hl
+    push    de
+    ld      hl,(fat_work+10)        ;extent e
+    ld      b,7
+sd_rc128:
+    add     hl,hl                   ;rec0 = e*128 (e < 512 fits)
+    dec     b
+    jp      NZ,sd_rc128
+    pop     de                      ;records low
+    ex      (sp),hl                 ;HL = records high, (sp) = rec0
+    ld      a,h
+    or      l
+    jp      NZ,sd_rcfull_pop        ;at or past 65536 records: full
+    pop     hl                      ;rec0. DE = records low
+    ld      a,e
+    sub     l
+    ld      l,a
+    ld      a,d
+    sbc     a,h                     ;records - rec0
     jr      C,sd_rc0
+    ld      h,a
+    or      l
     jr      Z,sd_rc0
     ld      a,h
     or      a
-    jr      NZ,sd_rcfull
+    jp      NZ,sd_rcfull
     ld      a,l
-    cp      129
-    jr      NC,sd_rc2
+    cp      128
+    jp      NC,sd_rcfull
     ret
-sd_rc2:
-    sub     128
-    ret
+sd_rcfull_pop:
+    pop     hl
 sd_rcfull:
     ld      a,$80
     ret
@@ -2742,10 +2768,13 @@ sd_rc0:
 
 ; map_al
 ; Find which packed file owns allocation block DE.
-; IN: DE = block, hstdsk = drive. OUT: C, A = file index, HL = block within the file; NC = none. Clobbers AF, BC, DE, HL.
+; IN: DE = block, hstdsk = drive. OUT: C, A = file index, HL = block within the file;
+; NC and A = FILE_MAX = none. Clobbers AF, BC, DE, HL.
 ; The block is BDOS's name for a 4 KiB piece of the slot. It is not a FAT cluster.
 ; yash never calls this; it already has the cluster from the FAT entry.
 ; Caveat: blocks 0 and 1 are the reserved CP/M directory, not a file.
+; The owner is returned in A, never left in fat_work: create_chain stores its
+; scan candidate with ld (fat_work+14),bc, which overwrites fat_work+15.
 map_al:
     push    de                      ;fat_filebase reuses DE when drive != 0
     ld      a,(hstdsk)
@@ -2799,7 +2828,7 @@ ma_next:
     inc     a
     jr      ma_lp
 ma_miss:
-    or      a
+    ld      a,FILE_MAX
     ret
 
 ; fat_hst_isdir
@@ -2904,83 +2933,20 @@ fhm_ok:
     scf
     ret
 
-; DE = slot. Decide whether this 4 KiB allocation block lies in [first_al, first_al+n_al).
-; n_al counts CP/M blocks, not FAT clusters. An empty span sets n_al to 1 and returns NC.
-; A block at or past the end grows n_al and returns NC, so the caller allocates one cluster.
-; A block inside the span returns C. A block before first_al returns NC to writehst.
-fwb_cover:
-    push    de
-    call    fat_host_al             ;HL = AL
-    pop     de
-    push    de
-    ex      de,hl                   ;DE = AL, HL = slot
-    ld      bc,FF_FIRSTAL
-    add     hl,bc
-    ld      c,(hl+)
-    ld      b,(hl+)                 ;BC = first_al
-    push    hl                      ;n_al
-    ld      a,(hl+)
-    or      (hl)
-    pop     hl
-    jr      NZ,fwb_grow
-    ld      (hl),1
-    inc     hl
-    ld      (hl),0                  ;n_al = 1
-    dec     hl
-    dec     hl
-    dec     hl
-    ld      (hl+),e
-    ld      (hl),d                  ;first_al = AL
-    pop     de
-    ret                             ;NC: this block still needs a cluster
-fwb_grow:
-    push    hl                      ;n_al
-    ld      a,(hl+)
-    ld      h,(hl)
-    ld      l,a                     ;HL = n_al
-    add     hl,bc                   ;HL = first_al+n_al
-    ld      a,e
-    sub     l
-    ld      a,d
-    sbc     a,h
-    pop     hl                      ;n_al
-    jr      C,fwb_under_end
-    ld      a,e
-    sub     c
-    ld      e,a
-    ld      a,d
-    sbc     a,b
-    ld      d,a
-    inc     de                      ;n_al = AL-first_al+1
-    ld      (hl+),e
-    ld      (hl),d
-    pop     de
-    ret                             ;NC from AL-first_al: allocate
-fwb_under_end:
-    ld      a,e
-    sub     c
-    ld      a,d
-    sbc     a,b
-    jr      C,fwb_before            ;AL < first_al is not inside the span
-    pop     de
-    scf
-    ret
-fwb_before:
-    pop     de                      ;slot
-    pop     de                      ;return to fat_wrual_bind
-    or      a
-    ret                             ;NC to writehst: block is before first_al
-
 ; fat_wrual_bind
-; Give a BDOS write of a new allocation block a FAT cluster, and remember it in the packed slot.
-; IN: unamap_* and unacnt. OUT: C = bound or already covered; NC = no cluster. Clobbers AF, BC, DE, HL.
+; Give the BDOS write of a new allocation block a FAT cluster, in the slot that owns the block.
+; IN: unacnt and wrtype. OUT: C = bound; NC = no cluster. Clobbers AF, BC, DE, HL.
 ; BDOS puts C=2 on the first record of a new block. The host sector is flushed later, when wrtype
 ; is already 0 and unacnt is still counting that block down, so either signal arms this routine.
-; unamap_on must be set, unamap_idx must be below FILE_MAX, and the armed drive must be the
-; selected drive. A slot with no file cluster, or with bits 28-31 set, calls create_chain(0).
-; A slot that already has a chain is walked with get_fat to its end marker, and create_chain
-; extends from that cluster. The new cluster is stored at FF_SCLUST. fwb_cover returns C when
-; the block is already inside the span, and this routine then returns C without allocating.
+; writehst only calls here after fat_hst_map failed, and fat_hst_map got as far as naming the
+; owner, so that owner is by definition the file being written and its chain is too short for
+; this block. fwb_owner names it again from hsttrk and hstsec, which is what keeps two
+; interleaved writers apart: ASM alternates .PRN and .HEX every 768 bytes, so a rule based on
+; the last file created charges both to one slot. A slot with no file cluster, or with bits
+; 28-31 set, gets create_chain(0); otherwise the chain is walked to its end marker and
+; create_chain extends from that cluster, and the slot keeps the chain it already had. Only
+; create_chain(0) stores into FF_SCLUST. A block that no span covers returns NC so writehst
+; reports a BIOS error.
 ; Caveat: one create_chain call adds one cluster. The directory entry is published later by wrdir_cpm.
 fat_wrual_bind:
     ; BDOS puts C=2 on the first record of a new block only. The host
@@ -2995,33 +2961,13 @@ fat_wrual_bind:
     or      a
     ret
 fwb_go:
-    ld      a,(unamap_on)
-    or      a
-    ret     Z                       ;cold boot, or disarmed: do not use slot 0
-    ld      a,(unamap_idx)
-    cp      FILE_MAX
-    ret     NC
-    ld      c,a
-    ld      a,(unamap_drv)
-    ld      hl,hstdsk
-    cp      (hl)
-    jr      Z,fwb_drv
-    or      a
-    ret
-fwb_drv:
-    ld      a,(hstdsk)
-    call    fat_filebase
-    ld      (fat_work),hl
-    ld      a,c
+    call    fwb_owner                ;the file map_al named
+    ret     NC                      ;no packed span covers this block
     call    pd_slot
     ld      a,(hl)
     or      a
     ret     Z
-    ld      de,hl                   ;park slot
-    call    fwb_cover               ;NC: allocate. C: block is in the span
-    jr      NC,fwb_1
-    scf
-    ret
+    ld      de,hl
 fwb_1:
     ld      hl,de
     ld      bc,FF_SCLUST
@@ -3042,10 +2988,8 @@ fwb_zero:
     ret     NC
     push    bc
     push    de
-    ld      a,(hstdsk)
-    call    fat_filebase
-    ld      (fat_work),hl
-    ld      a,(unamap_idx)
+    call    fwb_owner                ;create_chain parks its candidate in fat_work+14/15
+    jr      NC,fwb_noslot
     call    pd_slot
     ld      bc,FF_SCLUST
     add     hl,bc
@@ -3056,6 +3000,11 @@ fwb_zero:
     ld      (hl+),c
     ld      (hl),b
     scf
+    ret
+fwb_noslot:
+    pop     de
+    pop     bc
+    or      a
     ret
 fwb_walk_init:
     ld      hl,0
@@ -3080,12 +3029,198 @@ fwb_nxt:
 fwb_eoc:
     pop     de
     pop     bc
-    jp      create_chain
+    jp      create_chain             ;the slot keeps the chain it already had
 fwb_fail:
     pop     de
     pop     bc
 fwb_fail0:
     or      a
+    ret
+
+; fwb_owner
+; Name the packed file that owns the block being written, widen its span, and
+; point fat_work at its table.
+; IN: hsttrk, hstsec, hstdsk. OUT: C and A = slot index, (fat_work) = that drive's table,
+; (fat_work+12) = block within that file, (fat_work+14) = the index.
+; NC = no span covers the block. Clobbers AF, BC, DE, HL.
+; The block is the host position, so this repeats what fat_hst_map already looked at. It has to
+; be a separate reading: create_chain keeps its scan candidate in fat_work+14/15, so an owner
+; index parked there would be gone by the time the new cluster is stored.
+; map_al answers inside the span as it stands, so the widening has to happen here, on the
+; write door: a block past the end of the span is the one BDOS is opening a new extent for,
+; and wd_grow takes the extent before create_chain answers.
+fwb_owner:
+    call    fat_host_al              ;HL = the 4 KiB block of the current host sector
+    ex      de,hl                   ;DE = block
+    call    map_al
+    jr      NC,fwo_no
+    ld      c,a                     ;owner index
+    ld      (fat_work+12),hl        ;block within the file, for wd_grow
+    ld      a,c
+    ld      (fat_work+14),a
+    ld      a,(hstdsk)
+    call    fat_filebase
+    ld      (fat_work),hl           ;map_al used fat_work+0/1 as scratch
+    call    wd_grow                  ;clobbers C, so the index comes back from fat_work
+    ld      a,(fat_work+14)
+    scf
+    ret
+fwo_no:
+    or      a
+    ret
+
+; wd_grow
+; Widen a packed span by one CP/M extent, so synth_dir always publishes the extent
+; after the one BDOS is writing.
+; IN: (fat_work) = drive table, (fat_work+14) = slot index, (fat_work+12) = block within
+; that file. OUT: FF_NAL widened when the 4 blocks were free. Clobbers AF, BC, DE, HL.
+; need = 4*(offset/4 + 2). synth_dir publishes ceil(n_al/4) extents, so that width
+; leaves the extent after the current one in the directory, with all four of its
+; block numbers filled in. MAKE and every sequential write copy those bytes into
+; the FCB (LOADAL) before choosing a block, so a slid neighbour is not written
+; at its old blocks and FNDSPACE is not how a new file is placed. n_al starts
+; at 4 and each call adds a whole extent, so need - n_al is 0 or 4.
+; The extent may only go into blocks no other span covers. When the span next door
+; has no cluster, it was made but never written, so it may slide up to give the
+; 4 blocks: PIP makes every file before it writes any of them, so ASM's .PRN and
+; .HEX are both in that state, and both still get a span. A file that has been
+; written keeps the blocks it has and the span stops where it is.
+wd_grow:
+    ld      hl,(fat_work+12)        ;block within the file
+    ld      a,h
+    ora     a
+    rra
+    ld      h,a
+    ld      a,l
+    rra
+    ld      l,a
+    ld      a,h
+    ora     a
+    rra
+    ld      h,a
+    ld      a,l
+    rra
+    ld      l,a                     ;HL = the extent the block is in
+    add     hl,hl
+    add     hl,hl                   ;HL = 4*e
+    ld      bc,8
+    add     hl,bc                   ;HL = need = 4*(e+2)
+    ld      a,l
+    ld      (fat_work+2),a
+    ld      a,h
+    ld      (fat_work+3),a
+    ld      a,(fat_work+14)
+    call    pd_slot
+    ld      bc,FF_FIRSTAL
+    add     hl,bc
+    ld      a,(hl+)
+    ld      (fat_work+8),a          ;base low
+    ld      a,(hl+)
+    ld      (fat_work+9),a          ;base high
+    ld      a,(hl+)
+    ld      (fat_work+4),a          ;n_al low
+    ld      a,(hl)
+    ld      (fat_work+5),a          ;n_al high
+    ld      a,(fat_work+4)
+    ld      l,a
+    ld      a,(fat_work+5)
+    ld      h,a                     ;HL = n_al
+    ld      a,(fat_work+3)
+    ld      d,a
+    ld      a,(fat_work+2)
+    ld      c,a                     ;need low in C, need high in D
+    ld      a,l
+    sub     c
+    ld      a,h
+    sbc     a,d                     ;n_al - need
+    jp      NC,wg_out                ;already wide enough
+    ld      a,(fat_work+4)
+    ld      l,a
+    ld      a,(fat_work+5)
+    ld      h,a
+    ld      a,(fat_work+8)
+    add     a,l
+    ld      l,a                     ;X = base + n_al, the extent we want
+    ld      a,(fat_work+9)
+    adc     a,h
+    ld      h,a
+    jr      NC,wg_x
+    jp      wg_out                   ;past 64K blocks: fail closed
+wg_x:
+    ld      a,l
+    ld      (fat_work+10),a
+    ld      a,h
+    ld      (fat_work+11),a
+    ex      de,hl
+    call    map_al
+    jp      NC,wg_take               ;no span covers X: the extent is ours
+    ld      (fat_work+15),a         ;the neighbour that starts there
+    ld      a,(hstdsk)
+    call    fat_filebase
+    ld      (fat_work),hl
+    ld      a,(fat_work+15)
+    call    pd_slot
+    ld      bc,FF_SCLUST
+    add     hl,bc
+    ld      c,4
+    xor     a
+    ld      b,a                     ;b = 0: the OR of the four cluster bytes
+wg_cl:
+    ld      a,(hl+)
+    ora     b
+    ld      b,a
+    dec     c
+    jr      NZ,wg_cl
+    ld      a,b
+    ora     a
+    jr      NZ,wg_out                ;it has a chain: keep the blocks it has
+    ld      a,(fat_work+10)
+    ld      l,a
+    ld      a,(fat_work+11)
+    ld      h,a
+    ld      bc,4
+    add     hl,bc                   ;X+4
+    jr      NC,wg_up
+    jr      wg_out
+wg_up:
+    ld      a,l
+    ld      (fat_work+10),a         ;X+4, where the neighbour has to move to
+    ld      a,h
+    ld      (fat_work+11),a
+    ld      bc,3
+    add     hl,bc                   ;X+7, the last block the slide needs
+    jr      NC,wg_room
+    jr      wg_out
+wg_room:
+    ex      de,hl
+    call    map_al
+    jr      NC,wg_slide
+    jr      wg_out                   ;something covers X+7: no room to slide
+wg_slide:
+    ld      a,(hstdsk)
+    call    fat_filebase
+    ld      (fat_work),hl
+    ld      a,(fat_work+15)
+    call    pd_slot
+    ld      bc,FF_FIRSTAL
+    add     hl,bc
+    ld      a,(fat_work+10)
+    ld      (hl+),a
+    ld      a,(fat_work+11)
+    ld      (hl),a                  ;the unwritten neighbour moves up one extent
+wg_take:
+    ld      a,(hstdsk)
+    call    fat_filebase
+    ld      (fat_work),hl
+    ld      a,(fat_work+14)
+    call    pd_slot
+    ld      bc,FF_NAL
+    add     hl,bc
+    ld      a,(fat_work+2)
+    ld      (hl+),a
+    ld      a,(fat_work+3)
+    ld      (hl),a                  ;n_al = need
+wg_out:
     ret
 
 ; wrdir_cpm
@@ -3165,7 +3300,7 @@ wd_named:
     call    dir_find                ;already this 8.3
     pop     hl
     jr      C,wd_upd
-    call    wd_same8                ;PIP $$$: same stem, before a wider span
+    call    wd_same8                ;armed temporary: same stem, before a span
     jr      C,wd_upd
     call    wd_oldname              ;REN: same blocks, previous 8.3
     jr      C,wd_upd
@@ -3347,9 +3482,14 @@ wdo_no:
     or      a
     ret
 
-; A directory write may keep the 8-character stem and change only the type.
-; Match that armed slot before an allocation-block span, so the cluster
-; create_chain stored is the one this write publishes.
+; Match the armed slot on the 8-character stem, before an allocation-block
+; span. This is the temporary-to-final-name step: PIP makes NAME.$$$, so the
+; close or the rename names the same stem with another type, and no other rule
+; can find the slot. The temporary's directory entry still has cluster 0, so
+; wd_pack would open a new slot for the new name; copying the slot chain into
+; fat_found_sclust is what makes wd_pack rename this slot instead. Two names
+; that already exist are matched after this by wd_oldname, on their blocks.
+; yash rewrites the FAT entry itself and does not send this record.
 ; IN: HL = CP/M dirent. OUT C: dir_ptr set. HL preserved.
 wd_same8:
     push    hl
@@ -3575,6 +3715,25 @@ wd_pempty:
     pop     hl
     ld      a,(fat_work+13)
     ld      (hl),a
+    ; Reserve one CP/M extent of blocks. synth_dir hands BDOS these block
+    ; numbers, so the new file never reaches BDOS's own FNDSPACE, and
+    ; map_al can name it when fat_wrual_bind sees the block.
+    push    hl
+    call    wd_freespan
+    pop     hl
+    jr      NC,wd_arm               ;no free block: leave the span empty
+    ld      bc,FF_FIRSTAL
+    add     hl,bc
+    ld      a,e
+    ld      (hl+),a
+    ld      a,d
+    ld      (hl+),a                  ;first_al
+    ld      a,4
+    ld      (hl+),a
+    ld      (hl),0                   ;n_al = 4 = 128 records
+    ld      a,(hstdsk)
+    call    fat_filebase            ;wd_freespan used fat_work for the table
+    ld      (fat_work),hl
     ld      a,(fat_work+14)
     call    pd_slot
 wd_arm:
@@ -3627,6 +3786,29 @@ wd_noslot:
     ld      (unamap_idx),a          ;this write has no packed slot
     ld      a,$01
     ld      (erflag),a
+    ret
+
+; wd_freespan
+; First 4 KiB block that no packed span on this drive covers.
+; IN: hstdsk. OUT: C and DE = that block; NC = none below 64K. Clobbers AF, BC, DE, HL.
+; map_al already answers "does a span cover this block", so probe from DIR_AL
+; upwards. The packed spans are laid out back to back, so the first free block
+; is the end of the last one and this normally runs once.
+wd_freespan:
+    ld      de,DIR_AL
+wfs_lp:
+    push    de
+    call    map_al
+    pop     de
+    jr      NC,wfs_free
+    inc     de
+    ld      a,d
+    or      e
+    jr      NZ,wfs_lp
+    or      a                       ;every block below 64K is spoken for
+    ret
+wfs_free:
+    scf
     ret
 
 ; _fat_dir_open
