@@ -1,0 +1,2142 @@
+;
+; Mini-FAT16/32 for CP/M-IDE (8085).
+;
+; Same PUBLIC API, BSS names, and function contracts as fatfs.asm /
+; fatfs.h. ROM-resident, no PHASE. Shell buffers live in fat_bss.asm
+; (RAM). The CP/M deblock buffer stays in the BIOS.
+;
+; C: PUBLIC _names. Pointers are __z88dk_fastcall (HL).
+; DWORD cluster/LBA is BCDE (E LSB); _fat_next/_fat_alloc/_fat_free/
+; _fat_clst2sect/_fat_dir_open load that little-endian dword from (HL).
+; Success: L=0 and carry set. Fail: L=1 and carry clear.
+; sccz80 treats a char return as an int, so these exits also clear H.
+;
+; FatFs R0.16 map (z88dk-libraries/ff/source/ff.c):
+;   check_fs / find_volume / mount_volume
+;   move_window / sync_window
+;   clst2sect, get_fat, put_fat, create_chain, remove_chain
+;   dir_sdi, dir_next, dir_find, dir_alloc, dir_register, dir_remove
+;
+; In scope: FAT16 and FAT32, 512-byte sectors, 8.3 SFN only.
+; Out of scope: FAT12, exFAT, LFN, GPT, FSInfo, directory stretch.
+;
+; FatFs cases we honour:
+;   cluster < 2 invalid; n_fatent = nclst + 2
+;   FAT16 EOC >= $F8; FAT32 EOC $0FFFFFF8..F (put_fat keeps bits 28-31)
+;   dirent 0x00 = end of directory; 0xE5 = deleted (reusable)
+;   skip AM_LFN ($0F) and AM_VOL; pack also skips '.', AM_DIR, AM_SYS
+;   files larger than remaining CP/M dirents are capped (8 MB / 256 extents)
+;   dir_next stops on 16-bit ofs wrap (2048 dirents) for LFN-heavy Windows dirs
+;   FAT32 root is BPB_RootClus32; cluster 0 means that root (ff dir_sdi)
+;   FAT16 root is static dirbase LBA
+;   SFD (VBR at LBA 0) then four MBR primary partitions
+;   1 or 2 FATs; csize power of 2; BytsPerSec == 512
+;
+; FatFs cases we skip (on purpose):
+;   JumpBoot $EB/$E9/$E8; GPT protective MBR; logical partitions
+;   FAT32 FSVer==0, n_rootent==0
+;   dir_next stretch (create_chain + dir_clear) when a subdir hits EOC
+;   FSInfo last_clst / free_clst
+;   first-byte $05 KANJI DDEM mapping
+;   dir_zap is E5 only; chain free is wrdir_cpm ERA / _fat_free
+;
+
+SECTION code_lib
+
+EXTERN  asm_disk_initialize
+EXTERN  ide_read_sector
+EXTERN  ide_write_sector
+
+EXTERN  _cpm_fat_vol
+EXTERN  fatwin
+EXTERN  fat_winsect
+EXTERN  fat_wflag
+EXTERN  fat_cwd
+EXTERN  fat_found_sclust
+EXTERN  fat_found_size
+EXTERN  dir_ptr
+EXTERN  dir_sclust
+EXTERN  dir_clust               ;cluster of the current directory sector
+EXTERN  dir_sect
+EXTERN  dir_ofs
+EXTERN  fat_work
+EXTERN  pack_sv
+EXTERN  clst_cache_sclust
+EXTERN  clst_cache_ci
+EXTERN  clst_cache_clst
+
+PUBLIC  clst2sect           ;cluster -> first sector LBA
+PUBLIC  fat_sync_window     ;write fatwin if dirty; mirror FAT#2
+PUBLIC  _fat_sync           ;C: fat_sync_window
+PUBLIC  _fat_dirty          ;C: mark fatwin dirty
+PUBLIC  fat_move_window     ;flush dirty, read LBA into fatwin
+PUBLIC  fat_mount           ;mount FAT16/32 from LBA 0 or MBR
+PUBLIC  _fat_mount          ;C: fat_mount
+PUBLIC  get_fat             ;next cluster from FAT entry
+PUBLIC  put_fat             ;store next cluster in FAT
+PUBLIC  clst_from_off       ;cluster containing file offset
+PUBLIC  create_chain        ;allocate and link a new cluster
+PUBLIC  remove_chain        ;free a cluster chain
+PUBLIC  dir_sdi             ;seek directory to byte offset
+PUBLIC  dir_next            ;next 32-byte dirent (no stretch)
+PUBLIC  dir_find            ;find 8.3 in current directory
+PUBLIC  _dir_find           ;C: dir_find
+PUBLIC  dir_create          ;alloc/register 8.3 (no stretch)
+PUBLIC  _dir_create         ;C: dir_create
+PUBLIC  dir_zap             ;mark dirent deleted (E5)
+PUBLIC  _dir_zap            ;C: dir_zap
+PUBLIC  _fat_dir_open       ;C: open dir from sclust dword
+PUBLIC  _fat_dir_read       ;C: copy 32-byte dirent; 0x00 = EOT
+PUBLIC  _fat_next           ;C: get_fat of dword at (HL)
+PUBLIC  _fat_alloc          ;C: create_chain of dword at (HL)
+PUBLIC  _fat_free           ;C: remove_chain of dword at (HL)
+PUBLIC  _fat_clst2sect      ;C: clst2sect of dword at (HL)
+PUBLIC  _fat_getfree        ;C: count free clusters into dword at (HL)
+
+
+; HL = src, DE = dst, BC = count. Advances HL/DE. Clobbers AF, BC.
+; 16-bit trip: dec bc / inc b / inc c (Z80 dec bc; jp nz is wrong on 8085).
+fat_copy:
+    ld      a,b
+    or      c
+    ret     Z
+    dec     bc
+    inc     b
+    inc     c
+fat_copy_lp:
+    ld      a,(hl+)
+    ld      (de+),a
+    dec     c
+    jp      NZ,fat_copy_lp
+    dec     b
+    jp      NZ,fat_copy_lp
+    ret
+
+; ff.c ld_32 / st_32 as *(DWORD *). Word cursor DE, native ld hl,(de) /
+; ld (de),hl. Last byte has no post-increment: HL at offset +3. Streamed
+; callers inc hl to the next dword. BCDE is E LSB.
+fat_ld32:
+    ex      de,hl
+    ld      hl,(de)
+    inc     de
+    inc     de
+    push    hl
+    ld      hl,(de)
+    inc     de
+    ld      bc,hl
+    pop     hl
+    ex      de,hl
+    ret
+
+fat_st32:
+    push    bc
+    ex      de,hl
+    ld      (de),hl
+    inc     de
+    inc     de
+    pop     hl
+    ld      (de),hl
+    inc     de
+    ex      de,hl
+    ret
+
+
+DEFC    FS_FAT16        = 2
+DEFC    FS_FAT32        = 3
+DEFC    MAX_FAT12       = $0FF5
+DEFC    MAX_FAT16       = $FFF5
+DEFC    BPB_BytsPerSec  = 11
+DEFC    BPB_SecPerClus  = 13
+DEFC    BPB_RsvdSecCnt  = 14
+DEFC    BPB_NumFATs     = 16
+DEFC    BPB_RootEntCnt  = 17
+DEFC    BPB_TotSec16    = 19
+DEFC    BPB_FATSz16     = 22
+DEFC    BPB_TotSec32    = 32
+DEFC    BPB_FATSz32     = 36
+DEFC    BPB_RootClus32  = 44
+DEFC    BS_55AA         = 510
+DEFC    MBR_PTE         = 446
+DEFC    SZ_PTE          = 16
+DEFC    PTE_StLba       = 8
+DEFC    DIR_Attr        = 11
+DEFC    DIR_ClusHI      = 20
+DEFC    DIR_ClusLO      = 26
+DEFC    DIR_FileSize    = 28
+DEFC    AM_LFN          = $0F
+DEFC    AM_VOL          = $08
+DEFC    AM_SYS          = $04
+DEFC    AM_DIR          = $10
+DEFC    FILE_MAX        = 64
+DEFC    DIR_AL          = 2             ;AL 0-1 reserved; DPB AL0=$C0 (256 dirents)
+DEFC    DIR_HST         = DIR_AL*8      ;host sectors in reserved dir ALs (BLS/512)
+DEFC    wrual           = 2             ;BDOS WRITE C=2; matches BIOS wrual
+DEFC    FILE_SIZ        = 24            ;flags+sclust+size+first_al+n_al+8.3
+DEFC    FF_FLAGS        = 0
+DEFC    FF_SCLUST       = 1
+DEFC    FF_SIZE         = 5
+DEFC    FF_FIRSTAL      = 9
+DEFC    FF_NAL          = 11
+DEFC    FF_NAME         = 13
+DEFC    FF_USED         = $80
+DEFC    EOC32           = $0FFFFFFF
+
+DEFC    AM_RDO          = $01
+DEFC    AM_HID          = $02
+
+
+; ff.c clst2sect: if (clst < 2 || clst >= n_fatent) fail;
+; clst -= 2; return database + csize * clst. csize is 2^n.
+; IN:  BCDE = cluster (B MSB … E LSB)
+; OUT: C: BCDE = LBA of first sector of cluster
+;      NC: fail
+; clobbers AF, HL
+clst2sect:
+    ld      hl,_cpm_fat_vol+4       ;n_fatent, little-endian
+    ld      a,e
+    sub     (hl+)
+    ld      a,d
+    sbc     a,(hl+)
+    ld      a,c
+    sbc     a,(hl+)
+    ld      a,b
+    sbc     a,(hl)
+    ret     NC                      ;cluster >= n_fatent
+    ld      a,e
+    sub     2
+    ld      e,a
+    ld      a,d
+    sbc     a,0
+    ld      d,a
+    ld      a,c
+    sbc     a,0
+    ld      c,a
+    ld      a,b
+    sbc     a,0
+    ld      b,a
+    jr      C,clst2sect_ov          ;cluster < 2
+    ld      hl,de                   ;DEHL = clst-2
+    ld      de,bc
+    ld      a,(_cpm_fat_vol+1)      ;csize is 2^n
+clst2sect_mul:
+    or      a
+    rra
+    or      a                       ;rra does not set Z
+    jr      Z,clst2sect_base
+    add     hl,hl
+    rl      de
+    jr      C,clst2sect_ov          ;csize*(clst-2) wrapped
+    jr      clst2sect_mul
+clst2sect_base:
+    ld      bc,de
+    ex      de,hl                   ;BCDE = (clst-2)*csize
+    ld      hl,_cpm_fat_vol+16      ;database
+    ld      a,(hl+)
+    add     a,e
+    ld      e,a
+    ld      a,(hl+)
+    adc     a,d
+    ld      d,a
+    ld      a,(hl+)
+    adc     a,c
+    ld      c,a
+    ld      a,(hl)
+    adc     a,b
+    ld      b,a
+    jr      C,clst2sect_ov          ;database + off wrapped
+    scf
+    ret
+
+clst2sect_ov:
+    or      a
+    ret
+
+; ff.c sync_window, fail closed. Writes FAT #1 first. wflag stays set
+; until every copy succeeds (ff clears it before FAT #2 and ignores a
+; failed mirror). n_fats >= 2 and winsect in FAT #1 (unsigned
+; winsect - fatbase < fatsz): write winsect + fatsz. Directory windows
+; are not mirrored. Mount only allows 1 or 2 FATs.
+; OUT: C: OK; NC: write failed
+; clobbers AF, BC, DE, HL (ide_write_sector contract)
+_fat_dirty:
+    ld      a,1
+    ld      (fat_wflag),a
+    ret
+
+_fat_sync:
+fat_sync_window:
+    ld      a,(fat_wflag)
+    or      a
+    jr      Z,fat_sync_ok           ;nothing dirty
+    ld      hl,(fat_winsect+2)
+    ld      bc,hl
+    ld      hl,(fat_winsect)
+    ex      de,hl
+    ld      hl,fatwin               ;high RAM FAT window
+    call    ide_write_sector        ;C: OK; HL += 512
+    ld      hl,1
+    ret     NC                      ;leave flag dirty
+    ld      a,(_cpm_fat_vol+24)     ;n_fats
+    cp      2
+    jr      C,fat_sync_clear        ;n_fats < 2
+    ld      hl,_cpm_fat_vol+8       ;winsect - fatbase
+    ld      a,(fat_winsect)
+    sub     (hl+)
+    ld      e,a
+    ld      a,(fat_winsect+1)
+    sbc     a,(hl+)
+    ld      d,a
+    ld      a,(fat_winsect+2)
+    sbc     a,(hl+)
+    ld      c,a
+    ld      a,(fat_winsect+3)
+    sbc     a,(hl)
+    jr      C,fat_sync_clear        ;winsect < fatbase
+    ld      b,a                     ;BCDE = winsect - fatbase
+    ld      hl,_cpm_fat_vol+20      ;compare to fatsz
+    ld      a,e
+    sub     (hl+)
+    ld      a,d
+    sbc     a,(hl+)
+    ld      a,c
+    sbc     a,(hl+)
+    ld      a,b
+    sbc     a,(hl)
+    jr      NC,fat_sync_clear       ;not in FAT #1
+    ld      hl,(fat_winsect+2)
+    ld      bc,hl                   ;park winsect high
+    ld      hl,(fat_winsect)
+    ld      de,(_cpm_fat_vol+20)
+    add     hl,de
+    ex      de,hl                   ;DE = winsect.lo + fatsz.lo
+    ld      hl,(_cpm_fat_vol+22)
+    ld      a,c
+    adc     a,l
+    ld      c,a
+    ld      a,b
+    adc     a,h
+    ld      b,a                     ;BCDE = winsect + fatsz
+    ld      hl,fatwin
+    call    ide_write_sector
+    ld      hl,1
+    ret     NC
+fat_sync_clear:
+    xor     a
+    ld      (fat_wflag),a
+fat_sync_ok:
+    ld      hl,0
+    scf
+    ret
+
+
+; ff.c move_window: flush if dirty, then read LBA into fatwin.
+; IN:  BCDE = LBA (B MSB … E LSB)
+; OUT: C: fatwin holds that sector
+;      NC: read failed
+; clobbers AF, HL; BCDE may be clobbered
+fat_move_window:
+    ld      hl,(fat_winsect)
+    ld      a,l
+    cp      e
+    jr      NZ,fat_move_do
+    ld      a,h
+    cp      d
+    jr      NZ,fat_move_do
+    ld      hl,(fat_winsect+2)
+    ld      a,l
+    cp      c
+    jr      NZ,fat_move_do
+    ld      a,h
+    cp      b
+    jr      NZ,fat_move_do
+    scf                             ;already in window
+    ret
+fat_move_do:
+    push    bc
+    push    de                      ;save LBA (ide_* and sync clobber)
+    call    fat_sync_window
+    pop     de
+    pop     bc
+    ret     NC
+    push    bc
+    push    de
+    ld      hl,fatwin               ;high RAM FAT window
+    call    ide_read_sector
+    pop     de
+    pop     bc
+    ret     NC
+    ex      de,hl
+    ld      (fat_winsect),hl
+    ld      hl,bc
+    ld      (fat_winsect+2),hl
+    xor     a
+    ld      (fat_wflag),a
+    scf
+    ret
+
+;------------------------------------------------------------------------------
+; fat_check_vbr — ff.c check_fs (FAT/FAT32 only)
+; Require 55AA, 512-byte sectors, csize 2^n, reserved != 0, 1 or 2 FATs.
+; No JumpBoot $EB/$E9/$E8 (ff accepts early MS-DOS VBRs without 55AA).
+; C = looks like a FAT16/32 VBR (type decided later from nclst).
+;------------------------------------------------------------------------------
+fat_check_vbr:
+    ld      a,(fatwin+BS_55AA)
+    cp      $55
+    jr      NZ,fat_check_fail
+    ld      a,(fatwin+BS_55AA+1)
+    cp      $AA
+    jr      NZ,fat_check_fail
+    ld      a,(fatwin+BPB_BytsPerSec)
+    or      a
+    jr      NZ,fat_check_fail
+    ld      a,(fatwin+BPB_BytsPerSec+1)
+    cp      2                       ;512
+    jr      NZ,fat_check_fail
+    ld      a,(fatwin+BPB_SecPerClus)
+    or      a
+    jr      Z,fat_check_fail
+    ld      b,a
+    dec     a
+    and     b
+    jr      NZ,fat_check_fail       ;not 2^n
+    ld      a,(fatwin+BPB_RsvdSecCnt)
+    ld      hl,fatwin+BPB_RsvdSecCnt+1
+    or      (hl)
+    jr      Z,fat_check_fail
+    ld      a,(fatwin+BPB_NumFATs)
+    cp      1
+    jr      Z,fat_check_ok
+    cp      2
+    jr      NZ,fat_check_fail
+fat_check_ok:
+    scf
+    ret
+fat_check_fail:
+    or      a
+    ret
+
+; Wait for ready, then SET FEATURES 8-bit. Cold CF is BSY after power-on;
+; SET FEATURES issued while BSY is ignored (warm reset then works).
+fat_ide_delay:
+    xor     a
+fat_ide_d0:
+    ex      (sp),hl
+    ex      (sp),hl
+    dec     a
+    jp      NZ,fat_ide_d0
+    ret
+
+; 8 tries of disk_initialize with delay. C: ready. NC: still busy.
+fat_ide_bringup:
+    ld      b,8
+fat_ide_br1:
+    push    bc
+    ld      l,0
+    call    asm_disk_initialize
+    pop     bc
+    ret     C
+    call    fat_ide_delay
+    dec     b
+    jp      NZ,fat_ide_br1
+    or      a
+    ret
+
+;------------------------------------------------------------------------------
+; fat_mount — ff.c find_volume + mount_volume
+; LBA 0 as SFD VBR; else four MBR primary PTEs (no GPT, no extended).
+; nclst from (tsect - reserved - fats - rootsecs) / csize.
+; FAT12 (nclst <= $0FF5) fails; FAT16 <= $FFF5; else FAT32.
+; FAT32 dirbase = BPB_RootClus32 (cluster); FAT16 dirbase = root LBA.
+; OUT: C OK
+;------------------------------------------------------------------------------
+_fat_mount:
+fat_mount:
+    ld      b,8
+fat_mount_cold:
+    push    bc
+    call    fat_ide_bringup
+    jp      NC,fat_mount_cold1
+    xor     a
+    ld      (fat_wflag),a
+    ld      (_cpm_fat_vol+25),a     ;free_valid
+    ld      hl,$FFFF
+    ld      (fat_winsect),hl
+    ld      (fat_winsect+2),hl
+    ld      bc,0
+    ld      de,0
+    call    fat_move_window
+    jp      NC,fat_mount_cold1
+    call    fat_check_vbr
+    pop     bc
+    jp      C,fat_parse_bpb
+    ld      a,(fatwin+BS_55AA)
+    cp      $55
+    jp      NZ,fat_mount_cold2
+    ld      a,(fatwin+BS_55AA+1)
+    cp      $AA
+    jp      NZ,fat_mount_cold2
+    jp      fat_mount_mbr
+fat_mount_cold1:
+    pop     bc
+fat_mount_cold2:
+    dec     b
+    jp      NZ,fat_mount_cold
+    ld      hl,1
+    or      a
+    ret
+
+fat_mount_mbr:
+    ld      hl,fatwin+MBR_PTE+PTE_StLba
+    ld      de,fat_work
+    ld      b,4
+fat_mount_savept:
+    push    bc
+    ld      bc,4
+    call    fat_copy
+    ld      bc,SZ_PTE-4
+    add     hl,bc
+    pop     bc
+    dec     b
+    jp      NZ,fat_mount_savept
+    ld      hl,fat_work
+    ld      b,4
+fat_mount_trypt:
+    push    bc
+    push    hl
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
+    ld      b,(hl)
+    ld      a,b
+    or      c
+    or      d
+    or      e
+    jr      Z,fat_mount_nextpt
+    call    fat_move_window
+    jr      NC,fat_mount_nextpt
+    call    fat_check_vbr
+    jr      C,fat_mount_gotpt
+fat_mount_nextpt:
+    pop     hl
+    ld      bc,4
+    add     hl,bc
+    pop     bc
+    dec     b
+    jp      NZ,fat_mount_trypt
+    ld      hl,1
+    or      a
+    ret
+fat_mount_gotpt:
+    pop     hl
+    pop     bc
+fat_parse_bpb:
+    ld      a,(fatwin+BPB_SecPerClus)
+    ld      (_cpm_fat_vol+1),a      ;csize
+    ld      a,(fatwin+BPB_NumFATs)
+    ld      (_cpm_fat_vol+24),a     ;n_fats
+    ld      hl,(fatwin+BPB_RootEntCnt)
+    ld      (_cpm_fat_vol+2),hl     ;n_rootent
+    ld      hl,(fatwin+BPB_FATSz16)
+    ex      de,hl
+    ld      a,d
+    or      e
+    jr      NZ,fat_mount_fsz
+    ld      hl,(fatwin+BPB_FATSz32+2)
+    ld      bc,hl
+    ld      hl,(fatwin+BPB_FATSz32)
+    ex      de,hl
+    jr      fat_mount_fsz32
+fat_mount_fsz:
+    ld      bc,0
+fat_mount_fsz32:
+    ex      de,hl
+    ld      (_cpm_fat_vol+20),hl    ;fatsz
+    ld      hl,bc
+    ld      (_cpm_fat_vol+22),hl
+    ld      hl,(fatwin+BPB_TotSec16)
+    ld      a,h
+    or      l
+    jr      NZ,fat_mount_tsz16
+    ld      hl,(fatwin+BPB_TotSec32+2)
+    ex      de,hl
+    ld      hl,(fatwin+BPB_TotSec32)
+    jr      fat_mount_tsz
+fat_mount_tsz16:
+    ld      de,0
+fat_mount_tsz:
+    ld      (fat_work+4),hl          ;tsect
+    ex      de,hl
+    ld      (fat_work+6),hl
+    ld      hl,(_cpm_fat_vol+22)
+    ex      de,hl
+    ld      hl,(_cpm_fat_vol+20)    ;fatsz
+    ld      a,(_cpm_fat_vol+24)
+    cp      2
+    jr      NZ,fat_mount_fatarea
+    add     hl,hl
+    rl      de                      ;fatsz * n_fats
+    jp      C,fat_mount_fail        ;CVE-2026-6682 analog
+fat_mount_fatarea:
+    ld      bc,hl
+    ld      hl,(fatwin+BPB_RsvdSecCnt)
+    add     hl,bc
+    jr      NC,fat_mount_sy1
+    inc     de
+    ld      a,d
+    or      e
+    jp      Z,fat_mount_fail
+fat_mount_sy1:
+    push    hl
+    ld      hl,(_cpm_fat_vol+2)     ;n_rootent
+    ld      bc,hl
+    pop     hl
+    ld      a,b
+    or      a
+    rra
+    ld      b,a
+    ld      a,c
+    rra
+    ld      c,a
+    ld      a,b
+    or      a
+    rra
+    ld      b,a
+    ld      a,c
+    rra
+    ld      c,a
+    ld      a,b
+    or      a
+    rra
+    ld      b,a
+    ld      a,c
+    rra
+    ld      c,a
+    ld      a,b
+    or      a
+    rra
+    ld      b,a
+    ld      a,c
+    rra
+    ld      c,a                       ;root sectors = n_rootent/16
+    add     hl,bc
+    jr      NC,fat_mount_sy2
+    inc     de
+    ld      a,d
+    or      e
+    jp      Z,fat_mount_fail
+fat_mount_sy2:
+    ld      (fat_work+8),hl          ;sysect
+    ex      de,hl
+    ld      (fat_work+10),hl
+    ld      hl,(fat_work+8)
+    ld      bc,hl
+    ld      hl,(fat_work+4)          ;tsect - sysect
+    sub     hl,bc
+    ld      (fat_work+12),hl
+    ld      hl,(fat_work+10)
+    ld      bc,hl
+    ld      hl,(fat_work+6)
+    ld      a,l
+    sbc     a,c
+    ld      l,a
+    ld      a,h
+    sbc     a,b
+    ld      h,a
+    ld      (fat_work+14),hl
+    jp      C,fat_mount_fail        ;tsect < sysect
+    ld      a,(_cpm_fat_vol+1)      ;csize = 2^n
+    ld      b,0
+fat_mount_log:
+    or      a
+    rra
+    or      a
+    jr      Z,fat_mount_shr
+    inc     b
+    jr      fat_mount_log
+fat_mount_shr:
+    ld      hl,(fat_work+14)
+    ex      de,hl
+    ld      hl,(fat_work+12)
+    ld      a,b
+    or      a
+    jr      Z,fat_mount_ncl
+fat_mount_shrl:
+    ld      a,d
+    or      a
+    rra
+    ld      d,a
+    ld      a,e
+    rra
+    ld      e,a
+    ld      a,h
+    rra
+    ld      h,a
+    ld      a,l
+    rra
+    ld      l,a
+    dec     b
+    jp      NZ,fat_mount_shrl
+fat_mount_ncl:
+    ld      (fat_work+12),hl         ;nclst low
+    ex      de,hl
+    ld      (fat_work+14),hl         ;nclst high
+    ld      a,h
+    or      l
+    or      d
+    or      e
+    jp      Z,fat_mount_fail
+    ld      a,h
+    or      l
+    jr      NZ,fat_mount_fat32
+    ld      hl,de                   ;low still in DE
+    ld      bc,MAX_FAT12+1
+    sub     hl,bc
+    jp      C,fat_mount_fail        ;FAT12 (ff MAX_FAT12 = $0FF5)
+    ld      hl,de
+    ld      bc,MAX_FAT16
+    sub     hl,bc
+    jr      Z,fat_mount_fat16
+    jr      NC,fat_mount_fat32
+fat_mount_fat16:
+    ld      a,FS_FAT16
+    jr      fat_mount_type
+fat_mount_fat32:
+    ld      a,FS_FAT32
+fat_mount_type:
+    ld      (_cpm_fat_vol),a
+    ld      hl,(fat_work+14)
+    ex      de,hl
+    ld      hl,(fat_work+12)
+    ld      bc,2
+    add     hl,bc
+    jr      NC,fat_mount_nfe
+    inc     de
+    ld      a,d
+    or      e
+    jp      Z,fat_mount_fail
+fat_mount_nfe:
+    ld      (_cpm_fat_vol+4),hl     ;n_fatent
+    ex      de,hl
+    ld      (_cpm_fat_vol+6),hl
+    ld      hl,(_cpm_fat_vol+4)
+    ld      de,(_cpm_fat_vol+6)
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,fat_mount_need32
+    ld      bc,255
+    add     hl,bc
+    jr      NC,fat_mount_need16
+    inc     de
+fat_mount_need16:
+    ld      l,h
+    ld      h,e
+    ld      e,d
+    ld      d,0
+    jr      fat_mount_needc
+fat_mount_need32:
+    ld      bc,127
+    add     hl,bc
+    jr      NC,fat_mount_need32s
+    inc     de
+fat_mount_need32s:
+    ld      b,7
+fat_mount_need32l:
+    ld      a,d
+    or      a
+    rra
+    ld      d,a
+    ld      a,e
+    rra
+    ld      e,a
+    ld      a,h
+    rra
+    ld      h,a
+    ld      a,l
+    rra
+    ld      l,a
+    dec     b
+    jp      NZ,fat_mount_need32l
+fat_mount_needc:
+    ld      bc,(_cpm_fat_vol+20)    ;fatsz - needed (C if fatsz < needed)
+    ld      a,c
+    sub     l
+    ld      a,b
+    sbc     a,h
+    ld      bc,(_cpm_fat_vol+22)
+    ld      a,c
+    sbc     a,e
+    ld      a,b
+    sbc     a,d
+    jp      C,fat_mount_fail
+    ld      hl,(fatwin+BPB_RsvdSecCnt)
+    ld      bc,hl
+    ld      hl,(fat_winsect)        ;fatbase = bsect + nrsv
+    add     hl,bc
+    ld      (_cpm_fat_vol+8),hl
+    ld      hl,(fat_winsect+2)
+    ld      bc,0
+    ld      a,l
+    adc     a,c
+    ld      l,a
+    ld      a,h
+    adc     a,b
+    ld      h,a
+    ld      (_cpm_fat_vol+10),hl
+    ld      hl,(fat_work+8)
+    ld      bc,hl
+    ld      hl,(fat_winsect)        ;database = bsect + sysect
+    add     hl,bc
+    ld      (_cpm_fat_vol+16),hl
+    ld      hl,(fat_work+10)
+    ld      bc,hl
+    ld      hl,(fat_winsect+2)
+    ld      a,l
+    adc     a,c
+    ld      l,a
+    ld      a,h
+    adc     a,b
+    ld      h,a
+    ld      (_cpm_fat_vol+18),hl
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,fat_mount_r32
+    ld      hl,(_cpm_fat_vol+2)
+    ld      bc,hl
+    ld      hl,(_cpm_fat_vol+16)    ;dirbase = database - rootsecs
+    ld      a,b
+    or      a
+    rra
+    ld      b,a
+    ld      a,c
+    rra
+    ld      c,a
+    ld      a,b
+    or      a
+    rra
+    ld      b,a
+    ld      a,c
+    rra
+    ld      c,a
+    ld      a,b
+    or      a
+    rra
+    ld      b,a
+    ld      a,c
+    rra
+    ld      c,a
+    ld      a,b
+    or      a
+    rra
+    ld      b,a
+    ld      a,c
+    rra
+    ld      c,a
+    sub     hl,bc
+    ld      (_cpm_fat_vol+12),hl
+    ld      hl,(_cpm_fat_vol+18)
+    ld      a,l
+    sbc     a,0
+    ld      l,a
+    ld      a,h
+    sbc     a,0
+    ld      h,a
+    ld      (_cpm_fat_vol+14),hl
+    jr      fat_mount_ok
+fat_mount_r32:
+    ld      hl,(fatwin+BPB_RootClus32)
+    ld      a,l
+    sub     2
+    ld      a,h
+    sbc     a,0
+    ld      de,(fatwin+BPB_RootClus32+2)
+    ld      a,e
+    sbc     a,0
+    ld      a,d
+    sbc     a,0
+    jp      C,fat_mount_fail        ;RootClus < 2
+    ld      hl,(fatwin+BPB_RootClus32)
+    ld      (_cpm_fat_vol+12),hl
+    ld      hl,(fatwin+BPB_RootClus32+2)
+    ld      (_cpm_fat_vol+14),hl
+    xor     a
+    ld      (_cpm_fat_vol+2),a
+    ld      (_cpm_fat_vol+3),a
+fat_mount_ok:
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,fat_mount_cwd32
+    xor     a
+    ld      (fat_cwd),a
+    ld      (fat_cwd+1),a
+    ld      (fat_cwd+2),a
+    ld      (fat_cwd+3),a
+    ld      hl,0
+    scf
+    ret
+fat_mount_cwd32:
+    ld      hl,(_cpm_fat_vol+12)    ;FAT32 root cluster
+    ld      (fat_cwd),hl
+    ld      hl,(_cpm_fat_vol+14)
+    ld      (fat_cwd+2),hl
+    ld      hl,0
+    scf
+    ret
+fat_mount_fail:
+    ld      hl,1
+    or      a
+    ret
+
+;------------------------------------------------------------------------------
+; fat_fatent: map cluster BCDE onto fatwin (ff get_fat/put_fat window).
+; Byte offset = clst*2 (FAT16) or clst*4 (FAT32); LBA = fatbase + offset/512.
+; Rejects cluster < 2 or cluster >= n_fatent. OUT C: HL -> the entry in fatwin.
+;------------------------------------------------------------------------------
+fat_fatent:
+    ld      a,e                     ;reject clst < 2
+    sub     2
+    ld      a,d
+    sbc     a,0
+    ld      a,c
+    sbc     a,0
+    ld      a,b
+    sbc     a,0
+    ret     C
+    ld      hl,_cpm_fat_vol+4       ;clst - n_fatent (BCDE live)
+    ld      a,e
+    sub     (hl+)
+    ld      a,d
+    sbc     (hl+)
+    ld      a,c
+    sbc     (hl+)
+    ld      a,b
+    sbc     a,(hl)
+    ret     NC                      ;clst >= n_fatent
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,fat_fatent32
+    ; FAT16: pff/ff WORD array. sect = fatbase + clst/256; off = (BYTE)clst*2
+    ld      l,e
+    ld      h,0
+    add     hl,hl                   ;off = (BYTE)clst * 2  (< 512)
+    push    hl
+    ld      e,d
+    ld      d,c
+    ld      c,b
+    ld      b,0                     ;BCDE = clst >> 8
+    jr      fat_fatent_sec
+fat_fatent32:
+    ; FAT32: pff DWORD array. sect = fatbase + clst/128; off = (clst%128)*4
+    ; (clst%128)*4 is 0..508 — must be 16-bit; add a,a wraps at 64.
+    ld      a,e
+    and     127
+    ld      l,a
+    ld      h,0
+    add     hl,hl
+    add     hl,hl
+    push    hl                      ;off 0..508
+    ld      a,e
+    rla                             ;C = clst bit 7
+    ld      e,d
+    ld      d,c
+    ld      c,b
+    ld      b,0                     ;clst >> 8
+    rl      de                      ;low *2 + bit 7
+    ld      a,c
+    rla
+    ld      c,a
+    ld      a,b
+    rla
+    ld      b,a                     ;clst >> 7
+fat_fatent_sec:
+    ld      hl,_cpm_fat_vol+8       ;+ fatbase
+    ld      a,(hl+)
+    add     a,e
+    ld      e,a
+    ld      a,(hl+)
+    adc     a,d
+    ld      d,a
+    ld      a,(hl+)
+    adc     a,c
+    ld      c,a
+    ld      a,(hl)
+    adc     a,b
+    ld      b,a
+    call    fat_move_window
+    pop     de                      ;offset in sector (< 512)
+    ret     NC
+    ld      hl,fatwin
+    add     hl,de
+    scf
+    ret
+
+; ff.c get_fat. FAT16 word; FAT32 dword & $0FFFFFFF.
+; EOC is folded to $0FFFFFFF (FAT16 val >= $F8; FAT32 >= $0FFFFFF8).
+get_fat:
+    call    fat_fatent
+    ret     NC
+    ex      de,hl                   ;DE = word cursor in fatwin
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,get_fat32
+    ld      hl,(de)                 ;ff ld_16
+    ld      a,h
+    cp      $F8                     ;FAT16 EOC $F8..$FF
+    jr      C,get_fat16ok
+    ld      de,$FFFF
+    ld      bc,$0FFF                ;fold to EOC32 for callers
+    scf
+    ret
+get_fat16ok:
+    ex      de,hl                   ;DE = cluster
+    ld      bc,0
+    scf
+    ret
+get_fat32:
+    ld      hl,(de)                 ;low
+    inc     de
+    inc     de
+    push    hl
+    ld      hl,(de)                 ;high
+    ld      a,h
+    and     $0F                     ;ff ld_32 & 0x0FFFFFFF
+    ld      b,a
+    ld      c,l
+    pop     de
+    cp      $0F
+    jr      NZ,get_fat32ok
+    ld      a,c
+    inc     a
+    jr      NZ,get_fat32ok
+    ld      a,d
+    inc     a
+    jr      NZ,get_fat32ok
+    ld      a,e
+    cp      $F8
+    jr      C,get_fat32ok
+    ld      de,$FFFF
+    ld      bc,$0FFF
+get_fat32ok:
+    scf
+    ret
+
+; ff.c put_fat. FAT16 stores 16 bits; FAT32 stores 28 bits and keeps
+; the on-disk high nibble (bits 28-31).
+; IN: BCDE=cluster, HL->DWORD next (LE)
+; If free_valid, bump free_clst when a free entry becomes used or
+; a used entry becomes free (create_chain / remove_chain).
+put_fat:
+    push    hl
+    call    fat_fatent
+    pop     de                      ;DE -> next dword
+    ret     NC
+    ld      a,(_cpm_fat_vol+25)
+    or      a
+    jr      Z,put_fat_cold
+    push    de
+    push    hl
+    call    fat_win_is_free
+    ld      a,0
+    jr      NZ,put_fat_old
+    inc     a
+put_fat_old:
+    pop     hl
+    pop     de
+    jr      put_fat_adj
+put_fat_cold:
+    xor     a
+put_fat_adj:
+    push    af                      ;A = 1 if old entry was free
+    push    de                      ;src for new-free test
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,put_fat32
+    ex      de,hl                   ;HL = src dword, DE = dest in window
+    push    de
+    ex      de,hl                   ;DE = src
+    ld      hl,(de)                 ;ff st_16
+    pop     de
+    ld      (de),hl
+put_fat_wrote:
+    pop     de
+    pop     af
+    ld      c,a                     ;old free
+    ld      a,(_cpm_fat_vol+25)
+    or      a
+    jr      Z,put_fat_dirty
+    push    bc
+    call    fat_src_is_free
+    pop     bc
+    ld      a,c
+    jr      Z,put_fat_new0
+    or      a
+    jr      Z,put_fat_dirty         ;used -> used
+    call    fat_nfree_dec           ;free -> used
+    jr      put_fat_dirty
+put_fat_new0:
+    or      a
+    jr      NZ,put_fat_dirty        ;free -> free
+    call    fat_nfree_inc           ;used -> free
+put_fat_dirty:
+    ld      a,1
+    ld      (fat_wflag),a
+    scf
+    ret
+put_fat32:
+    ld      a,(de+)
+    ld      (hl+),a
+    ld      a,(de+)
+    ld      (hl+),a
+    ld      a,(de+)
+    ld      (hl+),a
+    ld      a,(de)
+    and     $0F                     ;keep FAT32 high nibble on disk
+    ld      b,a
+    ld      a,(hl)
+    and     $F0
+    or      b
+    ld      (hl),a
+    jr      put_fat_wrote
+
+; Z if FAT entry at HL is free (ff ld_16==0 / ld_32&0x0FFFFFFF==0).
+; Preserves HL. put_fat cache and f_getfree window scan.
+fat_win_is_free:
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,fat_win_free32
+    ld      a,(hl)
+    inc     hl
+    or      (hl)
+    dec     hl
+    ret
+fat_win_free32:
+    push    bc
+    ld      a,(hl)
+    inc     hl
+    or      (hl)
+    inc     hl
+    or      (hl)
+    inc     hl
+    ld      b,a
+    ld      a,(hl)
+    and     $0F
+    dec     hl
+    dec     hl
+    dec     hl
+    or      b
+    pop     bc
+    ret
+
+; Z if LE dword at DE is a free next-cluster. Preserves DE, HL.
+fat_src_is_free:
+    push    hl
+    ex      de,hl
+    call    fat_win_is_free
+    ex      de,hl
+    pop     hl
+    ret
+
+fat_nfree_inc:
+    ld      hl,(_cpm_fat_vol+28)
+    inc     hl
+    ld      (_cpm_fat_vol+28),hl
+    ld      a,h
+    or      l
+    ret     NZ
+    ld      hl,(_cpm_fat_vol+30)
+    inc     hl
+    ld      (_cpm_fat_vol+30),hl
+    ret
+
+fat_nfree_dec:
+    ld      hl,(_cpm_fat_vol+28)
+    ld      a,h
+    or      l
+    push    hl
+    ld      hl,(_cpm_fat_vol+30)
+    or      h
+    or      l
+    pop     hl
+    ret     Z
+    ld      a,h
+    or      l
+    jr      NZ,fat_nfree_dec_lo
+    ld      hl,(_cpm_fat_vol+30)
+    dec     hl
+    ld      (_cpm_fat_vol+30),hl
+    ld      hl,(_cpm_fat_vol+28)
+fat_nfree_dec_lo:
+    dec     hl
+    ld      (_cpm_fat_vol+28),hl
+    ret
+
+; IN: HL -> {sclust:4, fptr:4} LE
+; OUT C: BCDE = cluster containing fptr
+; Cluster index is (fptr >> 9) / csize. Sequential CP/M I/O hits
+; clst_cache_* so we do not re-walk from sclust.
+clst_from_off:
+    call    fat_ld32
+    push    hl
+    ex      de,hl
+    ld      (fat_work),hl            ;sclust
+    ld      hl,bc
+    ld      (fat_work+2),hl
+    pop     hl
+    inc     hl
+    call    fat_ld32                 ;fptr
+    ; cluster index = (fptr >> 9) / csize. >>8 is a byte slide; >>1 after that.
+    ld      e,d
+    ld      d,c
+    ld      c,b
+    ld      b,0                     ;fptr >> 8
+    ld      a,c
+    or      a
+    rra
+    ld      c,a
+    ld      a,d
+    rra
+    ld      d,a
+    ld      a,e
+    rra
+    ld      e,a                       ;fptr >> 9 = sector index in CDE
+    ld      a,(_cpm_fat_vol+1)
+    ld      b,0
+cfo_log:
+    or      a
+    rra
+    or      a
+    jr      Z,cfo_div
+    inc     b
+    jr      cfo_log
+cfo_div:
+    ld      a,b
+    or      a
+    jr      Z,cfo_ci
+cfo_shr:
+    ld      a,c
+    or      a
+    rra
+    ld      c,a
+    ld      a,d
+    rra
+    ld      d,a
+    ld      a,e
+    rra
+    ld      e,a
+    dec     b
+    jp      NZ,cfo_shr
+cfo_ci:
+    ex      de,hl
+    ld      (fat_work+4),hl         ;want_ci — kept for the cache store
+    ld      hl,clst_cache_sclust
+    ld      a,(fat_work)
+    cp      (hl)
+    jr      NZ,cfo_from0
+    inc     hl
+    ld      a,(fat_work+1)
+    cp      (hl)
+    jr      NZ,cfo_from0
+    inc     hl
+    ld      a,(fat_work+2)
+    cp      (hl)
+    jr      NZ,cfo_from0
+    inc     hl
+    ld      a,(fat_work+3)
+    cp      (hl)
+    jr      NZ,cfo_from0
+    ld      hl,(fat_work+4)
+    ld      bc,hl
+    ld      hl,(clst_cache_ci)
+    sub     hl,bc                   ;cache_ci - want_ci
+    jr      Z,cfo_cached
+    jr      NC,cfo_from0            ;want is behind the cache
+    ld      hl,(clst_cache_ci)
+    ld      bc,hl
+    ld      hl,(fat_work+4)
+    sub     hl,bc
+    ld      (fat_work+8),hl         ;steps from cached cluster
+    ld      hl,(clst_cache_clst+2)
+    ld      bc,hl
+    ld      hl,(clst_cache_clst)
+    ex      de,hl
+    jr      cfo_loop
+cfo_from0:
+    ld      hl,(fat_work+4)
+    ld      (fat_work+8),hl         ;steps from sclust
+    ld      hl,(fat_work+2)
+    ld      bc,hl
+    ld      hl,(fat_work)
+    ex      de,hl
+cfo_loop:
+    ld      a,(fat_work+8)
+    ld      hl,fat_work+9
+    or      (hl)
+    jr      Z,cfo_have
+    call    get_fat
+    ret     NC
+    ld      a,b
+    cp      $0F
+    jr      NZ,cfo_store
+    ld      a,c
+    and     d
+    and     e
+    inc     a
+    jr      Z,cfo_bad
+cfo_store:
+    ld      hl,(fat_work+8)
+    dec     hl
+    ld      (fat_work+8),hl
+    jr      cfo_loop
+cfo_cached:
+    ld      hl,(clst_cache_clst+2)
+    ld      bc,hl
+    ld      hl,(clst_cache_clst)
+    ex      de,hl
+cfo_have:
+    ex      de,hl
+    ld      (clst_cache_clst),hl
+    ex      de,hl                   ;DE = cluster low (clst2sect wants BCDE)
+    ld      hl,bc
+    ld      (clst_cache_clst+2),hl
+    ld      hl,(fat_work)
+    ld      (clst_cache_sclust),hl
+    ld      hl,(fat_work+2)
+    ld      (clst_cache_sclust+2),hl
+    ld      hl,(fat_work+4)
+    ld      (clst_cache_ci),hl
+    scf
+    ret
+cfo_bad:
+    or      a
+    ret
+
+; ff.c create_chain (no last_clst hint, no FSInfo).
+; clst==0: scan from 2; else from clst+1, wrap once to 2.
+; Marks the new cluster EOC ($0FFFFFFF) and links the previous if any.
+; IN: BCDE = last cluster or 0
+; OUT C: BCDE = new cluster
+create_chain:
+    ld      hl,bc
+    ld      (fat_work+10),hl
+    ex      de,hl
+    ld      (fat_work+8),hl
+    ex      de,hl
+    xor     a
+    ld      (fat_work+7),a           ;wrap flag
+    ld      a,b
+    or      c
+    or      d
+    or      e
+    jr      Z,cc_from2
+    inc     de
+    ld      a,d
+    or      e
+    jr      NZ,cc_scan
+    inc     bc
+    jr      cc_scan
+cc_from2:
+    ld      de,2
+    ld      bc,0
+cc_scan:
+    ld      hl,bc
+    ld      (fat_work+14),hl
+    ex      de,hl
+    ld      (fat_work+12),hl
+    ex      de,hl
+    ld      hl,(_cpm_fat_vol+4)
+    ld      a,l
+    sub     e
+    ld      l,a
+    ld      a,h
+    sbc     a,d
+    ld      h,a
+    ld      a,(_cpm_fat_vol+6)
+    sbc     a,c
+    ld      c,a
+    ld      a,(_cpm_fat_vol+7)
+    sbc     a,b
+    jr      C,cc_wrap
+    or      c
+    or      h
+    or      l
+    jr      Z,cc_wrap               ;search >= n_fatent
+    ld      hl,(fat_work+14)
+    ld      bc,hl
+    ld      hl,(fat_work+12)
+    ex      de,hl
+    call    get_fat
+    ret     NC
+    ld      a,b
+    or      c
+    or      d
+    or      e
+    jr      NZ,cc_next              ;in use
+    ld      hl,(fat_work+14)
+    ld      bc,hl
+    ld      hl,(fat_work+12)
+    ex      de,hl
+    ld      hl,cc_eoc
+    call    put_fat
+    ret     NC
+    ld      a,(fat_work+8)
+    ld      hl,fat_work+9
+    or      (hl+)
+    or      (hl+)
+    or      (hl)
+    jr      Z,cc_ok
+    push    bc
+    push    de
+    ld      hl,(fat_work+10)
+    ld      bc,hl
+    ld      hl,(fat_work+8)
+    ex      de,hl
+    ld      hl,fat_work+12
+    call    put_fat
+    pop     de
+    pop     bc
+    ret     NC
+cc_ok:
+    call    fat_sync_window
+    jr      NC,cc_ret_cl            ;FAT#2 failed: cluster is on FAT#1
+cc_ret_cl:
+    ld      hl,(fat_work+14)
+    ld      bc,hl
+    ld      hl,(fat_work+12)
+    ex      de,hl
+    scf
+    ret
+cc_next:
+    ld      hl,(fat_work+14)
+    ld      bc,hl
+    ld      hl,(fat_work+12)
+    ex      de,hl
+    inc     de
+    ld      a,d
+    or      e
+    jr      NZ,cc_scan
+    inc     bc
+    jr      cc_scan
+cc_wrap:
+    ld      a,(fat_work+7)
+    or      a
+    jr      NZ,cc_fail
+    inc     a
+    ld      (fat_work+7),a
+    ld      a,(fat_work+8)
+    ld      hl,fat_work+9
+    or      (hl+)
+    or      (hl+)
+    or      (hl)
+    jr      Z,cc_fail
+    jp      cc_from2
+cc_fail:
+    or      a
+    ret
+cc_eoc:
+    defb    $FF,$FF,$FF,$0F
+
+; ff.c remove_chain (entire chain, pclst=0). Walks until 0 or EOC,
+; putting 0 in each FAT entry. No TRIM / bitmap.
+; IN: BCDE = start cluster
+remove_chain:
+    ld      a,b
+    or      c
+    or      d
+    or      e
+    scf
+    ret     Z
+    ld      hl,0
+    ld      (fat_work),hl            ;step cap (hang on cyclic FAT)
+rc_loop:
+    ld      hl,(fat_work)
+    inc     hl
+    ld      (fat_work),hl
+    ld      a,h
+    or      l
+    jr      Z,rc_fail
+    ld      hl,bc
+    ld      (fat_work+10),hl
+    ex      de,hl
+    ld      (fat_work+8),hl
+    ex      de,hl
+    call    get_fat
+    ret     NC
+    ex      de,hl
+    ld      (fat_work+12),hl         ;next
+    ld      hl,bc
+    ld      (fat_work+14),hl
+    ld      hl,(fat_work+10)
+    ld      bc,hl
+    ld      hl,(fat_work+8)
+    ex      de,hl
+    ld      hl,cc_zero
+    call    put_fat
+    ret     NC
+    ld      hl,(fat_work+14)
+    ld      bc,hl
+    ld      hl,(fat_work+12)
+    ex      de,hl
+    ld      a,b
+    or      c
+    or      d
+    or      e
+    jr      Z,rc_done
+    ld      a,b
+    cp      $0F
+    jr      NZ,rc_loop
+    ld      a,c
+    and     d
+    and     e
+    inc     a
+    jr      NZ,rc_loop
+rc_done:
+    scf
+    ret
+rc_fail:
+    or      a
+    ret
+cc_zero:
+    defb    0,0,0,0
+
+; HL = max byte offset of FAT16 static root: n_rootent*32, clamped so
+; the root does not extend into database.
+fat_root16_max:
+    ld      hl,(_cpm_fat_vol+2)
+    ld      a,l
+    and     $F0
+    ld      l,a
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl
+    push    hl
+    ld      a,(_cpm_fat_vol+18)
+    ld      hl,_cpm_fat_vol+14
+    or      (hl)
+    jr      NZ,frm_nre
+    ld      hl,(_cpm_fat_vol+16)
+    ld      de,(_cpm_fat_vol+12)
+    ld      bc,de
+    sub     hl,bc
+    jr      Z,frm_nre
+    jr      C,frm_nre
+    ld      a,h
+    or      a
+    jr      NZ,frm_nre
+    ld      h,l
+    ld      l,0
+    add     hl,hl
+    pop     de
+    push    hl
+    ld      bc,de
+    sub     hl,bc
+    pop     hl
+    ret     C
+    ex      de,hl
+    ret
+frm_nre:
+    pop     hl
+    ret
+
+; ff.c dir_sdi. Cluster 0 = FAT16 static root at dirbase LBA.
+; FAT32 cluster 0 is the root cluster (dirbase), matching ff dir_sdi.
+; FAT32 / subdir: follow the chain (clst_from_off). Offset must be
+; 32-byte aligned by the caller.
+; IN: BCDE = dir start cluster (0 = FAT16 root / FAT32 root), HL = byte offset
+dir_sdi:
+    ld      (dir_ofs),hl
+    ld      a,b
+    or      c
+    or      d
+    or      e
+    jr      NZ,dsdi_chain_save
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      NZ,dsdi_root16
+    ld      hl,(_cpm_fat_vol+12)
+    ex      de,hl
+    ld      hl,(_cpm_fat_vol+14)
+    ld      bc,hl
+    jp      dsdi_chain_save
+dsdi_root16:
+    ex      de,hl                   ;DE = ofs; HL = 0
+    ld      (dir_sclust),hl
+    ld      (dir_sclust+2),hl
+    ld      (dir_clust),hl          ;static FAT16 root
+    ld      (dir_clust+2),hl
+    push    de                      ;ofs
+    call    fat_root16_max
+    ld      bc,hl                   ;max
+    pop     hl                      ;ofs
+    ld      de,hl
+    sub     hl,bc
+    jp      NC,dsdi_end             ;unsigned ofs >= max
+    ex      de,hl                   ;HL = ofs
+dsdi_root:
+    ld      a,h                     ;offset >> 9
+    or      a
+    rra
+    ld      e,a
+    ld      d,0
+    ld      hl,(_cpm_fat_vol+12)    ;dirbase LBA
+    add     hl,de
+    ld      (dir_sect),hl
+    ld      hl,(_cpm_fat_vol+14)
+    ld      de,0
+    ld      a,l
+    adc     a,e
+    ld      l,a
+    ld      a,h
+    adc     a,d
+    ld      h,a
+    ld      (dir_sect+2),hl
+    ld      a,(dir_ofs)
+    ld      e,a
+    ld      a,(dir_ofs+1)
+    and     1
+    ld      d,a
+    ld      hl,fatwin
+    add     hl,de
+    ld      (dir_ptr),hl
+    ld      hl,(dir_sect+2)
+    ld      bc,hl
+    ld      hl,(dir_sect)
+    ex      de,hl
+    call    fat_move_window
+    ret
+dsdi_chain_save:
+    ld      hl,bc
+    ld      (dir_sclust+2),hl
+    ex      de,hl
+    ld      (dir_sclust),hl
+dsdi_chain:
+    ld      de,dir_sclust
+    ld      hl,(de)
+    ld      (fat_work),hl
+    inc     de
+    inc     de
+    ld      hl,(de)
+    ld      (fat_work+2),hl          ;sclust; fptr follows
+    ld      hl,(dir_ofs)
+    ld      (fat_work+4),hl
+    ld      hl,0
+    ld      (fat_work+6),hl          ;fptr 32-bit
+    ld      hl,fat_work
+    call    clst_from_off
+    ret     NC
+    ld      hl,de
+    ld      (dir_clust),hl          ;cluster containing ofs
+    ld      hl,bc
+    ld      (dir_clust+2),hl
+    call    clst2sect
+    ret     NC
+    ; add sector-in-cluster: (dir_ofs >> 9) % csize
+    ld      a,(dir_ofs+1)
+    or      a
+    rra                             ;offset/512 low
+    ld      hl,_cpm_fat_vol+1
+    ld      l,(hl)                  ;csize
+    dec     l
+    and     l                       ;mod csize if csize 2^n
+    ld      l,a
+    ld      h,0
+    add     hl,de                   ;HL = LBA + sector-in-cluster
+    jr      NC,dsdi_sec
+    inc     bc
+dsdi_sec:
+    ld      (dir_sect),hl
+    ex      de,hl                   ;DE = LBA low for ide
+    ld      hl,bc
+    ld      (dir_sect+2),hl
+    call    fat_move_window
+    ret     NC
+    ld      a,(dir_ofs)
+    ld      e,a
+    ld      a,(dir_ofs+1)
+    and     1
+    ld      d,a
+    ld      hl,fatwin
+    add     hl,de
+    ld      (dir_ptr),hl
+    scf
+    ret
+dsdi_end:
+    or      a
+    ret
+
+; ff.c dir_next with stretch=0. No create_chain + dir_clear when a
+; clustered directory hits EOC — the table is fixed size.
+; Same-sector: pointer walk (SZDIRE). Sector change: sect++.
+; Cluster change: get_fat(dir_clust) then clst2sect (no stretch).
+dir_next:
+    ld      hl,(dir_ofs)
+    ld      bc,32
+    add     hl,bc
+    jr      C,dir_next_end          ;ofs wrap: 2048 dirents (LFN-heavy dirs)
+    ld      a,l
+    or      a
+    jr      NZ,dir_next_same        ;ofs % 512 != 0
+    ld      a,h
+    and     1
+    jr      Z,dir_next_sect
+dir_next_same:
+    ld      (dir_ofs),hl
+    ld      hl,(dir_ptr)
+    ld      de,hl+32
+    ex      de,hl
+    ld      (dir_ptr),hl
+    scf
+    ret
+dir_next_sect:
+    ld      (dir_ofs),hl
+    ld      hl,(dir_clust)
+    ld      a,h
+    or      l
+    ld      hl,(dir_clust+2)
+    or      h
+    or      l
+    jr      NZ,dir_next_dyn
+    call    fat_root16_max
+    ld      bc,hl                   ;max
+    ld      hl,(dir_ofs)
+    sub     hl,bc
+    jp      NC,dir_next_end         ;unsigned ofs >= max
+dir_next_inc:
+    ld      hl,(dir_sect)
+    inc     hl
+    ld      (dir_sect),hl
+    ld      a,h
+    or      l
+    jr      NZ,dir_next_win
+    ld      hl,(dir_sect+2)
+    inc     hl
+    ld      (dir_sect+2),hl
+    jr      dir_next_win
+dir_next_dyn:
+    ld      a,(dir_ofs+1)
+    or      a
+    rra                             ;ofs / 512
+    ld      hl,_cpm_fat_vol+1
+    ld      l,(hl)                  ;csize
+    dec     l
+    and     l                       ;(ofs/512) & (csize-1)
+    jr      NZ,dir_next_inc         ;still in this cluster
+    ld      hl,(dir_clust+2)
+    ld      bc,hl
+    ld      hl,(dir_clust)
+    ex      de,hl
+    call    get_fat
+    jr      NC,dir_next_end
+    ld      a,b
+    cp      $0F
+    jr      NZ,dir_next_got
+    ld      a,c
+    and     d
+    and     e
+    inc     a
+    jr      Z,dir_next_end          ;EOC
+dir_next_got:
+    ld      a,e
+    sub     2
+    ld      a,d
+    sbc     a,0
+    ld      a,c
+    sbc     a,0
+    ld      a,b
+    sbc     a,0
+    jr      C,dir_next_end          ;cluster < 2
+    ld      hl,de
+    ld      (dir_clust),hl
+    ld      hl,bc
+    ld      (dir_clust+2),hl
+    call    clst2sect
+    jr      NC,dir_next_end
+    ld      hl,de
+    ld      (dir_sect),hl
+    ld      hl,bc
+    ld      (dir_sect+2),hl
+dir_next_win:
+    ld      hl,(dir_sect+2)
+    ld      bc,hl
+    ld      hl,(dir_sect)
+    ex      de,hl
+    call    fat_move_window
+    ret     NC
+    ld      hl,fatwin               ;ofs % 512 == 0
+    ld      (dir_ptr),hl
+    scf
+    ret
+dir_next_end:
+    or      a
+    ret
+
+; ff.c dir_find (no LFN). 0x00 ends the table; 0xE5 is deleted.
+; Skip AM_VOL and AM_LFN ($0F). 8.3 compare is 11 raw bytes.
+; IN: HL -> 11-byte 8.3
+; OUT C and L=0, H=0: found, fat_found_* and dir_ptr filled. L=1: miss.
+_dir_find:
+dir_find:
+    ld      (pack_sv),hl            ;8.3; dir_sdi clobbers fat_work
+    ld      hl,(dir_sclust+2)
+    ld      bc,hl
+    ld      hl,(dir_sclust)
+    ex      de,hl
+    ld      hl,0
+    call    dir_sdi
+    ld      hl,1
+    ret     NC
+df_loop:
+    ld      hl,(dir_ptr)
+    ld      a,(hl)
+    or      a                       ;0x00 = end of directory
+    jr      Z,df_miss
+    cp      $E5                     ;deleted
+    jr      Z,df_next
+    ld      de,hl+DIR_Attr
+    ld      a,(de)
+    and     AM_VOL
+    jr      NZ,df_next
+    ld      a,(de)
+    cp      AM_LFN
+    jr      Z,df_next
+    ld      hl,(dir_ptr)
+    ex      de,hl
+    ld      hl,(pack_sv)
+    ld      b,11
+df_cmp:
+    ld      a,(de+)
+    cp      (hl+)
+    jr      NZ,df_next
+    dec     b
+    jp      NZ,df_cmp
+    ld      hl,(dir_ptr)
+    ld      de,hl+DIR_ClusLO
+    ld      hl,(de)                 ;ff ld_16 DIR_FstClusLO
+    ld      (fat_found_sclust),hl
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    ld      hl,0
+    jr      NZ,df_hi
+    ld      hl,(dir_ptr)
+    ld      de,hl+DIR_ClusHI
+    ld      hl,(de)                 ;ff ld_16 DIR_FstClusHI
+df_hi:
+    ld      (fat_found_sclust+2),hl
+    ld      hl,(dir_ptr)
+    ld      de,hl+DIR_FileSize
+    ld      hl,(de)
+    ld      (fat_found_size),hl
+    inc     de
+    inc     de
+    ld      hl,(de)
+    ld      (fat_found_size+2),hl
+    ld      hl,0
+    scf
+    ret
+df_next:
+    call    dir_next
+    jr      C,df_loop
+df_miss:
+    ld      hl,1
+    or      a
+    ret
+
+; ff.c dir_alloc(n=1) + dir_register SFN. Reuses 0x00 or 0xE5.
+; Does not stretch the directory if the table is full.
+; IN: HL -> 11-byte 8.3
+_dir_create:
+dir_create:
+    ld      (pack_sv),hl            ;8.3; dir_sdi clobbers fat_work
+    ld      hl,(dir_sclust+2)
+    ld      bc,hl
+    ld      hl,(dir_sclust)
+    ex      de,hl
+    ld      hl,0
+    call    dir_sdi
+    ld      hl,1
+    ret     NC
+dc_loop:
+    ld      hl,(dir_ptr)
+    ld      a,(hl)
+    or      a                       ;free: 0x00 or 0xE5
+    jr      Z,dc_fill
+    cp      $E5
+    jr      Z,dc_fill
+    call    dir_next
+    jr      C,dc_loop
+    ld      hl,1
+    or      a
+    ret
+dc_fill:
+    ld      hl,(dir_ptr)
+    ld      b,32
+    xor     a
+dc_z:
+    ld      (hl+),a
+    dec     b
+    jp      NZ,dc_z
+    ld      hl,(dir_ptr)
+    ex      de,hl
+    ld      hl,(pack_sv)
+    ld      bc,11
+    call    fat_copy
+    ld      a,1
+    ld      (fat_wflag),a
+    ld      hl,0
+    scf
+    ret
+
+; ff.c dir_remove (no LFN): first byte := $E5. Does not free the chain.
+_dir_zap:
+dir_zap:
+    ld      hl,(dir_ptr)
+    ld      (hl),$E5                ;DDEM; chain free is the caller's job
+    ld      a,1
+    ld      (fat_wflag),a
+    ld      hl,0
+    scf
+    ret
+
+; HL -> DWORD start cluster. dir_sdi at offset 0. L=0 success.
+_fat_dir_open:
+    call    fat_ld32
+    ld      hl,0
+    call    dir_sdi
+    ld      hl,0
+    ret     C
+    inc     l
+    ret
+
+; HL -> 32-byte dirent. Copy dir_ptr; first byte 0x00 is EOT (L=1).
+_fat_dir_read:
+    push    hl
+    ld      hl,(dir_ptr)
+    ld      a,(hl)
+    or      a
+    jr      Z,fat_dir_read_end
+    pop     de
+    ld      bc,32
+    call    fat_copy
+    call    dir_next
+    ld      hl,0
+    ret
+fat_dir_read_end:
+    pop     hl
+    ld      (hl),0
+    ld      hl,1
+    ret
+
+; HL -> DWORD cluster (LE). Write next cluster back. L=0 success.
+; Self-loop (next == clst) is corrupt: fail closed.
+_fat_next:
+    push    hl
+    call    fat_ld32
+    push    de
+    push    bc
+    ex      de,hl
+    ld      (pack_sv),hl
+    pop     hl
+    push    hl
+    ld      (pack_sv+2),hl
+    pop     bc
+    pop     de
+    call    get_fat
+    pop     hl
+    jr      NC,fat_next_fail
+    ld      a,(pack_sv)
+    cp      e
+    jr      NZ,fat_next_store
+    ld      a,(pack_sv+1)
+    cp      d
+    jr      NZ,fat_next_store
+    ld      a,(pack_sv+2)
+    cp      c
+    jr      NZ,fat_next_store
+    ld      a,(pack_sv+3)
+    cp      b
+    jr      Z,fat_next_fail
+fat_next_store:
+    call    fat_st32
+    ld      hl,0
+    ret
+fat_next_fail:
+    ld      hl,1
+    ret
+
+; HL -> DWORD last cluster (0 = new chain). Write new cluster back.
+_fat_alloc:
+    push    hl
+    call    fat_ld32
+    call    create_chain
+    pop     hl
+    jr      NC,fat_alloc_fail
+    call    fat_st32
+    ld      hl,0
+    ret
+fat_alloc_fail:
+    ld      hl,1
+    ret
+
+; HL -> DWORD start cluster.
+_fat_free:
+    call    fat_ld32
+    call    remove_chain
+    ld      hl,0
+    ret     C
+    inc     l
+    ret
+
+; HL -> DWORD cluster in, LBA out.
+_fat_clst2sect:
+    push    hl
+    call    fat_ld32
+    call    clst2sect
+    pop     hl
+    jr      NC,fat_c2s_fail
+    call    fat_st32
+    ld      hl,0
+    ret
+fat_c2s_fail:
+    ld      hl,1
+    ret
+
+; ff.c f_getfree FAT16/32 window scan (no FSInfo). Count zero entries
+; in n_fatent FAT slots (0 and 1 are never free on a valid volume).
+; Cache: free_valid / free_clst; put_fat updates the count.
+; HL -> DWORD out. L=0 success.
+; Uses: fat_work+0 nfree, +4 sect, +8 remaining
+_fat_getfree:
+    push    hl
+    ld      a,(_cpm_fat_vol+25)
+    or      a
+    jr      Z,gf_scan
+    ld      hl,(_cpm_fat_vol+28)
+    ex      de,hl
+    ld      hl,(_cpm_fat_vol+30)
+    ld      bc,hl
+    jr      gf_store
+gf_scan:
+    ld      hl,0
+    ld      (fat_work),hl           ;nfree
+    ld      (fat_work+2),hl
+    ld      hl,(_cpm_fat_vol+8)     ;sect = fatbase
+    ld      (fat_work+4),hl
+    ld      hl,(_cpm_fat_vol+10)
+    ld      (fat_work+6),hl
+    ld      hl,(_cpm_fat_vol+4)     ;remaining = n_fatent
+    ld      (fat_work+8),hl
+    ld      hl,(_cpm_fat_vol+6)
+    ld      (fat_work+10),hl
+gf_loop:
+    ld      hl,(fat_work+8)
+    ld      a,h
+    or      l
+    ld      hl,(fat_work+10)
+    or      h
+    or      l
+    jr      Z,gf_scanned
+    ld      hl,(fat_work+6)
+    ld      bc,hl
+    ld      hl,(fat_work+4)
+    ex      de,hl
+    call    fat_move_window
+    jr      NC,gf_fail
+    ld      hl,(fat_work+4)
+    inc     hl
+    ld      (fat_work+4),hl
+    ld      a,h
+    or      l
+    jr      NZ,gf_got
+    ld      hl,(fat_work+6)
+    inc     hl
+    ld      (fat_work+6),hl
+gf_got:
+    ld      hl,fatwin
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,gf32
+    ld      b,0                     ;256 FAT16 entries / sector
+gf16_lp:
+    call    fat_win_is_free
+    jr      NZ,gf16_used
+    call    gf_inc
+gf16_used:
+    ld      de,hl+2
+    ex      de,hl
+    call    gf_dec
+    jr      Z,gf_scanned
+    dec     b
+    jr      NZ,gf16_lp
+    jr      gf_loop
+gf32:
+    ld      b,128
+gf32_lp:
+    call    fat_win_is_free
+    jr      NZ,gf32_used
+    call    gf_inc
+gf32_used:
+    ld      de,hl+4
+    ex      de,hl
+    call    gf_dec
+    jr      Z,gf_scanned
+    dec     b
+    jr      NZ,gf32_lp
+    jr      gf_loop
+gf_scanned:
+    ld      a,1
+    ld      (_cpm_fat_vol+25),a
+    ld      hl,(fat_work)
+    ld      (_cpm_fat_vol+28),hl
+    ex      de,hl
+    ld      hl,(fat_work+2)
+    ld      (_cpm_fat_vol+30),hl
+    ld      bc,hl
+gf_store:
+    pop     hl
+    call    fat_st32
+    ld      hl,0
+    scf
+    ret
+gf_fail:
+    pop     hl
+    ld      hl,1
+    or      a
+    ret
+
+gf_inc:
+    push    hl
+    ld      hl,(fat_work)
+    inc     hl
+    ld      (fat_work),hl
+    ld      a,h
+    or      l
+    jr      NZ,gf_inc_ok
+    ld      hl,(fat_work+2)
+    inc     hl
+    ld      (fat_work+2),hl
+gf_inc_ok:
+    pop     hl
+    ret
+
+; Z if remaining hit 0
+gf_dec:
+    push    hl
+    ld      hl,(fat_work+8)
+    ld      a,h
+    or      l
+    jr      NZ,gf_dec_lo
+    ld      hl,(fat_work+10)
+    dec     hl
+    ld      (fat_work+10),hl
+    ld      hl,(fat_work+8)
+gf_dec_lo:
+    dec     hl
+    ld      (fat_work+8),hl
+    ld      a,h
+    or      l
+    ld      hl,(fat_work+10)
+    or      h
+    or      l
+    pop     hl
+    ret

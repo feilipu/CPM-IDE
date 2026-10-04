@@ -411,7 +411,7 @@ Of course other development workflows are possible, as is simply mounting the [Z
 
 ### z88dk applications under CP/M-IDE (`-subtype=cpm`)
 
-The **CP/M-IDE ROM** is built with bare-metal serial subtypes (`-subtype=sio` / `uart` / `acia`, or the 8085 hybrids) and a **read-only** FatFs package (`ff_ro` / `ff_85_ro`) so the shell can mount `.CPM` drive files on the FAT volume. That is **firmware**, not a CP/M application.
+The **CP/M-IDE ROM** is built with bare-metal serial subtypes (`-subtype=sio` / `uart` / `acia`, or the 8085 hybrids). The shell mounts `.CPM` drive files through `common/fatfs.asm` (8085: `fatfs_85.asm`), linked from `cpm22.lst`. That is **firmware**, not a CP/M application.
 
 **CP/M applications** (`.COM` files you upload and run under the CCP) should be built with the RC2014 **CP/M subtype**:
 
@@ -429,7 +429,7 @@ zcc +rc2014 -subtype=cpm -clib=new app.c \
   -llib/rc2014/ff -llib/rc2014/time -o app -m
 ```
 
-Both stacks may be used in one binary (BDOS files and FatFs volumes such as `0:`). Do not use the ROM shell’s `ff_ro` package for write-capable apps.
+Both stacks may be used in one binary (BDOS files and FatFs volumes such as `0:`). A CP/M application that wants ChaN `f_*` links `ff`, not the ROM shell.
 
 Policy, dual-stack rules, and fuller recipes:
 
@@ -443,28 +443,28 @@ The z88dk command lines to build the **CP/M-IDE ROM** (firmware) for Z80 CPU is 
 
 First though, refer to the library, disk and buffer configuration notes below.
 
-`zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m -llib/rc2014/ff_ro --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-pata-sio -create-app`
+`zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-pata-sio -create-app`
 
-`zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m -llib/rc2014/ff_ro --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-sio -create-app`
+`zcc +rc2014 -subtype=sio -SO3 --opt-code-speed -m --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-sio -create-app`
 
-`zcc +rc2014 -subtype=uart -SO3 --opt-code-speed -m -llib/rc2014/ff_ro --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-uart -create-app`
+`zcc +rc2014 -subtype=uart -SO3 --opt-code-speed -m --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-uart -create-app`
 
-`zcc +rc2014 -subtype=acia -SO3 --opt-code-speed -m -llib/rc2014/ff_ro --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-acia -create-app`
+`zcc +rc2014 -subtype=acia -SO3 --opt-code-speed -m --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-acia -create-app`
 
 
 Alternate z88dk command lines to build the CP/M-IDE for the 8085 CPU Module is below. The `rc2014` target and relevant subtype should be selected, from within the relevant directory. Set `Z88DK` to your z88dk install root. The `-I${Z88DK}/include` path must precede the `_DEVELOPMENT/common` include path so classic `<stdio.h>` is used (required for `stdin`/`stdout` on the hybrid 8085 CRT).
 
-`zcc +rc2014 -subtype=uart85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 -llib/rc2014/ff_85_ro @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
+`zcc +rc2014 -subtype=uart85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
 
-`zcc +rc2014 -subtype=uart85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 -llib/rc2014/ff_85_ro @cpm22.lst -o ../rc2014-cpm22-8085-cf-uart -create-app`
+`zcc +rc2014 -subtype=uart85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-uart -create-app`
 
-`zcc +rc2014 -subtype=acia85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 -llib/rc2014/ff_85_ro @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
+`zcc +rc2014 -subtype=acia85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
 
-Prior to running the above build commands, in addition to the normal z88dk provided libraries, a [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) provided by [ChaN](http://elm-chan.org/fsw/ff/00index_e.html) and customised for read-only for the RC2014 must be installed. Copy `ff_ro.lib` into `lib/clibs/sdcc_ix/lib/rc2014/` (that is the `-L` path used by both `-clib=sdcc_ix` and the default `-clib=sdcc_iy`). Copy `ff_85_ro.lib` into `lib/clibs/sccz80/lib/rc2014/` for the 8085 builds. The SDCC `ff_ro` object is built once with `-clib=sdcc_iy` (`--reserve-regs-iy`); do not keep a second copy under `sdcc_iy/`. Rebuild against your current z88dk if prebuilt binaries fail to link. (`z88dk-lib +rc2014 -f …` installs `ff.lib` into the same `lib/clibs/…` trees; `ff_ro` is copied by hand.)
+The ROM shell no longer links ChaN `ff_ro`. `common/yash.c` calls the mini-FAT in `common/fatfs.asm`. CP/M sector I/O stays in the BIOS: `cpm` stores each container's base LBA and the BIOS adds track and sector. A [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) is still what a CP/M application links when it wants ChaN `f_*` on the IDE volume.
 
-Due to ROM space constraints, it is not possible to include the FATFS write functions within the CP/M-IDE ROM shell. This does not affect the use of disk read or write by CP/M or z88dk applications compiled using the default FATFS library. It simply means that CP/M-IDE "drives" must be prepared on a host using the [cpmtools](http://www.moria.de/~michael/cpmtools/) on your operating system of choice. The default (read/write) version of the [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) should be installed so that applications you compile using z88dk can read and write to the FATFS file system.
+CP/M "drives" are 8 MB `.CPM` files. Prepare them on a host with [cpmtools](http://www.moria.de/~michael/cpmtools/) using the `rc2014-8MB` diskdef in `readme_cpmtools.md` (`blocksize 4096`, `maxdir 2048`, `boottrk -`).
 
-Again: ROM builds use **bare** subtypes + `ff_ro`; application `.COM` builds under running CP/M use **`-subtype=cpm`** (FCB file I/O) and optional full `ff` / `time` for FatFs — see [z88dk applications under CP/M-IDE](#z88dk-applications-under-cpm-ide--subtypecpm) above.
+Again: ROM builds use **bare** subtypes and `common/fatfs.asm`; application `.COM` builds under running CP/M use **`-subtype=cpm`** (FCB file I/O) and optional full `ff` / `time` for FatFs — see [z88dk applications under CP/M-IDE](#z88dk-applications-under-cpm-ide--subtypecpm) above.
 
 The size of the serial transmit and receive buffers are set within the z88dk RC2014 target configuration files for the [ACIA](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_acia.m4), [SIO/2](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_sio.m4), and [UART](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_uart.m4) respectively.
 

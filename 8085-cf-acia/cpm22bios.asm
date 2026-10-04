@@ -148,6 +148,8 @@ cboot:
 
     ld      sp,bios_stack           ;temporary stack
 
+    ; RAM covers the ROM window until wboot latches ROM back in.
+    ; Mini-FAT is in that window. This path must not call it.
     ld      a,$01                   ;RAM $01
     out     (__IO_ROM_TOGGLE),a     ;latch ROM out
 

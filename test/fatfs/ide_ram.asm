@@ -3,6 +3,8 @@
 
 SECTION code_compiler
 
+PUBLIC  ide_init
+PUBLIC  asm_disk_initialize
 PUBLIC  ide_read_sector
 PUBLIC  ide_write_sector
 
@@ -33,6 +35,15 @@ lba_to_ptr:
     ret
 lba_bad:
     or      a
+    ret
+
+ide_init:
+    scf
+    ret
+
+asm_disk_initialize:
+    ld      hl,0
+    scf
     ret
 
 ide_read_sector:

@@ -1,0 +1,31 @@
+# UX Module console on the 8086net CDC adaptor (Prop Plug 6-pin).
+# RX/TX only. XMODEM needs 8-bit data and no XON/XOFF.
+startup_message off
+vbell off
+defflow off
+flow off
+# Kernel ixon on the PTY is cleared by ux-ftdi-relay, not by baud flags.
+c1 off
+# Apple /usr/bin/screen 4.00.03 wraps exec in login -pflq when the
+# window is "logged in". After lsx/lrx exit, that leaves a dead window
+# on the PTY (keys do nothing). Keep utmp login off for this session.
+deflogin off
+login off
+# Unbind software flow so C-a s / C-a q cannot inject DC3/DC1.
+# C-a q stays dead. C-a s is XMODEM send (below).
+bind q
+bind ^q
+# TEMP: Mac Delete is RUBOUT ($7F). Current CPM-IDE ROM echoes the
+# erased character. Map Delete to BS ($08) until that ROM is updated,
+# then REMOVE this bindkey so $7F reaches the Z80 again.
+bindkey ^? stuff ^H
+# Prefill XMODEM send/receive. Type the file path and Enter.
+# -q: lsx/lrx progress must not go down the PTY (CP/M then sees
+#     ASCII after block 1 and aborts: Cannot sync, Received 1 blocks).
+# -X: force XMODEM. Add -k for 1K.
+# C-a s  (or C-a C-s)  send host -> 8085
+# C-a r  (or C-a C-r)  receive 8085 -> host
+bind s colon "exec !! /opt/homebrew/bin/lsx -b -q -X "
+bind ^s colon "exec !! /opt/homebrew/bin/lsx -b -q -X "
+bind r colon "exec !! /opt/homebrew/bin/lrx -b -q -X "
+bind ^r colon "exec !! /opt/homebrew/bin/lrx -b -q -X "
