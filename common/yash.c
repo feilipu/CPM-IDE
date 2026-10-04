@@ -585,11 +585,13 @@ static void line_redraw(char *line, uint16_t *pos, uint16_t maxlen, const char *
         ++n;
     }
     line[n] = 0;
-    fputc('\r', output);
+    /* The Z80 console swallows CR. Back up over "> " and the old text. */
+    for (i = 0; i < old + 2; ++i)
+        fputc(KEY_BS, output);
     fprintf(output, "> %s", line);
     if (old > n) {
         for (i = 0; i < old - n; ++i)
-            fputc(' ', output);
+            fputc(KEY_SPACE, output);
         for (i = 0; i < old - n; ++i)
             fputc(KEY_BS, output);
     }
