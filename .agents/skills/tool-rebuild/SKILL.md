@@ -14,7 +14,7 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 | Script | What |
 |--------|------|
 | `rebuild-ff.sh` | ChaN `ff` RW+RO, Z80 all FatFs targets + rc2014 `ff_85` / `ff_85_ro`. Installs into `$ZCCCFG/../clibs`. |
-| `rebuild-hex.sh` | All seven `rc2014-cpm22-*.hex` in **one** library state. Copies `.ihx` → `.hex`, deletes leftovers. Do not use it for mixed PATA+CF in one run. |
+| `rebuild-hex.sh` | The four ROMs that fit. PATA (`__IO_CF_8_BIT` 0, `rc2014.lib`), then CF (flag 1, both libraries). Copies `.ihx` → `.hex`, deletes leftovers. Does not build UART. |
 
 ```bash
 # from repo root
@@ -27,9 +27,9 @@ git add -f rc2014-cpm22-*.hex
 
 `MAXJOBS` default 2. Each job has its own cwd and `TMPDIR` — **never** parallel bare `zcc` in one directory (`zcc_opt.def`).
 
-v2.5 ROM links ChaN `-llib/rc2014/ff_ro` (Z80, SDCC `-L` is `sdcc_ix`) and `-llib/rc2014/ff_85_ro` (8085, plus the README `-I` / `-L` classic paths).
+The ROM zcc lines are the README lines. They do not link ChaN `ff_ro` or `ff_85_ro`. `common/yash.c` calls mini-FAT.
 
-Scripts fail-closed: zcc or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). Job-dir `rm` is not success. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`); `reap` exits on the first non-zero child. After HEX `wait_all`, all seven `rc2014-cpm22-*.hex` must exist and be non-empty or the script exits 1.
+Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `$7F81`, a BDOS tail that is not the BIOS origin, the wrong IDE port bytes, or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). Job-dir `rm` is not success. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`); `reap` exits on the first non-zero child. After HEX `wait_all`, the four products must exist and be non-empty or the script exits 1. The flag is left at 1. A failed PATA phase restores the CF libraries before exiting.
 
 ## CF vs PATA (before any ROM `zcc`)
 
@@ -42,12 +42,12 @@ The shell FatFs path links the z88dk IDE driver. `__IO_CF_8_BIT` in `$Z88DK/libs
 
 After a flag change: `make -C $Z88DK/libsrc/newlib rc2014-clean rc2014`. Remove `rc2014-8085_clib.lib` then `make -C $Z88DK/libsrc rc2014-8085_clib.lib` and copy it to `$Z88DK/lib/clibs/`. Include-only changes do not rebuild with `z80asm -d`.
 
-Build PATA HEX files, then set the flag to `1`, rebuild both libraries, then build CF HEX files. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls` / `mount 1`. Delayed `mount` can still print `FR_OK`.
+`rebuild-hex.sh` does that switch itself and leaves the flag at 1. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls` / `mount 1`. Delayed `mount` can still print `FR_OK`. UART HEX does not fit; the script does not build it.
 
 ## Pitfalls
 
 - `cd` into the firmware tree before `zcc` (`@cpm22.lst` is relative).
-- Z80 ROM: `-llib/rc2014/ff_ro`. 8085 ROM: `-llib/rc2014/ff_85_ro` and the README `-I` / `-L` classic paths.
+- ROM zcc lines are copied from `README.md`. Do not add `ff_ro` or `ff_85_ro`.
 - `z88dk-lib +rc2014 ff` installs basename `ff` only. Copy `ff_ro` / `ff_85*` by hand (the ff script does this).
 - SDCC `ff_ro` is one `-clib=sdcc_iy` object, installed as `lib/clibs/sdcc_ix/lib/<target>/ff_ro.lib`. Do not leave a second copy under `sdcc_iy/`.
 - Restore `FF_FS_READONLY` to `0` after an RO build (`rebuild-ff.sh` traps this).
