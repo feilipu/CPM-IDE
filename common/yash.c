@@ -438,6 +438,14 @@ static uint8_t zero_cluster(uint32_t clst, uint32_t parent)
     return 0;
 }
 
+static void release_chain(uint32_t clst)
+{
+    if (clst >= 2) {
+        fat_free(&clst);
+        fat_sync();
+    }
+}
+
 static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint32_t *out_size)
 {
     uint32_t last = 0, first = 0, lbas, lbad, nxt, remain, chunk;
@@ -449,34 +457,45 @@ static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint3
         return 0;
     remain = size;
     while (remain) {
-        if (src < 2 || is_eoc(src))
+        if (src < 2 || is_eoc(src)) {
+            release_chain(first);
             return 1;
+        }
         lbas = src;
-        if (fat_clst2sect(&lbas))
+        if (fat_clst2sect(&lbas)) {
+            release_chain(first);
             return 1;
+        }
         nxt = last;
-        if (fat_alloc(&nxt))
+        if (fat_alloc(&nxt)) {
+            release_chain(first);
             return 1;
+        }
         if (first == 0)
             first = nxt;
         last = nxt;
         lbad = nxt;
-        if (fat_clst2sect(&lbad))
+        if (fat_clst2sect(&lbad)) {
+            release_chain(first);
             return 1;
+        }
         nsec = cpm_fat_vol.csize;
         for (s = 0; s < nsec && remain; ++s) {
-            if (disk_read(0, buffer, lbas + s, 1))
+            if (disk_read(0, buffer, lbas + s, 1) ||
+                disk_write(0, buffer, lbad + s, 1)) {
+                release_chain(first);
                 return 1;
-            if (disk_write(0, buffer, lbad + s, 1))
-                return 1;
+            }
             chunk = (remain > 512) ? 512 : remain;
             remain -= chunk;
         }
         if (remain == 0)
             break;
         nxt = src;
-        if (fat_next(&nxt))
+        if (fat_next(&nxt)) {
+            release_chain(first);
             return 1;
+        }
         if (is_eoc(nxt))
             break;
         src = nxt;
@@ -485,7 +504,11 @@ static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint3
         return 1;
     *out_first = first;
     *out_size = size - remain;
-    return fat_sync();
+    if (fat_sync()) {
+        release_chain(first);
+        return 1;
+    }
+    return 0;
 }
 
 /* Named FatFs FRESULT (ChaN). rc=0 is silent. */
@@ -1078,18 +1101,20 @@ int8_t ya_mkdir(char ** args)
         return 1;
     }
     clst = 0;
-    if (fat_alloc(&clst) || fat_sync()) {
+    if (fat_alloc(&clst)) {
         put_rc(1);
         return 1;
     }
-    if (fat_dir_open(&parent) || dir_create(n)) {
-        fat_free(&clst);
-        fat_sync();
+    if (fat_sync() || fat_dir_open(&parent) || dir_create(n)) {
+        release_chain(clst);
         put_rc(1);
         return 1;
     }
-    if (dir_fill(AM_DIR, clst, 0) || zero_cluster(clst, parent))
+    if (dir_fill(AM_DIR, clst, 0) || zero_cluster(clst, parent)) {
+        dir_zap();
+        release_chain(clst);
         put_rc(1);
+    }
     return 1;
 }
 
@@ -1125,28 +1150,35 @@ int8_t ya_cp(char ** args)
         return 1;
     }
     if (fat_dir_open(&dp)) {
+        release_chain(first);
         put_rc(1);
         return 1;
     }
     dest_exists = (uint8_t)(dir_find_try(dn) == 0);
     if (dest_exists) {
         if (fat_dir_ptr[11] & AM_DIR) {
+            release_chain(first);
             put_rc(FR_DENIED);
             return 1;
         }
         old = fat_found_sclust;
         if (old >= 2) {
             if (fat_free(&old) || fat_sync()) {
+                release_chain(first);
                 put_rc(1);
                 return 1;
             }
         }
-        if (fat_dir_open(&dp) || dir_find_try(dn) || dir_fill(AM_ARC, first, copied))
+        if (fat_dir_open(&dp) || dir_find_try(dn) || dir_fill(AM_ARC, first, copied)) {
+            release_chain(first);
             put_rc(1);
+        }
         return 1;
     }
-    if (dir_create(dn) || dir_fill(AM_ARC, first, copied))
+    if (dir_create(dn) || dir_fill(AM_ARC, first, copied)) {
+        release_chain(first);
         put_rc(1);
+    }
     return 1;
 }
 

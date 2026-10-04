@@ -26,6 +26,14 @@ static void put_le16(uint8_t *p, uint16_t v)
     p[1] = (uint8_t)(v >> 8);
 }
 
+static void put_le32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
+}
+
 static void put_vbr(uint8_t *s, uint8_t csize, uint16_t n_rootent, uint16_t fatsz, uint16_t tot)
 {
     memset(s, 0, 512);
@@ -39,6 +47,26 @@ static void put_vbr(uint8_t *s, uint8_t csize, uint16_t n_rootent, uint16_t fats
     put_le16(s + 19, tot);
     s[21] = 0xF8;
     put_le16(s + 22, fatsz);
+    s[510] = 0x55;
+    s[511] = 0xAA;
+}
+
+/* FAT32 SFD. fatsz 512 covers nclst 65526. RootEntCnt and FSVer are the cases under test. */
+static void put_fat32(uint8_t *s, uint8_t csize, uint16_t nroot, uint16_t fsver)
+{
+    memset(s, 0, 512);
+    s[0] = 0xEB; s[1] = 0x58; s[2] = 0x90;
+    memcpy(s + 3, "MSDOS5.0", 8);
+    put_le16(s + 11, 512);
+    s[13] = csize;
+    put_le16(s + 14, 1);
+    s[16] = 1;
+    put_le16(s + 17, nroot);
+    s[21] = 0xF8;
+    put_le32(s + 32, 1u + 512u + (uint32_t)csize * 65526u);
+    put_le32(s + 36, 512);
+    put_le16(s + 42, fsver);
+    put_le32(s + 44, 2);
     s[510] = 0x55;
     s[511] = 0xAA;
 }
@@ -344,6 +372,153 @@ int main(void)
         }
         expect("nroot32_overlap_read", saw == 0);
     }
+
+    /* FAT16 links $F800 and $FFF7 are clusters. $FFF8 and $FFFF are EOC. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 16;
+    cpm_fat_vol.n_fatent = 10;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 3;
+    cpm_fat_vol.database = 4;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[512 + 4] = 0x00;
+    ram_image[512 + 5] = 0xF8;
+    ram_image[512 + 6] = 0xF7;
+    ram_image[512 + 7] = 0xFF;
+    ram_image[512 + 8] = 0xF8;
+    ram_image[512 + 9] = 0xFF;
+    ram_image[512 + 10] = 0xFF;
+    ram_image[512 + 11] = 0xFF;
+    clst = 2;
+    rc = fat_next(&clst);
+    expect("fat16_f800", rc == 0 && clst == 0xF800ul);
+    clst = 3;
+    rc = fat_next(&clst);
+    expect("fat16_fff7", rc == 0 && clst == 0xFFF7ul);
+    clst = 4;
+    rc = fat_next(&clst);
+    expect("fat16_fff8", rc == 0 && clst == 0x0FFFFFFFul);
+    clst = 5;
+    rc = fat_next(&clst);
+    expect("fat16_ffff", rc == 0 && clst == 0x0FFFFFFFul);
+
+    /* 16 root entries, no trailing 0x00. The 17th read must not repeat the last name. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 16;
+    cpm_fat_vol.n_fatent = 8;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 2;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    {
+        uint8_t ent[32];
+        uint8_t i, bad;
+
+        for (i = 0; i < 16; ++i) {
+            uint8_t *e = ram_image + 1024 + (unsigned)i * 32;
+
+            memset(e, ' ', 11);
+            e[0] = (uint8_t)('A' + i);
+            e[11] = 0x20;
+        }
+        parent = 0;
+        rc = fat_dir_open(&parent);
+        expect("fullroot_open", rc == 0);
+        bad = 0;
+        for (i = 0; i < 16; ++i) {
+            rc = fat_dir_read(ent);
+            if (rc || ent[0] != (uint8_t)('A' + i))
+                bad = 1;
+        }
+        rc = fat_dir_read(ent);
+        expect("fullroot_end", bad == 0 && rc != 0);
+    }
+
+    /* Disk $05 is the character $E5. A search for $05 itself misses. */
+    rt_invalidate();
+    memset(ram_image + 1024, 0, 512);
+    ram_image[1024] = 0x05;
+    memcpy(ram_image + 1025, "ELLO    TXT", 10);
+    ram_image[1024 + 11] = 0x20;
+    memset(n, ' ', 11);
+    n[0] = 0xE5;
+    memcpy(n + 1, "ELLO    TXT", 10);
+    parent = 0;
+    rc = fat_dir_open(&parent);
+    rc |= dir_find(n);
+    expect("find_e5_kanji", rc == 0);
+    n[0] = 0x05;
+    parent = 0;
+    rc = fat_dir_open(&parent);
+    rc = dir_find(n);
+    expect("find_05_raw", rc == 1);
+
+    /* Mount: partial FAT16 root, 64 KB clusters, FAT32 root count and FSVer. */
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_vbr(ram_image, 1, 16, 16, 4104);
+    rc = fat_mount();
+    expect("mount_root16", rc == 0 && cpm_fat_vol.fs_type == 2);
+
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_vbr(ram_image, 1, 1, 16, 4104);
+    rc = fat_mount();
+    expect("mount_root1", rc == 1);
+
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_vbr(ram_image, 1, 17, 16, 4104);
+    rc = fat_mount();
+    expect("mount_root17", rc == 1);
+
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_vbr(ram_image, 1, 0, 16, 4104);
+    rc = fat_mount();
+    expect("mount_root0", rc == 1);
+
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_vbr(ram_image, 128, 16, 1, 4089);
+    rc = fat_mount();
+    expect("mount_csize128", rc == 1);
+
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_fat32(ram_image, 64, 0, 0);
+    rc = fat_mount();
+    expect("mount_fat32", rc == 0 && cpm_fat_vol.fs_type == 3 && cpm_fat_vol.csize == 64);
+
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_fat32(ram_image, 64, 16, 0);
+    rc = fat_mount();
+    expect("mount_fat32_root", rc == 1);
+
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_fat32(ram_image, 64, 0, 1);
+    rc = fat_mount();
+    expect("mount_fat32_fsver", rc == 1);
+
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_fat32(ram_image, 128, 0, 0);
+    rc = fat_mount();
+    expect("mount_fat32_csize", rc == 1);
 
     puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");
     return fails ? 1 : 0;

@@ -22,7 +22,12 @@
 ;
 ; FatFs cases we honour:
 ;   cluster < 2 invalid; n_fatent = nclst + 2
-;   FAT16 EOC >= $F8; FAT32 EOC $0FFFFFF8..F (put_fat keeps bits 28-31)
+;   FAT16 EOC $FFF8..$FFFF; FAT32 EOC $0FFFFFF8..F (put_fat keeps bits 28-31)
+;   nclst == $FFF5 stays FAT16 (ChaN MAX_FAT16; spec 1.03 would use FAT32)
+;   FAT16 root count is a non-zero multiple of 16
+;   FAT32 requires FSVer == 0 and RootEntCnt == 0 (those sectors are not in sysect)
+;   csize is 2^n and at most 64 sectors (32 KB)
+;   DIR_Name[0] == $05 compares as $E5
 ;   dirent 0x00 = end of directory; 0xE5 = deleted (reusable)
 ;   skip AM_LFN ($0F) and AM_VOL; pack also skips '.', AM_DIR, AM_SYS
 ;   files larger than remaining CP/M dirents are capped (8 MB / 256 extents)
@@ -34,10 +39,8 @@
 ;
 ; FatFs cases we skip (on purpose):
 ;   JumpBoot $EB/$E9/$E8; GPT protective MBR; logical partitions
-;   FAT32 FSVer==0, n_rootent==0
 ;   dir_next stretch (create_chain + dir_clear) when a subdir hits EOC
 ;   FSInfo last_clst / free_clst
-;   first-byte $05 KANJI DDEM mapping
 ;   dir_zap is E5 only; chain free is wrdir_cpm ERA / _fat_free
 ;
 
@@ -154,6 +157,7 @@ DEFC    BPB_TotSec16    = 19
 DEFC    BPB_FATSz16     = 22
 DEFC    BPB_TotSec32    = 32
 DEFC    BPB_FATSz32     = 36
+DEFC    BPB_FSVer       = 42
 DEFC    BPB_RootClus32  = 44
 DEFC    BS_55AA         = 510
 DEFC    MBR_PTE         = 446
@@ -376,7 +380,7 @@ fat_move_do:
 
 ;------------------------------------------------------------------------------
 ; fat_check_vbr — ff.c check_fs (FAT/FAT32 only)
-; Require 55AA, 512-byte sectors, csize 2^n, reserved != 0, 1 or 2 FATs.
+; Require 55AA, 512-byte sectors, csize 2^n and <= 64, reserved != 0, 1 or 2 FATs.
 ; No JumpBoot $EB/$E9/$E8 (ff accepts early MS-DOS VBRs without 55AA).
 ; C = looks like a FAT16/32 VBR (type decided later from nclst).
 ;------------------------------------------------------------------------------
@@ -400,6 +404,9 @@ fat_check_vbr:
     dec     a
     and     b
     jr      NZ,fat_check_fail       ;not 2^n
+    ld      a,b
+    cp      65                      ;at most 64 sectors (32 KB)
+    jr      NC,fat_check_fail
     ld      a,(fatwin+BPB_RsvdSecCnt)
     ld      hl,fatwin+BPB_RsvdSecCnt+1
     or      (hl)
@@ -447,6 +454,7 @@ fat_ide_br1:
 ; LBA 0 as SFD VBR; else four MBR primary PTEs (no GPT, no extended).
 ; nclst from (tsect - reserved - fats - rootsecs) / csize.
 ; FAT12 (nclst <= $0FF5) fails; FAT16 <= $FFF5; else FAT32.
+; nclst == $FFF5 stays FAT16 (ChaN; spec 1.03 would call it FAT32).
 ; FAT32 dirbase = BPB_RootClus32 (cluster); FAT16 dirbase = root LBA.
 ; OUT: C OK
 ;------------------------------------------------------------------------------
@@ -588,7 +596,19 @@ fat_mount_fatarea:
     jp      Z,fat_mount_fail
 fat_mount_sy1:
     push    hl
+    ld      hl,(fatwin+BPB_FATSz16)
+    ld      a,h
+    or      l
+    pop     hl
+    jr      Z,fat_mount_r32root     ;FATSz16 == 0
+    push    hl
     ld      hl,(_cpm_fat_vol+2)     ;n_rootent
+    ld      a,h
+    or      l
+    jr      Z,fat_mount_rootbad     ;FAT16 root count is 0
+    ld      a,l
+    and     $0F
+    jr      NZ,fat_mount_rootbad    ;not a whole number of sectors
     ld      bc,hl
     pop     hl
     ld      a,b
@@ -619,6 +639,24 @@ fat_mount_sy1:
     ld      a,c
     rra
     ld      c,a                       ;root sectors = n_rootent/16
+    jr      fat_mount_addroot
+fat_mount_r32root:
+    push    hl
+    ld      hl,(fatwin+BPB_RootEntCnt)
+    ld      a,h
+    or      l
+    jr      NZ,fat_mount_rootbad
+    ld      a,(fatwin+BPB_FSVer)
+    ld      hl,fatwin+BPB_FSVer+1
+    or      (hl)
+    jr      NZ,fat_mount_rootbad
+    pop     hl
+    ld      bc,0                    ;FAT32 has no static root
+    jr      fat_mount_addroot
+fat_mount_rootbad:
+    pop     hl
+    jp      fat_mount_fail
+fat_mount_addroot:
     add     hl,bc
     jr      NC,fat_mount_sy2
     inc     de
@@ -971,7 +1009,7 @@ fat_fatent_sec:
     ret
 
 ; ff.c get_fat. FAT16 word; FAT32 dword & $0FFFFFFF.
-; EOC is folded to $0FFFFFFF (FAT16 val >= $F8; FAT32 >= $0FFFFFF8).
+; EOC is folded to $0FFFFFFF (FAT16 $FFF8..$FFFF; FAT32 >= $0FFFFFF8).
 get_fat:
     call    fat_fatent
     ret     NC
@@ -981,7 +1019,10 @@ get_fat:
     jr      Z,get_fat32
     ld      hl,(de)                 ;ff ld_16
     ld      a,h
-    cp      $F8                     ;FAT16 EOC $F8..$FF
+    cp      $FF
+    jr      NZ,get_fat16ok
+    ld      a,l
+    cp      $F8                     ;FAT16 EOC $FFF8..$FFFF
     jr      C,get_fat16ok
     ld      de,$FFFF
     ld      bc,$0FFF                ;fold to EOC32 for callers
@@ -1435,8 +1476,9 @@ cc_fail:
 cc_eoc:
     defb    $FF,$FF,$FF,$0F
 
-; ff.c remove_chain (entire chain, pclst=0). Walks until 0 or EOC,
-; putting 0 in each FAT entry. No TRIM / bitmap.
+; ff.c remove_chain (entire chain, pclst=0). Walks until 0 or a link
+; that is not a cluster (EOC, bad, or >= n_fatent). The step stops at
+; n_fatent so a long FAT32 chain is not cut at 65535.
 ; IN: BCDE = start cluster
 remove_chain:
     ld      a,b
@@ -1446,14 +1488,37 @@ remove_chain:
     scf
     ret     Z
     ld      hl,0
-    ld      (fat_work),hl            ;step cap (hang on cyclic FAT)
+    ld      (fat_work),hl            ;32-bit step
+    ld      (fat_work+2),hl
 rc_loop:
     ld      hl,(fat_work)
     inc     hl
     ld      (fat_work),hl
     ld      a,h
     or      l
-    jr      Z,rc_fail
+    jr      NZ,rc_cmp
+    ld      hl,(fat_work+2)
+    inc     hl
+    ld      (fat_work+2),hl
+rc_cmp:
+    push    bc
+    push    de
+    ld      hl,(fat_work+2)
+    ld      bc,hl
+    ld      hl,(fat_work)
+    ex      de,hl
+    ld      hl,_cpm_fat_vol+4       ;step - n_fatent
+    ld      a,e
+    sub     (hl+)
+    ld      a,d
+    sbc     (hl+)
+    ld      a,c
+    sbc     (hl+)
+    ld      a,b
+    sbc     a,(hl)
+    pop     de
+    pop     bc
+    jr      NC,rc_fail              ;step >= n_fatent
     ld      hl,bc
     ld      (fat_work+10),hl
     ex      de,hl
@@ -1481,14 +1546,16 @@ rc_loop:
     or      d
     or      e
     jr      Z,rc_done
-    ld      a,b
-    cp      $0F
-    jr      NZ,rc_loop
+    ld      hl,_cpm_fat_vol+4       ;next >= n_fatent ends the walk
+    ld      a,e
+    sub     (hl+)
+    ld      a,d
+    sbc     (hl+)
     ld      a,c
-    and     d
-    and     e
-    inc     a
-    jr      NZ,rc_loop
+    sbc     (hl+)
+    ld      a,b
+    sbc     a,(hl)
+    jr      C,rc_loop
 rc_done:
     scf
     ret
@@ -1772,7 +1839,7 @@ dir_next_end:
     ret
 
 ; ff.c dir_find (no LFN). 0x00 ends the table; 0xE5 is deleted.
-; Skip AM_VOL and AM_LFN ($0F). 8.3 compare is 11 raw bytes.
+; Skip AM_VOL and AM_LFN ($0F). Disk $05 compares as $E5.
 ; IN: HL -> 11-byte 8.3
 ; OUT C and L=0, H=0: found, fat_found_* and dir_ptr filled. L=1: miss.
 _dir_find:
@@ -1803,7 +1870,16 @@ df_loop:
     ld      hl,(dir_ptr)
     ex      de,hl
     ld      hl,(pack_sv)
-    ld      b,11
+    ld      a,(de)
+    cp      $05                     ;KANJI: stored $05 is the character $E5
+    jr      NZ,df_cmp1
+    ld      a,$E5
+df_cmp1:
+    cp      (hl)
+    jr      NZ,df_next
+    inc     de
+    inc     hl
+    ld      b,10
 df_cmp:
     ld      a,(de+)
     cp      (hl+)
@@ -1919,7 +1995,12 @@ _fat_dir_read:
     ld      bc,32
     call    fat_copy
     call    dir_next
+    jr      C,fat_dir_read_ok
+    ld      hl,cc_zero              ;no trailing 0x00: next read is end
+    ld      (dir_ptr),hl
+fat_dir_read_ok:
     ld      hl,0
+    scf
     ret
 fat_dir_read_end:
     pop     hl
