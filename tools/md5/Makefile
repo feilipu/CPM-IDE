@@ -15,13 +15,15 @@ ZCC ?= zcc
 .PHONY: all clean
 all: md5i85.com md5z80.com
 
+# -o is the classic linker product. +cpm -create-app only copies that
+# file to an upper-case .COM, so the name here has to already be the COM.
 md5i85.com: md5.c md5main.c md5.h
 	$(ZCC) +cpm -clib=8085 -O2 --opt-code-speed=all -m -create-app \
-		-o md5i85 md5.c md5main.c
+		-o $@ md5.c md5main.c
 
 md5z80.com: md5.c md5main.c md5.h
 	$(ZCC) +cpm -O2 --opt-code-speed -m -create-app \
-		-o md5z80 md5.c md5main.c
+		-o $@ md5.c md5main.c
 
 clean:
 	rm -f md5i85 md5z80 md5i85.com md5z80.com MD5I85.COM MD5Z80.COM \

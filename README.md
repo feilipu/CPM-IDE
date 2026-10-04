@@ -206,30 +206,34 @@ The CP/M-IDE is built using the z88dk compilers and libraries, including a simpl
 
 Version 2.5 is the current ROM. The shell, BDOS, and BIOS changes apply to Compact Flash and PATA builds.
 
-#### Shell (`main.c`)
+#### Shell (`common/yash.c`)
 
 - Backspace and DEL do not erase past the prompt.
 - CR+LF (or LF+CR) is one end of line. The second byte does not start an empty command.
 - Bytes below space or above 126 are dropped. A NUL at `line[0]` made `strtok` see an empty command.
+- Ctrl-P and Ctrl-N recall up to 8 lines of 80 characters. The previous line is erased with backspace, because the console drops a bare CR.
 - `cpm` accepts 1 to 4 contiguous `.CPM` files as `A:` to `D:`.
+- `rm`, `rmdir`, `mkdir`, `cp`, `mv`, and `free` work on the FAT volume. `cp` and `mv` share one transfer. `rm` will not delete a directory or a read-only file.
 
 `REGISTER_SP` sits at the CCP origin so the shell stack stays below CCP.
 
 #### BDOS and CCP
 
-BDOS starts on a 256-byte page (`_cpm_bdos_head`). CCP starts earlier where needed so BDOS BSS ends at the BIOS origin.
+BDOS starts on a 256-byte page (`_cpm_bdos_head`). CCP starts `$20` below the previous page so that page stays the BDOS origin, and BDOS BSS `ALIGN $100`s onto the BIOS origin. `_cpm_dsk0_base` is `$F800` on every port. The BIOS code has to finish before that, so each BIOS origin is the highest page that still fits, and the CCP and BDOS origins move with it. The seven ROMs do not share one CCP or BDOS address.
 
-| ROM | CCP | BDOS | BIOS | Disk |
-|-----|-----|------|------|------|
-| z80-pata-sio | `$D9E0` | `$E200` | `$F100` | PATA 16-bit |
-| z80-cf-acia | `$DBE0` | `$E400` | `$F300` | CF 8-bit |
-| z80-cf-sio | `$DAE0` | `$E300` | `$F200` | CF 8-bit |
-| z80-cf-uart | `$DAE0` | `$E300` | `$F200` | CF 8-bit |
-| 8085-cf-acia | `$DAE0` | `$E300` | `$F200` | CF 8-bit |
-| 8085-cf-uart | `$DAE0` | `$E300` | `$F200` | CF 8-bit |
-| 8085-pata-uart | `$DAE0` | `$E300` | `$F200` | PATA 16-bit |
+| ROM | CCP | BDOS | BIOS | BIOS ends | Spare before `$F800` | Disk |
+|-----|-----|------|------|-----------|---------------------:|------|
+| z80-pata-sio | `$D9E0` | `$E200` | `$F100` | `$F715` | 235 | PATA 16-bit |
+| z80-cf-sio | `$DAE0` | `$E300` | `$F200` | `$F794` | 108 | CF 8-bit |
+| z80-cf-uart | `$DAE0` | `$E300` | `$F200` | `$F6B7` | 329 | CF 8-bit |
+| z80-cf-acia | `$DBE0` | `$E400` | `$F300` | `$F789` | 119 | CF 8-bit |
+| 8085-pata-uart | `$DAE0` | `$E300` | `$F200` | `$F7A0` | 96 | PATA 16-bit |
+| 8085-cf-uart | `$DAE0` | `$E300` | `$F200` | `$F729` | 215 | CF 8-bit |
+| 8085-cf-acia | `$DAE0` | `$E300` | `$F200` | `$F6FF` | 257 | CF 8-bit |
 
-`_cpm_dsk0_base` stays at `$F800` on every port. None of the seven builds has a free page under that head.
+Z80 CF ACIA is the short BIOS, `$489` bytes, so `$F300` still ends at `$F789`. `$F400` would run through `$F889`. Z80 CF SIO is `$594` bytes and from `$F300` would end at `$F894`. Z80 PATA SIO is `$615` bytes and from `$F200` would end at `$F815`, so it stays at `$F100`. Z80 CF UART would fit at `$F300` (end `$F7B7`) and is left with the `$F200` builds. One shared set of origins would be the PATA SIO set, `$D9E0` / `$E200` / `$F100`. After the 48-byte BDOS stack, the `ALIGN` pad is 30 bytes on Z80 and 40 bytes on 8085.
+
+A sequential read or write that opens a new directory entry resumes the search at the entry after the one just closed, wraps once from the front, and stops before that entry. With 4 KB blocks and `EXM = 1` that step is every 32 KB. A read that stays in the same entry searches from the front. A write that stays in the same entry reopens the entry already in memory. `DIR` and `OPEN` still start at the front.
 
 BDOS function 10 treats DEL as backspace (DRI APN 02). A nameless `.COM` that is not on the current drive is retried on `A:`. An explicit `d:` does not fall back. `DIRBUF` is `PUBLIC` so the BIOS can retarget it.
 
@@ -269,9 +273,9 @@ Directory I/O is different. BDOS snapshots DPH `DIRBUF` at `SELDSK` and then `SE
 
 That is **65 600 T-states saved** per 32 directory records (~2 050 T each, about 0.28 ms at 7.372 MHz), with the same number of CF/IDE reads. Open, search, rename, and other directory-heavy calls benefit; `PIP` / `MBASIC` / `.COM` load to TPA do not.
 
-TPA remains about 56 kB. CCP origins moved down in v2.5 so BDOS stays on a page. See [CP/M-IDE v2.5](#cpm-ide-v25). `_cpm_dsk0_base` stays at `$F800` on every port. The recovered `dirbf` is 128 bytes, which is not a full page.
+The recovered `dirbf` is 128 bytes, which is not a full page. See [CP/M-IDE v2.5](#cpm-ide-v25) for the per-ROM CCP, BDOS, and BIOS origins.
 
-The disk parameter block is the last fixed BIOS table. Bytes left before `$F800`: Z80 CF SIO 1, 8085 PATA UART 17, Z80 CF ACIA 40, 8085 CF UART 136, Z80 PATA SIO 129, 8085 CF ACIA 178, Z80 CF UART 250. A shared BIOS origin stays at `$F100` so the PATA SIO image still fits. Initialised BIOS data ends at `$FE2A` on every port. Serial rings stay at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`). The hole under those rings is 130 bytes with 16-byte SIO transmit buffers and 98 bytes with 32-byte buffers. The largest hole is the 8085 UART, 202 bytes under `$FF00`. The BDOS stack pad under the BIOS origin is 136 bytes on Z80 and 147 on 8085. A one-page rise of the shared head does not fit. The overlay is in the v2.5 HEX files.
+The disk parameter block is the last fixed BIOS table. Bytes left before `$F800` are in the origin table above. Initialised BIOS data ends at `$FE2A` on every port. Serial rings stay at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`). SIO transmit buffers are 32 bytes. TPA runs up to the CCP origin in that table.
 
 ### Installation
 
@@ -293,7 +297,7 @@ __NOTE:__ Where the SIO Module or the UART Module is being used, on startup the 
 
 CP/M can be started by command __`cpm file.a [file.b] [file.c] [file.d]`__. At least one valid file name must be provided. CP/M can be started with to up to four (4) files to be mounted on __`A:`__, __`B:`__, __`C:`__, and __`D:`__ drives, from any of the thousands of CP/M drive files you may have available. Up to 4 CP/M drive files can be concurrently mounted. Each CP/M drive file must be contiguous, but can be located anywhere on the FATFS drive (any LBA) in any directory, provided the full path is used to reference it.
 
-The shell provides some other basic functions, such as __`frag`__, __`hload`__, __`ls`__, __`cd`__, and __`pwd`__ file functions, and __`mount`__, __`ds`__, and __`dd`__ disk functions. And __`md`__ to show the contents of the ROM and RAM. __`frag`__ can be used to confirm whether a CP/M drive file (or any other FAT32 file) is contiguous or fragmented. __`hload`__ can be used to upload and directly run a CP/M application, rather than from a drive. __`exit`__ can be used to restart the RC2014 if desired.
+The shell also has __`ls`__, __`cd`__, __`pwd`__, __`rm`__, __`rmdir`__, __`mkdir`__, __`cp`__, __`mv`__, __`frag`__, __`free`__, and __`mount`__ on the FAT volume, __`ds`__ and __`dd`__ for the raw disk, and __`md`__ for ROM and RAM. __`frag`__ reports how many cluster runs a file uses. __`hload`__ uploads an Intel HEX file and runs it. Ctrl-P and Ctrl-N recall the command line. __`exit`__ restarts the RC2014.
 
 Once the shell __`cpm`__ command has established that it has a valid CP/M drive available, then it will page out the ROM, write in a new `Page 0` with relevant CP/M data and interrupt linkages, and then pass control to the CP/M CCP.
 
@@ -378,11 +382,17 @@ Again, here is a view of what success looks like.
 - `hload` - load an Intel HEX CP/M file and run it
 
 ### File System Functions
-- `frag [file]` - check for file fragmentation
 - `ls [path]` - directory listing
 - `cd [path]` - change the current working directory
 - `pwd` - show the current working directory
-- `mount [option]` - mount a FAT file system, option 0 = delayed, 1 = immediate
+- `rm <file>` - delete a file
+- `rmdir <path>` - remove an empty directory
+- `mkdir <path>` - create a directory
+- `cp <src> <dst>` - copy a file
+- `mv <src> <dst>` - rename or move a file
+- `frag <file>` - cluster-run count for a file
+- `free` - free and total space on the volume
+- `mount` - mount the FAT file system
 
 ### Disk Functions
 - `ds` - disk status
