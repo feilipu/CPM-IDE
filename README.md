@@ -214,7 +214,7 @@ Version 2.5 is the current ROM. The shell, BDOS, and BIOS changes apply to Compa
 - Ctrl-P and Ctrl-N recall up to 8 lines of 80 characters. The previous line is erased with backspace, because the console drops a bare CR.
 - `cpm` accepts 1 to 4 contiguous `.CPM` files as `A:` to `D:`.
 - `rm`, `rmdir`, `mkdir`, `cp`, `mv`, and `free` work on the FAT volume. `cp` and `mv` share one transfer. `rm` will not delete a directory or a read-only file.
-- The volume is FAT16 or FAT32, with at most 32 KB per cluster. A FAT16 root entry count must be a non-zero multiple of 16. FAT32 must be version 0 and must have a zero root count. `ls` stops at the last name of a full directory. `mkdir` and `cp` free a new cluster chain when the directory update does not finish.
+- The volume is FAT16 or FAT32, with at most 32 KB per cluster. A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entries fills the 16-bit directory offset and can be listed. FAT32 must be version 0 and must have a zero root count. `ls` stops at the last name of a full directory. A name that starts with byte `0xE5` is stored as `0x05`. `mkdir` and `cp` free a new cluster chain when the directory update does not finish. `frag` stops if a cluster chain does not reach an end mark.
 
 `REGISTER_SP` sits at the CCP origin so the shell stack stays below CCP.
 

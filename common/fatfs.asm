@@ -27,7 +27,8 @@
 ;   FAT16 root count is a non-zero multiple of 16
 ;   FAT32 requires FSVer == 0 and RootEntCnt == 0 (those sectors are not in sysect)
 ;   csize is 2^n and at most 64 sectors (32 KB)
-;   DIR_Name[0] == $05 compares as $E5
+;   DIR_Name[0] == $05 compares as $E5; dir_create stores $E5 as $05
+;   FAT16 root of 2048 entries is the whole 16-bit offset (65536 bytes)
 ;   dirent 0x00 = end of directory; 0xE5 = deleted (reusable)
 ;   skip AM_LFN ($0F) and AM_VOL; pack also skips '.', AM_DIR, AM_SYS
 ;   files larger than remaining CP/M dirents are capped (8 MB / 256 extents)
@@ -1348,44 +1349,67 @@ rc_fail:
 cc_zero:
     defb    0,0,0,0
 
-; HL = max byte offset of FAT16 static root: n_rootent*32, clamped so
-; the root does not extend into database (injected overlap / CVE overread).
+; Exclusive byte end of the FAT16 static root.
+; Carry set: the end is 65536, so every 16-bit offset is inside
+; (2048 entries). Carry clear: offset >= HL is past the root.
+; A shorter database-dirbase span still clamps the end.
 fat_root16_max:
     ld      hl,(_cpm_fat_vol+2)
     ld      a,l
     and     $F0
     ld      l,a
+    ld      a,h
+    cp      8                       ;2048 entries * 32 = 65536
+    jr      C,frm_mul
+    ld      hl,0
+    scf
+    jr      frm_clamp
+frm_mul:
     add     hl,hl
     add     hl,hl
     add     hl,hl
     add     hl,hl
-    add     hl,hl                   ;*32
+    add     hl,hl                   ;*32, fits in 16 bits
+    or      a
+frm_clamp:
     push    hl
+    push    af                      ;C = entry count covers 64K
     ld      a,(_cpm_fat_vol+18)     ;database high
     ld      hl,_cpm_fat_vol+14
     or      (hl)                    ;dirbase high
-    jr      NZ,frm_nre
+    jr      NZ,frm_keep
     ld      hl,(_cpm_fat_vol+16)
     ld      de,(_cpm_fat_vol+12)
     or      a
     sbc     hl,de                   ;database - dirbase (sectors)
-    jr      Z,frm_nre
-    jr      C,frm_nre
+    jr      C,frm_keep
+    jr      Z,frm_keep
     ld      a,h
     or      a
-    jr      NZ,frm_nre
+    jr      NZ,frm_keep             ;>= 256 sectors
+    ld      a,l
+    cp      128
+    jr      NC,frm_keep             ;>= 128 sectors is >= 64K bytes
     ld      h,l
     ld      l,0
-    add     hl,hl                   ;<<9
-    pop     de
+    add     hl,hl                   ;span << 9, fits in 16 bits
+    pop     af
+    pop     de                      ;DE = count end
+    jr      C,frm_span              ;count was 64K: span is tighter
     push    hl
     or      a
-    sbc     hl,de
+    sbc     hl,de                   ;span - count
     pop     hl
-    ret     C                       ;span < n_rootent*32
+    jr      C,frm_clear
     ex      de,hl
+frm_clear:
+    or      a
     ret
-frm_nre:
+frm_span:
+    or      a
+    ret
+frm_keep:
+    pop     af
     pop     hl
     ret
 
@@ -1419,6 +1443,7 @@ dsdi_root16:
     pop     hl                      ;ofs
     push    hl
     call    fat_root16_max
+    jr      C,dsdi_root16_in        ;2048 entries: any 16-bit ofs
     ex      de,hl                   ;DE = max
     pop     hl                      ;HL = dir_ofs
     push    hl
@@ -1426,6 +1451,9 @@ dsdi_root16:
     sbc     hl,de                   ;unsigned ofs >= max
     pop     hl
     jp      NC,dsdi_end
+    jr      dsdi_root
+dsdi_root16_in:
+    pop     hl
 dsdi_root:
     ld      a,h                     ;offset >> 9
     srl     a
@@ -1531,6 +1559,7 @@ dir_next_sect:
     or      l
     jr      NZ,dir_next_dyn
     call    fat_root16_max
+    jr      C,dir_next_inc          ;2048 entries: ofs still inside
     ex      de,hl                   ;DE = max
     ld      hl,(dir_ofs)
     or      a
@@ -1713,6 +1742,12 @@ dc_z:
     ld      hl,(pack_sv)
     ld      bc,11
     ldir
+    ld      hl,(dir_ptr)
+    ld      a,(hl)
+    cp      $E5                     ;KANJI lead byte is stored as $05
+    jr      NZ,dc_stored
+    ld      (hl),$05
+dc_stored:
     ld      a,1
     ld      (fat_wflag),a
     ld      hl,0

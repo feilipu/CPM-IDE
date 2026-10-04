@@ -520,6 +520,132 @@ int main(void)
     rc = fat_mount();
     expect("mount_fat32_csize", rc == 1);
 
+    /* 2048 FAT16 root entries: 65536 bytes must not wrap to an empty root. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 2048;
+    cpm_fat_vol.n_fatent = 8;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 0;
+    cpm_fat_vol.database = 128;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    memset(ram_image, ' ', 11);
+    ram_image[0] = 'A';
+    ram_image[11] = 0x20;
+    parent = 0;
+    rc = fat_dir_open(&parent);
+    expect("root2048_open", rc == 0);
+    {
+        uint8_t ent[32];
+
+        rc = fat_dir_read(ent);
+        expect("root2048_ent", rc == 0 && ent[0] == 'A');
+    }
+
+    /* 2048 entries claimed, but only one root sector before database. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 2048;
+    cpm_fat_vol.n_fatent = 8;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 2;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[1024] = 'A';
+    ram_image[1024 + 11] = 0x20;
+    memcpy(ram_image + 1536, "OVERREADTXT", 11);
+    ram_image[1536 + 11] = 0x20;
+    parent = 0;
+    rc = fat_dir_open(&parent);
+    expect("root2048_clamp_open", rc == 0);
+    {
+        uint8_t ent[32];
+        uint8_t i, saw;
+
+        saw = 0;
+        for (i = 0; i < 20; ++i) {
+            rc = fat_dir_read(ent);
+            if (rc || ent[0] == 0)
+                break;
+            if (memcmp(ent, "OVERREADTXT", 11) == 0)
+                saw = 1;
+        }
+        expect("root2048_clamp", saw == 0);
+    }
+
+    /* dir_create stores a leading 0xE5 as 0x05, so the slot is not deleted. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 16;
+    cpm_fat_vol.n_fatent = 8;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 2;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    parent = 0;
+    rc = fat_dir_open(&parent);
+    memset(n, ' ', 11);
+    n[0] = 0xE5;
+    memcpy(n + 1, "ELLO    TXT", 10);
+    rc |= dir_create(n);
+    rc |= fat_sync();
+    expect("create_e5_store", rc == 0 && ram_image[1024] == 0x05
+           && memcmp(ram_image + 1025, "ELLO    TXT", 10) == 0);
+    rc = dir_find(n);
+    expect("create_e5_find", rc == 0);
+    n[0] = 0x05;
+    rc = dir_find(n);
+    expect("create_e5_raw", rc == 1);
+
+    /* 2 → 3 → 2. Each step succeeds. The walk is longer than the FAT. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 16;
+    cpm_fat_vol.n_fatent = 10;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 3;
+    cpm_fat_vol.database = 4;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0xFF;
+    ram_image[512 + 4] = 3;
+    ram_image[512 + 6] = 2;
+    {
+        uint32_t steps;
+        uint8_t bad;
+
+        steps = 0;
+        bad = 0;
+        clst = 2;
+        while (steps < cpm_fat_vol.n_fatent) {
+            rc = fat_next(&clst);
+            if (rc || (clst & 0x0FFFFFFFul) >= 0x0FFFFFF8ul) {
+                bad = 1;
+                break;
+            }
+            steps++;
+        }
+        expect("cycle_two", bad == 0 && steps == cpm_fat_vol.n_fatent);
+    }
+
     puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");
     return fails ? 1 : 0;
 }

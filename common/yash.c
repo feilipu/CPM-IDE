@@ -1258,7 +1258,7 @@ int8_t ya_mount(char ** args)    /* mount a FAT file system */
  */
 int8_t ya_frag(char ** args)    /* cluster-run count for a file */
 {
-    uint32_t parent, cl, prev, ncl, nfrag;
+    uint32_t parent, cl, prev, ncl, nfrag, steps;
     uint8_t n[11];
 
     if (need_args(args, 1, "frag"))
@@ -1275,7 +1275,13 @@ int8_t ya_frag(char ** args)    /* cluster-run count for a file */
     prev = 0;
     if (cl >= 2) {
         nfrag = 1;
+        steps = 0;
         while (is_eoc(cl) == 0) {
+            if (steps >= cpm_fat_vol.n_fatent) {
+                put_rc(FR_INT_ERR);
+                return 1;
+            }
+            ++steps;
             ncl++;
             if (prev && cl != prev + 1)
                 nfrag++;
