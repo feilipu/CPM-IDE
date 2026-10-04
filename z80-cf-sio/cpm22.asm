@@ -2842,6 +2842,8 @@ SAMEXT:
 ;   that must match.
 ;
 FINDFST:
+    XOR     A               ;a search from the front has no resume stop.
+    LD      (GTNXRUN),A
     LD      A,0FFH
     LD      (FNDSTAT),A
     LD      HL,COUNTER      ;save character count.
@@ -2860,6 +2862,18 @@ FINDNXT:
     CALL    NXENTRY         ;get next filename entry in directory.
     CALL    CKFILPOS        ;is file position = 0ffffh?
     JP      Z,FNDNXT6       ;yes, exit now then.
+    LD      A,(GTNXRUN)     ;resume stops before the extent just closed.
+    OR      A
+    JP      Z,GTNXSKP
+    LD      HL,(FILEPOS)
+    LD      DE,(GTNXPOS)
+    LD      A,L
+    CP      E
+    JP      NZ,GTNXSKP
+    LD      A,H
+    CP      D
+    JP      Z,FNDNXT6       ;do not examine that entry again.
+GTNXSKP:
     LD      HL,(SAVEFCB)    ;set (DE) pointing to filename to match.
     EX      DE,HL
     LD      A,(DE)
@@ -3263,6 +3277,8 @@ GETMT1:
 ;   for reading.
 ;
 GETNEXT:
+    LD      HL,(FILEPOS)    ;index of the extent about to be closed.
+    LD      (GTNXPOS),HL
     XOR     A
     LD      (CLOSEFLG),A    ;clear close flag.
     CALL    CLOSEIT         ;close this extent.
@@ -3294,9 +3310,31 @@ GTNEXT1:
 ;   Get here to open the next extent.
 ;
 GTNEXT2:
-    LD      C,15            ;set to check first 15 bytes of fcb.
-    CALL    FINDFST         ;find the first one.
-    CALL    CKFILPOS        ;none available?
+    LD      HL,(GTNXPOS)    ;first entry examined is the one after this.
+    LD      (FILEPOS),HL
+    CALL    TRKSEC          ;directory sector for that extent.
+    CALL    DIRREAD
+    LD      C,0             ;checksum, same as a directory read in FINDNXT.
+    CALL    CHECKDIR
+    LD      A,0FFH
+    LD      (FNDSTAT),A
+    LD      A,15            ;user, name, extent, s2. Byte 13 stays skipped.
+    LD      (COUNTER),A
+    LD      HL,(PARAMS)
+    LD      (SAVEFCB),HL
+    LD      A,1
+    LD      (GTNXRUN),A
+    CALL    FINDNXT         ;start+1 through the end.
+    CALL    CKFILPOS
+    JP      NZ,GTNXHIT
+    CALL    STFILPOS        ;not yet absent: wrap from entry 0.
+    CALL    FINDNXT         ;stop when FILEPOS returns to GTNXPOS.
+    CALL    CKFILPOS
+GTNXHIT:
+    PUSH    AF              ;CKFILPOS: NZ means the extent was found.
+    XOR     A
+    LD      (GTNXRUN),A
+    POP     AF
     JP      NZ,GTNEXT3
     LD      A,(RDWRTFLG)    ;no extent present. Can we open an empty one?
     INC     A               ;0ffh means reading (so not possible).
@@ -4244,6 +4282,8 @@ BLKNMBR:    DEFW    0       ;block number (physical sector) used within a file o
 LOGSECT:    DEFW    0       ;starting logical (128 byte) sector of block (physical sector).
 FCBPOS:     DEFB    0       ;relative position within buffer for fcb of file of interest.
 FILEPOS:    DEFW    0       ;files position within directory (0 to max entries -1).
+GTNXPOS:    DEFW    0       ;directory index of the extent GETNEXT just closed.
+GTNXRUN:    DEFB    0       ;nonzero: FINDNXT stops before GTNXPOS.
 USRSTACK:   DEFW    0       ;save users stack pointer here.
 ;
 ;   Disk directory buffer checksum bytes. One for each of the
