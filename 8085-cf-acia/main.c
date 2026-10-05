@@ -30,7 +30,6 @@ extern uint8_t acia_pollc(void);
 extern uint8_t acia_getc(void);
 
 extern void cpm_boot(void);
-extern void hexload(void);
 
 void select_console(void)
 {

@@ -5,14 +5,11 @@ SECTION bss_compiler
 PUBLIC _cpm_fat_vol, fatwin, _fatwin, fat_winsect, fat_wflag
 PUBLIC fat_cwd, fat_found_sclust, fat_found_size
 PUBLIC dir_ptr, dir_sclust, dir_clust, dir_sect, dir_ofs
-PUBLIC fat_work, pack_sv, fat_files, _fat_files, _cpm_dir_sclust
+PUBLIC fat_work, pack_sv, fat_last_clst, _cpm_dir_sclust
 PUBLIC hstbuf, _hstbuf, hstdsk, _hstdsk, hsttrk, _hsttrk, hstsec, _hstsec
 PUBLIC hstwrt, _hstwrt
 PUBLIC wrtype, dmaadr, erflag, hstact, _hstact
-PUBLIC drv_packed
 PUBLIC clst_cache_sclust, clst_cache_ci, clst_cache_clst
-PUBLIC unamap_idx, unamap_drv
-PUBLIC synth_fi, synth_want, synth_seen
 PUBLIC _fat_cwd, _fat_found_sclust, _fat_found_size, _fat_dir_ptr, _fat_dir_sclust
 PUBLIC _cpm_dsk0_base
 PUBLIC sekdsk, sektrk, seksec, sekhst, hstact
@@ -45,17 +42,10 @@ _fat_cwd:
 fat_cwd:                defs 4
 fat_work:               defs 16
 pack_sv:                defs 16
-unamap_idx:             defs 1
-unamap_drv:             defs 1
-synth_fi:               defs 1
-synth_want:             defs 1
-synth_seen:             defs 1
-_fat_files:
-fat_files:              defs 64*24*4        ;FILE_MAX * FILE_SIZ * 4 drives
+fat_last_clst:          defs 4      ;last cluster this session allocated
 
 ; CP/M deblock (same names as cpm22bios.asm BSS)
 _cpm_dsk0_base:         defs 16     ; 4 x 32-bit LBA bases
-drv_packed:             defs 4
 _hstbuf:
 hstbuf:                 defs 512
 _hstdsk:

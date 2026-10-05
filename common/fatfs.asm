@@ -15,10 +15,12 @@
 ;   check_fs / find_volume / mount_volume
 ;   move_window / sync_window
 ;   clst2sect, get_fat, put_fat, create_chain, remove_chain
-;   dir_sdi, dir_next, dir_find, dir_alloc, dir_register, dir_remove
+;   dir_sdi, dir_next, dir_find, dir_create
 ;
 ; In scope: FAT16 and FAT32, 512-byte sectors, 8.3 SFN only.
-; Out of scope: FAT12, exFAT, LFN, GPT, FSInfo, directory stretch.
+; Out of scope: FAT12, exFAT, LFN, GPT, directory stretch.
+; FAT32 FSInfo is read at mount (free count and the next-free hint).
+; It is not rewritten; the hint lives in fat_last_clst for this session.
 ;
 ; FatFs cases we honour:
 ;   cluster < 2 invalid; n_fatent = nclst + 2
@@ -30,9 +32,9 @@
 ;   DIR_Name[0] == $05 compares as $E5; dir_create stores $E5 as $05
 ;   FAT16 root of 2048 entries is the whole 16-bit offset (65536 bytes)
 ;   dirent 0x00 = end of directory; 0xE5 = deleted (reusable)
-;   skip AM_LFN ($0F) and AM_VOL; pack also skips '.', AM_DIR, AM_SYS
-;   files larger than remaining CP/M dirents are capped (8 MB / 256 extents)
-;   dir_next stops on 16-bit ofs wrap (2048 dirents) for LFN-heavy Windows dirs
+;   A long-name entry is attribute $0F, which includes the volume bit.
+;   The volume-bit test therefore skips both labels and long names.
+;   dir_next stops on 16-bit ofs wrap (2048 dirents) for long directories
 ;   FAT32 root is BPB_RootClus32; cluster 0 means that root (ff dir_sdi)
 ;   FAT16 root is static dirbase LBA
 ;   SFD (VBR at LBA 0) then four MBR primary partitions
@@ -41,8 +43,20 @@
 ; FatFs cases we skip (on purpose):
 ;   JumpBoot $EB/$E9/$E8; GPT protective MBR; logical partitions
 ;   dir_next stretch (create_chain + dir_clear) when a subdir hits EOC
-;   FSInfo last_clst / free_clst
-;   dir_zap is E5 only; chain free is wrdir_cpm ERA / _fat_free
+;   dir_zap is E5 only; the caller frees the chain with _fat_free
+;
+; How to read this file. Each operation is one label, top to bottom:
+; mount, clst2sect, get_fat, put_fat, create_chain, remove_chain,
+; dir_sdi, dir_next, dir_find, dir_create. The C entry points
+; (_fat_alloc and the rest) only load or store the caller's
+; little-endian dword and call that operation. They are not a
+; second copy of the work.
+; fat_ld32, fat_st32, and fat_move_window stay shared. Every cluster
+; and every LBA is a dword in BCDE with E as the low byte, and every
+; FAT or directory byte is read from the one sector window. Inlining
+; those two jobs would paste the FAT16/FAT32 cases into every caller.
+; fat_ld32 leaves HL on the last byte, so a caller that reads the
+; next dword has to inc hl first.
 ;
 
 SECTION code_lib
@@ -65,6 +79,7 @@ EXTERN  dir_sect
 EXTERN  dir_ofs
 EXTERN  fat_work
 EXTERN  pack_sv
+EXTERN  fat_last_clst       ;last cluster this session allocated
 EXTERN  clst_cache_sclust
 EXTERN  clst_cache_ci
 EXTERN  clst_cache_clst
@@ -96,6 +111,7 @@ PUBLIC  _fat_alloc          ;C: create_chain of dword at (HL)
 PUBLIC  _fat_free           ;C: remove_chain of dword at (HL)
 PUBLIC  _fat_clst2sect      ;C: clst2sect of dword at (HL)
 PUBLIC  _fat_getfree        ;C: count free clusters into dword at (HL)
+PUBLIC  _fat_clusters       ;C: bytes at (HL) -> cluster count, or 0
 
 
 DEFC    FS_FAT16        = 2
@@ -113,6 +129,7 @@ DEFC    BPB_TotSec32    = 32
 DEFC    BPB_FATSz32     = 36
 DEFC    BPB_FSVer       = 42
 DEFC    BPB_RootClus32  = 44
+DEFC    BPB_FSInfo      = 48
 DEFC    BS_55AA         = 510
 DEFC    MBR_PTE         = 446
 DEFC    SZ_PTE          = 16
@@ -121,26 +138,7 @@ DEFC    DIR_Attr        = 11
 DEFC    DIR_ClusHI      = 20
 DEFC    DIR_ClusLO      = 26
 DEFC    DIR_FileSize    = 28
-DEFC    AM_LFN          = $0F
 DEFC    AM_VOL          = $08
-DEFC    AM_SYS          = $04
-DEFC    AM_DIR          = $10
-DEFC    FILE_MAX        = 64
-DEFC    DIR_AL          = 2             ;AL 0-1 reserved; DPB AL0=$C0 (256 dirents)
-DEFC    DIR_HST         = DIR_AL*8      ;host sectors in reserved dir ALs (BLS/512)
-DEFC    wrual           = 2             ;BDOS WRITE C=2; matches BIOS wrual
-DEFC    FILE_SIZ        = 24            ;flags+sclust+size+first_al+n_al+8.3
-DEFC    FF_FLAGS        = 0
-DEFC    FF_SCLUST       = 1
-DEFC    FF_SIZE         = 5
-DEFC    FF_FIRSTAL      = 9
-DEFC    FF_NAL          = 11
-DEFC    FF_NAME         = 13
-DEFC    FF_USED         = $80
-DEFC    EOC32           = $0FFFFFFF
-
-DEFC    AM_RDO          = $01
-DEFC    AM_HID          = $02
 
 
 ; ff.c clst2sect: if (clst < 2 || clst >= n_fatent) fail;
@@ -408,6 +406,10 @@ fat_mount_cold:
     xor     a
     ld      (fat_wflag),a
     ld      (_cpm_fat_vol+25),a     ;free_valid
+    ld      (fat_last_clst),a
+    ld      (fat_last_clst+1),a
+    ld      (fat_last_clst+2),a
+    ld      (fat_last_clst+3),a
     ld      hl,$FFFF
     ld      (fat_winsect),hl
     ld      (fat_winsect+2),hl
@@ -750,6 +752,7 @@ fat_mount_ok:
     scf
     ret
 fat_mount_cwd32:
+    call    fat_seed_fsinfo
     ld      hl,(_cpm_fat_vol+12)    ;FAT32 root cluster
     ld      (fat_cwd),hl
     ld      hl,(_cpm_fat_vol+14)
@@ -760,6 +763,144 @@ fat_mount_cwd32:
 fat_mount_fail:
     ld      hl,1
     or      a
+    ret
+
+; FAT32 FSInfo (fatgen103 section 5). The VBR is still in fatwin.
+; FSI_Nxt_Free is the cluster where the next search should start,
+; usually the last cluster a driver allocated. FSI_Free_Count is the
+; last known free total. Either field may be $FFFFFFFF (unknown).
+; A bad info sector leaves the hint clear and the mount still succeeds.
+fat_seed_fsinfo:
+    ld      hl,(fatwin+BPB_FSInfo)
+    ld      a,h
+    or      l
+    ret     Z
+    inc     hl
+    ld      a,h
+    or      l
+    ret     Z                       ;offset was $FFFF
+    dec     hl
+    ld      de,(fat_winsect)
+    add     hl,de
+    ld      de,hl
+    ld      hl,(fat_winsect+2)
+    ld      bc,0
+    adc     hl,bc
+    ld      bc,hl
+    call    fat_move_window
+    ret     NC
+    ld      hl,fatwin
+    ld      a,(hl+)
+    cp      $52
+    ret     NZ
+    ld      a,(hl+)
+    cp      $61
+    ret     NZ
+    ld      a,(hl+)
+    cp      $41
+    ret     NZ
+    ld      a,(hl)
+    cp      $41                     ;FSI_LeadSig 0x41615252
+    ret     NZ
+    ld      hl,fatwin+484
+    ld      a,(hl+)
+    cp      $72
+    ret     NZ
+    ld      a,(hl+)
+    cp      $72
+    ret     NZ
+    ld      a,(hl+)
+    cp      $41
+    ret     NZ
+    ld      a,(hl)
+    cp      $61                     ;FSI_StrucSig 0x61417272
+    ret     NZ
+    ld      a,(fatwin+510)
+    cp      $55
+    ret     NZ
+    ld      a,(fatwin+511)
+    cp      $AA
+    ret     NZ
+    ld      hl,fatwin+492           ;FSI_Nxt_Free
+    call    fat_ld32
+    ld      a,e
+    and     d
+    and     c
+    and     b
+    cp      $FF
+    jr      Z,seed_free
+    push    bc
+    push    de
+    ld      a,b
+    or      c
+    or      d
+    jr      NZ,seed_nxt_hi
+    ld      a,e
+    cp      2
+    jr      C,seed_nxt_pop
+seed_nxt_hi:
+    ld      hl,(_cpm_fat_vol+4)
+    ld      a,l
+    sub     e
+    ld      l,a
+    ld      a,h
+    sbc     a,d
+    ld      h,a
+    ld      a,(_cpm_fat_vol+6)
+    sbc     a,c
+    ld      c,a
+    ld      a,(_cpm_fat_vol+7)
+    sbc     a,b
+    jr      C,seed_nxt_pop          ;hint >= n_fatent
+    or      c
+    or      h
+    or      l
+    jr      Z,seed_nxt_pop
+    pop     de
+    pop     bc
+    ld      (fat_last_clst),de
+    ld      (fat_last_clst+2),bc
+    jr      seed_free
+seed_nxt_pop:
+    pop     de
+    pop     bc
+seed_free:
+    ld      hl,fatwin+488           ;FSI_Free_Count
+    call    fat_ld32
+    ld      a,e
+    and     d
+    and     c
+    and     b
+    cp      $FF
+    ret     Z
+    push    bc
+    push    de
+    ld      hl,(_cpm_fat_vol+4)     ;nclst = n_fatent - 2
+    ld      de,(_cpm_fat_vol+6)
+    ld      bc,2
+    or      a
+    sbc     hl,bc
+    jr      NC,seed_ncl
+    dec     de
+seed_ncl:
+    ld      (fat_work),hl
+    ld      (fat_work+2),de
+    pop     de                      ;free count
+    pop     bc
+    ld      hl,fat_work
+    ld      a,(hl+)
+    sub     e
+    ld      a,(hl+)
+    sbc     a,d
+    ld      a,(hl+)
+    sbc     a,c
+    ld      a,(hl)
+    sbc     a,b
+    ret     C                       ;free > nclst
+    ld      (_cpm_fat_vol+28),de
+    ld      (_cpm_fat_vol+30),bc
+    ld      a,1
+    ld      (_cpm_fat_vol+25),a
     ret
 
 ;------------------------------------------------------------------------------
@@ -972,23 +1113,17 @@ fat_win_is_free:
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
     jr      Z,fat_win_free32
-    ld      a,(hl)
-    inc     hl
-    or      (hl)
-    dec     hl
+    ld      a,(hl+)
+    or      (hl-)
     ret
 fat_win_free32:
     push    bc
-    ld      a,(hl)
-    inc     hl
-    or      (hl)
-    inc     hl
-    or      (hl)
-    inc     hl
+    ld      a,(hl+)
+    or      (hl+)
+    or      (hl+)
     ld      b,a
-    ld      a,(hl)
+    ld      a,(hl-)
     and     $0F
-    dec     hl
     dec     hl
     dec     hl
     or      b
@@ -1162,13 +1297,19 @@ cfo_bad:
     or      a
     ret
 
-; ff.c create_chain (no last_clst hint, no FSInfo).
-; clst==0: scan from 2; else from clst+1, wrap once to 2.
-; Marks the new cluster EOC ($0FFFFFFF) and links the previous if any.
-; IN: BCDE = last cluster or 0
-; OUT C: BCDE = new cluster
+; Allocate one cluster and link it.
+; IN: BCDE = cluster to link after, or 0 to start a new chain.
+; A new chain starts at fat_last_clst when that hint is a real cluster
+; (fatgen103 FSI_Nxt_Free: start where the driver last allocated).
+; Otherwise it starts at cluster 2. Extending a chain starts at clst+1,
+; so the next cluster is taken when it is free.
+; The scan wraps once to cluster 2 and stops at the cluster where this
+; search started, so the tail is not read twice.
+; The new cluster is marked EOC ($0FFFFFFF), remembered as fat_last_clst,
+; and linked from the previous cluster when there is one.
+; OUT C: BCDE = new cluster. A failed FAT#2 mirror still returns it.
 create_chain:
-    ld      (fat_work+8),de
+    ld      (fat_work+8),de          ;link-from
     ld      (fat_work+10),bc
     xor     a
     ld      (fat_work+7),a           ;wrap flag
@@ -1176,16 +1317,55 @@ create_chain:
     or      c
     or      d
     or      e
-    jr      Z,cc_from2
+    jr      Z,cc_hint
     inc     de
     ld      a,d
     or      e
-    jr      NZ,cc_scan
+    jr      NZ,cc_mark
     inc     bc
-    jr      cc_scan
+    jr      cc_mark
+cc_hint:
+    ld      de,(fat_last_clst)
+    ld      bc,(fat_last_clst+2)
+    ld      a,b
+    or      c
+    or      d
+    jr      NZ,cc_hint_hi
+    ld      a,e
+    cp      2
+    jr      C,cc_from2               ;no hint, or hint is 0/1
+cc_hint_hi:
+    push    bc
+    push    de
+    ld      hl,(_cpm_fat_vol+4)
+    ld      a,l
+    sub     e
+    ld      l,a
+    ld      a,h
+    sbc     a,d
+    ld      h,a
+    ld      a,(_cpm_fat_vol+6)
+    sbc     a,c
+    ld      c,a
+    ld      a,(_cpm_fat_vol+7)
+    sbc     a,b
+    jr      C,cc_hint_bad
+    or      c
+    or      h
+    or      l
+    jr      Z,cc_hint_bad            ;hint >= n_fatent
+    pop     de
+    pop     bc
+    jr      cc_mark
+cc_hint_bad:
+    pop     de
+    pop     bc
 cc_from2:
     ld      de,2
     ld      bc,0
+cc_mark:
+    ld      (fat_work),de            ;search origin
+    ld      (fat_work+2),bc
 cc_scan:
     ld      (fat_work+12),de
     ld      (fat_work+14),bc
@@ -1205,9 +1385,27 @@ cc_scan:
     or      c
     or      h
     or      l
-    jp      Z,cc_wrap               ;search >= n_fatent
+    jp      Z,cc_wrap               ;candidate >= n_fatent
     ld      de,(fat_work+12)
     ld      bc,(fat_work+14)
+    ld      a,(fat_work+7)
+    or      a
+    jr      Z,cc_look
+    ld      hl,(fat_work)           ;wrapped: stop on return to origin
+    ld      a,e
+    cp      l
+    jr      NZ,cc_look
+    ld      a,d
+    cp      h
+    jr      NZ,cc_look
+    ld      hl,(fat_work+2)
+    ld      a,c
+    cp      l
+    jr      NZ,cc_look
+    ld      a,b
+    cp      h
+    jp      Z,cc_fail
+cc_look:
     call    get_fat
     ret     NC
     ld      a,b
@@ -1236,11 +1434,12 @@ cc_scan:
     pop     bc
     ret     NC
 cc_ok:
-    call    fat_sync_window
-    jr      NC,cc_ret_cl            ;FAT#2 failed: cluster is on FAT#1
+    call    fat_sync_window         ;FAT#2 miss: cluster is already on FAT#1
 cc_ret_cl:
     ld      de,(fat_work+12)
     ld      bc,(fat_work+14)
+    ld      (fat_last_clst),de
+    ld      (fat_last_clst+2),bc
     scf
     ret
 cc_next:
@@ -1256,15 +1455,24 @@ cc_wrap:
     ld      a,(fat_work+7)
     or      a
     jr      NZ,cc_fail
-    inc     a
+    ld      a,1
     ld      (fat_work+7),a
-    ld      a,(fat_work+8)
-    ld      hl,fat_work+9
-    or      (hl+)
-    or      (hl+)
-    or      (hl)
+    ld      a,(fat_work)            ;origin == 2 means the whole volume was seen
+    cp      2
+    jr      NZ,cc_wrap2
+    ld      a,(fat_work+1)
+    or      a
+    jr      NZ,cc_wrap2
+    ld      a,(fat_work+2)
+    or      a
+    jr      NZ,cc_wrap2
+    ld      a,(fat_work+3)
+    or      a
     jr      Z,cc_fail
-    jp      cc_from2
+cc_wrap2:
+    ld      de,2
+    ld      bc,0
+    jp      cc_scan
 cc_fail:
     or      a
     ret
@@ -1626,7 +1834,8 @@ dir_next_end:
     ret
 
 ; ff.c dir_find (no LFN). 0x00 ends the table; 0xE5 is deleted.
-; Skip AM_VOL and AM_LFN ($0F). Disk $05 compares as $E5.
+; Skip the volume bit. A long name is attribute $0F, so that test
+; covers it. Disk $05 compares as $E5.
 ; IN: HL -> 11-byte 8.3
 ; OUT C and L=0, H=0: found, fat_found_* and dir_ptr filled. L=1: miss.
 _dir_find:
@@ -1650,9 +1859,6 @@ df_loop:
     ld      a,(hl)
     and     AM_VOL
     jr      NZ,df_next
-    ld      a,(hl)
-    cp      AM_LFN
-    jr      Z,df_next
     ld      de,(dir_ptr)
     ld      hl,(pack_sv)
     ld      a,(de)
@@ -1765,7 +1971,11 @@ dir_zap:
     scf
     ret
 
-; HL -> DWORD start cluster. dir_sdi at offset 0. L=0 success.
+; Open a directory at its first entry.
+; HL points at the little-endian start cluster. 0 is the root
+; (the FAT16 root area, or the FAT32 root cluster).
+; L=0 and carry set when the first sector is in the window.
+; L=1 and carry clear when that cluster is not on the volume.
 _fat_dir_open:
     call    fat_ld32
     ld      hl,0
@@ -1799,8 +2009,12 @@ fat_dir_read_end:
     ld      hl,1
     ret
 
-; HL -> DWORD cluster (LE). Write next cluster back. L=0 success.
-; Self-loop (next == clst) is corrupt: fail closed.
+; Next cluster in a chain.
+; HL points at a little-endian cluster. On success that dword
+; becomes the next cluster and L is 0. An end mark is stored as
+; 0x0FFFFFFF (FAT16 $FFF8-$FFFF and FAT32 >= $0FFFFFF8 both fold
+; to that value). On a disk error the dword is left alone and L
+; is 1. A chain that points at itself fails.
 _fat_next:
     push    hl
     call    fat_ld32
@@ -1829,7 +2043,14 @@ fat_next_fail:
     ld      hl,1
     ret
 
-; HL -> DWORD last cluster (0 = new chain). Write new cluster back.
+; Allocate one cluster by the next-free scan (create_chain).
+; HL points at the little-endian cluster to link after. 0 starts
+; a new chain. On success the new cluster number replaces that
+; dword and L is 0. On failure the dword is unchanged and L is 1.
+; The new cluster is marked end-of-chain, then linked from the
+; previous one. This is not a search for a hole, so several calls
+; can fragment the file. If the second FAT copy cannot be written
+; the call still succeeds: the first FAT already holds the link.
 _fat_alloc:
     push    hl
     call    fat_ld32
@@ -1843,7 +2064,10 @@ fat_alloc_fail:
     ld      hl,1
     ret
 
-; HL -> DWORD start cluster.
+; Free a whole chain.
+; HL points at the little-endian start cluster. The walk stops at
+; 0 or at a link that is not a real cluster (end mark, bad mark,
+; or a number past n_fatent). L=0 and carry set on success.
 _fat_free:
     call    fat_ld32
     call    remove_chain
@@ -1852,7 +2076,11 @@ _fat_free:
     inc     l
     ret
 
-; HL -> DWORD cluster in, LBA out.
+; First sector of a cluster.
+; HL points at a little-endian cluster. On success that same
+; dword is overwritten with the LBA, database + (cluster-2)*csize,
+; and L is 0. On failure the dword is unchanged and L is 1.
+; A cluster below 2, or at or past n_fatent, fails.
 _fat_clst2sect:
     push    hl
     call    fat_ld32
@@ -1866,8 +2094,9 @@ fat_c2s_fail:
     ld      hl,1
     ret
 
-; ff.c f_getfree FAT16/32 window scan (no FSInfo). Count zero entries
-; in n_fatent FAT slots (0 and 1 are never free on a valid volume).
+; ff.c f_getfree FAT16/32 window scan. Count zero entries in n_fatent
+; FAT slots (0 and 1 are never free on a valid volume). The scan does
+; not read FSInfo; a mount may already have stored FSI_Free_Count.
 ; Cache: free_valid / free_clst; put_fat updates the count.
 ; HL -> DWORD out. L=0 success.
 _fat_getfree:
@@ -1918,7 +2147,8 @@ gf_got:
     jr      Z,gf32
     ld      b,0                     ;256 FAT16 entries / sector
 gf16_lp:
-    call    fat_win_is_free
+    ld      a,(hl+)                 ;FAT16 free: both bytes zero
+    or      (hl-)
     jr      NZ,gf16_used
     call    gf_inc
 gf16_used:
@@ -1931,7 +2161,15 @@ gf16_used:
 gf32:
     ld      b,128
 gf32_lp:
-    call    fat_win_is_free
+    ld      a,(hl+)                 ;FAT32 free: 28-bit value zero
+    or      (hl+)
+    or      (hl+)
+    ld      c,a
+    ld      a,(hl-)
+    and     $0F
+    or      c
+    dec     hl
+    dec     hl
     jr      NZ,gf32_used
     call    gf_inc
 gf32_used:
@@ -1995,3 +2233,88 @@ gf_dec_lo:
     or      d
     or      e
     ret
+
+; Round *HL bytes up to whole clusters. csize is 2^n.
+; Out: that count, or 0 if csize is 0, bytes is 0, or the sum wraps.
+; Shift is 9+log2(csize) and at most 16, so the mask fits in 16 bits.
+_fat_clusters:
+    push    hl
+    ld      a,(_cpm_fat_vol+1)
+    or      a
+    jp      Z,fc_z1
+    ld      b,9
+fc_log:
+    rrca
+    jp      C,fc_have
+    inc     b
+    jp      fc_log
+fc_have:
+    ld      c,b                     ;C = shift
+    ld      hl,0
+fc_mask:
+    add     hl,hl
+    inc     hl                      ;(1<<shift)-1
+    dec     b
+    jp      NZ,fc_mask
+    push    hl                      ;mask
+    push    bc                      ;shift in C
+    ld      hl,4
+    add     hl,sp                   ;saved pointer
+    ld      a,(hl+)
+    ld      h,(hl)
+    ld      l,a
+    call    fat_ld32                ;BCDE = bytes
+    ld      a,b
+    or      c
+    or      d
+    or      e
+    jp      Z,fc_z3
+    ld      hl,2
+    add     hl,sp                   ;mask
+    ld      a,e
+    add     a,(hl+)
+    ld      e,a
+    ld      a,d
+    adc     a,(hl)
+    ld      d,a
+    ld      a,c
+    adc     a,0
+    ld      c,a
+    ld      a,b
+    adc     a,0
+    ld      b,a
+    jp      C,fc_z3
+fc_shr:
+    or      a
+    ld      a,b
+    rra
+    ld      b,a
+    ld      a,c
+    rra
+    ld      c,a
+    ld      a,d
+    rra
+    ld      d,a
+    ld      a,e
+    rra
+    ld      e,a
+    ld      hl,0
+    add     hl,sp
+    dec     (hl)                    ;shift--
+    jp      NZ,fc_shr
+    pop     hl
+    pop     hl
+    pop     hl
+    jp      fat_st32
+fc_z3:
+    ld      bc,0
+    ld      de,0
+    pop     hl
+    pop     hl
+    pop     hl
+    jp      fat_st32
+fc_z1:
+    ld      bc,0
+    ld      de,0
+    pop     hl
+    jp      fat_st32

@@ -33,7 +33,8 @@ void select_console(void);
 void put_rc(uint8_t rc);
 
 int8_t ya_mkcpm(char **args);
-int8_t ya_hload(char **args);
+int8_t ya_mkdrv(char **args);
+int8_t ya_hget(char **args);
 int8_t ya_md(char **args);
 int8_t ya_help(char **args);
 int8_t ya_exit(char **args);
@@ -49,7 +50,6 @@ int8_t ya_mount(char **args);
 int8_t ya_ds(char **args);
 int8_t ya_dd(char **args);
 int8_t ya_frag(char **args);
-int8_t ya_free(char **args);
 int8_t ya_execute(char **args);
 void ya_getline(char *line, uint16_t len);
 void ya_split_line(char **tokens, char *line);

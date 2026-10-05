@@ -306,17 +306,14 @@ setLBAaddr:
     ld      a,(hstdsk)
     call    getLBAbase
     ld      a,(hstsec)
-    add     a,(hl)
+    add     a,(hl+)
     ld      e,a
-    inc     hl
     ld      a,(hsttrk)
-    adc     a,(hl)
+    adc     a,(hl+)
     ld      d,a
-    inc     hl
-    ld      a,(hl)
+    ld      a,(hl+)
     adc     a,$00
     ld      c,a
-    inc     hl
     ld      a,(hl)
     adc     a,$00
     ld      b,a

@@ -75,29 +75,6 @@ run_master_disk 8085-cf-acia 8085
 run_master_disk 8085-pata-uart 8085
 
 if [ -f "$ROOT/common/fatfs.asm" ]; then
-echo "=== skip v3 pack/synth/map (snapshot is not on this line) ==="
-if false; then
-echo "=== v3 pack/synth/map ticks ==="
-( cd /tmp && zcc +test -vn -m \
-    -I"$ROOT/common" -I"$HERE" \
-    "$HERE/test_v3_map.c" "$HERE/v3_glue.asm" "$HERE/ide_ram.asm" \
-    "$HERE/bss_ram.asm" "$HERE/bios_disk.asm" "$ROOT/common/fatfs.asm" \
-    -o "$HERE/out/v3map.bin" -lndos )
-z88dk-ticks "$HERE/out/v3map.bin" -x "$HERE/out/v3map.map" \
-    -counter 999999999 | tee "$HERE/out/v3map.txt"
-grep -q 'V3MAP_OK' "$HERE/out/v3map.txt"
-
-echo "=== v3 pack/synth/map 8085 ticks ==="
-( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
-    -I"$ROOT/common" -I"$HERE" \
-    "$HERE/test_v3_map.c" "$HERE/v3_glue_85.asm" "$HERE/ide_ram_8085.asm" \
-    "$HERE/bss_ram.asm" "$HERE/bios_disk_85.asm" "$ROOT/common/fatfs_85.asm" \
-    -o "$HERE/out/v3map85.bin" -lndos )
-z88dk-ticks -m8085 "$HERE/out/v3map85.bin" -x "$HERE/out/v3map85.map" \
-    -counter 999999999 | tee "$HERE/out/v3map85.txt"
-grep -q 'V3MAP_OK' "$HERE/out/v3map85.txt"
-fi
-
 echo "=== mini-FAT ticks (FAT12-sized mount must fail) ==="
     ( cd /tmp && zcc +test -vn -m \
         -I"$ROOT/common" \

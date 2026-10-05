@@ -646,6 +646,38 @@ int main(void)
         expect("cycle_two", bad == 0 && steps == cpm_fat_vol.n_fatent);
     }
 
+    cpm_fat_vol.csize = 8;
+    clst = 8388608ul;
+    fat_clusters(&clst);
+    expect("cl_8mb", clst == 2048);
+    clst = 8388609ul;
+    fat_clusters(&clst);
+    expect("cl_round", clst == 2049);
+    clst = 4096;
+    fat_clusters(&clst);
+    expect("cl_one", clst == 1);
+    cpm_fat_vol.csize = 1;
+    clst = 512;
+    fat_clusters(&clst);
+    expect("cl_512", clst == 1);
+    clst = 513;
+    fat_clusters(&clst);
+    expect("cl_513", clst == 2);
+    clst = 0;
+    fat_clusters(&clst);
+    expect("cl_zero", clst == 0);
+    clst = 0xFFFFFFFFul;
+    fat_clusters(&clst);
+    expect("cl_over", clst == 0);
+    cpm_fat_vol.csize = 128;
+    clst = 65536ul;
+    fat_clusters(&clst);
+    expect("cl_64k", clst == 1);
+    cpm_fat_vol.csize = 0;
+    clst = 512;
+    fat_clusters(&clst);
+    expect("cl_nocs", clst == 0);
+
     puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");
     return fails ? 1 : 0;
 }

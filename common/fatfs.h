@@ -46,6 +46,8 @@ extern uint8_t fat_alloc(uint32_t *clst) __z88dk_fastcall;
 extern uint8_t fat_free(uint32_t *clst) __z88dk_fastcall;
 extern uint8_t fat_clst2sect(uint32_t *clst) __z88dk_fastcall;
 extern uint8_t fat_getfree(uint32_t *nclst) __z88dk_fastcall;
+/* *bytes in: file size. Out: clusters to allocate, or 0 if that rounds to none. */
+extern void fat_clusters(uint32_t *bytes) __z88dk_fastcall;
 
 #define FR_OK                  0
 #define FR_DISK_ERR            1

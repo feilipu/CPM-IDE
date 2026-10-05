@@ -26,6 +26,7 @@ PUBLIC dir_sect
 PUBLIC dir_ofs
 PUBLIC fat_work
 PUBLIC pack_sv
+PUBLIC fat_last_clst
 PUBLIC clst_cache_sclust
 PUBLIC clst_cache_ci
 PUBLIC clst_cache_clst
@@ -54,3 +55,4 @@ _fat_cwd:
 fat_cwd:                defs 4
 fat_work:               defs 16
 pack_sv:                defs 16
+fat_last_clst:          defs 4      ;last cluster this session allocated

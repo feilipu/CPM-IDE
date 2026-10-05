@@ -36,7 +36,6 @@ extern uint8_t siob_pollc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 extern uint8_t siob_getc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 
 extern void cpm_boot(void) __preserves_regs(a,b,c,d,e,h,iyl,iyh);
-extern void hexload(void) __preserves_regs(a,b,c,d,e,h,iyl,iyh);
 
 void select_console(void)
 {

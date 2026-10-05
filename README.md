@@ -213,8 +213,9 @@ Version 2.5 is the current ROM. The shell, BDOS, and BIOS changes apply to Compa
 - Bytes below space or above 126 are dropped. A NUL at `line[0]` made `strtok` see an empty command.
 - Ctrl-P and Ctrl-N recall up to 8 lines of 80 characters. The previous line is erased with backspace, because the console drops a bare CR.
 - `cpm` accepts 1 to 4 contiguous `.CPM` files as `A:` to `D:`.
-- `rm`, `rmdir`, `mkdir`, `cp`, `mv`, and `free` work on the FAT volume. `cp` and `mv` share one transfer. `rm` will not delete a directory or a read-only file.
+- `rm`, `rmdir`, `mkdir`, `cp`, and `mv` work on the FAT volume. `cp` and `mv` share one transfer. `rm` will not delete a directory or a read-only file. `ls` prints the free bytes on the volume after the names.
 - The volume is FAT16 or FAT32, with at most 32 KB per cluster. A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entries fills the 16-bit directory offset and can be listed. FAT32 must be version 0 and must have a zero root count. `ls` stops at the last name of a full directory. A name that starts with byte `0xE5` is stored as `0x05`. `mkdir` and `cp` free a new cluster chain when the directory update does not finish. `frag` stops if a cluster chain does not reach an end mark.
+- `hget` receives an Intel HEX file onto the FAT volume (`ascii-xfr -s` on the host). A type `04` record extends the offset past 64 KB, so an 8 MB `.CPM` image is one file. `cpm` still needs that file in one cluster run.
 
 `REGISTER_SP` sits at the CCP origin so the shell stack stays below CCP.
 
@@ -298,7 +299,7 @@ __NOTE:__ Where the SIO Module or the UART Module is being used, on startup the 
 
 CP/M can be started by command __`cpm file.a [file.b] [file.c] [file.d]`__. At least one valid file name must be provided. CP/M can be started with to up to four (4) files to be mounted on __`A:`__, __`B:`__, __`C:`__, and __`D:`__ drives, from any of the thousands of CP/M drive files you may have available. Up to 4 CP/M drive files can be concurrently mounted. Each CP/M drive file must be contiguous, but can be located anywhere on the FATFS drive (any LBA) in any directory, provided the full path is used to reference it.
 
-The shell also has __`ls`__, __`cd`__, __`pwd`__, __`rm`__, __`rmdir`__, __`mkdir`__, __`cp`__, __`mv`__, __`frag`__, __`free`__, and __`mount`__ on the FAT volume, __`ds`__ and __`dd`__ for the raw disk, and __`md`__ for ROM and RAM. __`frag`__ reports how many cluster runs a file uses. __`hload`__ uploads an Intel HEX file and runs it. Ctrl-P and Ctrl-N recall the command line. __`exit`__ restarts the RC2014.
+The shell also has __`ls`__, __`cd`__, __`pwd`__, __`rm`__, __`rmdir`__, __`mkdir`__, __`cp`__, __`mv`__, __`frag`__, and __`mount`__ on the FAT volume, __`ds`__ and __`dd`__ for the raw disk, and __`md`__ for ROM and RAM. __`ls`__ ends with the free bytes on the volume. __`frag`__ reports how many cluster runs a file uses. __`mkdrv file`__ creates an empty 8 MB CP/M drive with 2048 directory entries. `frag` reports whether that file is one cluster run. __`hget`__ receives an Intel HEX file. Ctrl-P and Ctrl-N recall the command line. __`exit`__ restarts the RC2014.
 
 Once the shell __`cpm`__ command has established that it has a valid CP/M drive available, then it will page out the ROM, write in a new `Page 0` with relevant CP/M data and interrupt linkages, and then pass control to the CP/M CCP.
 
@@ -316,7 +317,7 @@ Also the NZ-COM, or Z-System, can be loaded, temporarily overwriting the DRI CCP
 
 As the CP/M-IDE shell doesn't have a way to format its own CP/M drives (due to ROM space constraints), a template CP/M drive is provided as a zip file. Many copies of the template zip file and any other example application zip files can be expanded and copied onto the IDE drive, and used or augmented by the CP/M Tools as noted below.
 
-The [`yash`](https://github.com/z88dk/z88dk-ext/blob/master/os-related/CPM/yash.c) CP/M application can be uploaded using the shell `hload` and it can then create drive files using `mkdrv` command.
+Prepare an image on the host with `objcopy -I binary -O ihex drive.cpm drive.hex`, then on the shell run `hget DRIVE.CPM` and send the hex with `ascii-xfr -s drive.hex`. Turn on hardware flow control so the receive ring can pause the host while a sector is written.
 
 ### CP/M Application Disks
 
@@ -324,7 +325,7 @@ The [CP/M Drives directory](https://github.com/feilipu/CPM-IDE/tree/master/CPM%2
 
 An empty [CP/M 8 MB drive](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/TEMPLATE.CPM.zip) file is provided as a template to create additional user drives. Unfortunately, the CP/M tools package doesn't properly extend CP/M drive files out to the full size of 8388608 bytes when it creates them on FATFS. Using (unzipping) this template, and renaming it as desired, on a FATFS drive is all that is needed to create a new CP/M drive on any PATA hard drive or Compact Flash card. Each new file created provides a new 8 MB CP/M drive which can store up to 2048 files.
 
-The [`yash`](https://github.com/z88dk/z88dk-ext/blob/master/os-related/CPM/yash.c) application can also be used to create, manage, and delete CP/M drive files without moving the PATA drive to a host computer. This application supports both read and write to the underlying FATFS file system.
+`hget` writes that image onto the card without moving the drive to the host. The file has to be one contiguous cluster run before `cpm` will mount it (`frag` reports the runs).
 
 FAT32 supports over 65,000 files in each directory. Using a 128GB drive it is possible to store more than that many 8MB CP/M-IDE drive drives on one IDE drive, although this upper limit hasn't been tested.
 
@@ -380,7 +381,8 @@ Again, here is a view of what success looks like.
 
 ### CP/M Functions
 - `cpm file.a [file.b] [file.c] [file.d]` - initialise CP/M with up to 4 drive files
-- `hload` - load an Intel HEX CP/M file and run it
+- `hget <file>` - receive an Intel HEX file (`ascii-xfr -s`)
+- `mkdrv <file>` - create an empty 8 MB CP/M drive (2048 directory entries)
 
 ### File System Functions
 - `ls [path]` - directory listing
@@ -392,7 +394,6 @@ Again, here is a view of what success looks like.
 - `cp <src> <dst>` - copy a file
 - `mv <src> <dst>` - rename or move a file
 - `frag <file>` - cluster-run count for a file
-- `free` - free and total space on the volume
 - `mount` - mount the FAT file system
 
 ### Disk Functions

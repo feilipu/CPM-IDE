@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "bios_disk.h"
 
-uint8_t ram_image[64 * 512];
+uint8_t ram_image[32768]; /* 64*512; sccz80 constexpr multiply wraps */
 uint8_t ram_nsect = 64;
 
 static int fails;

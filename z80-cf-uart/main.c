@@ -34,7 +34,6 @@ extern uint8_t uartb_pollc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 extern uint8_t uartb_getc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 
 extern void cpm_boot(void) __preserves_regs(a,b,c,d,e,h,iyl,iyh);
-extern void hexload(void) __preserves_regs(a,b,c,d,e,h,iyl,iyh);
 
 static void uarta_flush_rx_di(void)
 {
