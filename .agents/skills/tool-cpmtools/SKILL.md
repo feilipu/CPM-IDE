@@ -9,8 +9,8 @@ description: >
 
 # cpmtools (host) — diskdef, bugs, rebuild
 
-Background, evidence and the `rc2014-8MB` diskdef live in repo-root
-`readme_cpmtools.md`. This skill is the repeatable procedure. Read that file
+Background, evidence and the `rc2014-8MB` diskdef live in
+`cpmtools/readme_cpmtools.md`. This skill is the repeatable procedure. Read that file
 first if you need the *why*.
 
 cpmtools is an **extract-only** tool for this project. Do not invent a write
@@ -154,6 +154,6 @@ rm -f w.img /tmp/new.txt /tmp/got.com    # keep the repo clean
   test of `cpmcp`, and a `cpmls -i` abort says nothing about the write path.
 - A no-match glob legitimately aborts. Don't file that as a diskdef problem.
 - Keep the build auditable: drop only the libdsk backend. Do **not** also apply the
-  `assert(dirent || entries>=0)` fix unless asked — note it in `readme_cpmtools.md`
+  `assert(dirent || entries>=0)` fix unless asked — note it in `cpmtools/readme_cpmtools.md`
   instead.
 - `libdsk4-dev` is now installed but unused. Harmless to leave; safe to purge.

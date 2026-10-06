@@ -179,6 +179,13 @@ static void sfn_to_name(char *dst, const uint8_t *ent)
     dst[n] = 0;
 }
 
+static void put_vis(uint8_t c)
+{
+    if (c < 0x20 || c > 0x7E)
+        c = '?';
+    fputc(c, output);
+}
+
 static uint8_t dir_find_try(uint8_t *n)
 {
     uint8_t alt[11];
@@ -448,7 +455,7 @@ static void release_chain(uint32_t clst)
 
 static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint32_t *out_size)
 {
-    uint32_t last = 0, first = 0, lbas, lbad, nxt, remain, chunk;
+    uint32_t last = 0, first = 0, lbas, lbad, nxt, remain, chunk, steps;
     uint8_t s, nsec;
 
     *out_first = 0;
@@ -456,7 +463,16 @@ static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint3
     if (size == 0)
         return 0;
     remain = size;
+    steps = 0;
     while (remain) {
+        /* A cyclic chain would otherwise repeat clusters until size is
+         * exhausted and the new name would be stamped with those bytes.
+         */
+        if (steps >= cpm_fat_vol.n_fatent) {
+            release_chain(first);
+            return 1;
+        }
+        ++steps;
         if (src < 2 || is_eoc(src)) {
             release_chain(first);
             return 1;
@@ -1032,20 +1048,30 @@ static uint16_t md_left;
 static uint8_t md_sec, md_n;
 static uint8_t *md_p;
 
-/* Drop the directory entry hg_open created. Caller frees any clusters. */
-static void md_unlink(void)
+/* 0: the name is gone. Same order as ya_rm and ChaN f_unlink:
+ * remove the directory entry, sync, and only then free the chain.
+ */
+static uint8_t md_unlink(void)
 {
     if (fat_dir_open(&hg_parent))
-        return;
+        return 1;
     if (dir_find_try(hg_name))
-        return;
-    dir_zap();
-    fat_sync();
+        return 1;
+    if (dir_zap() || fat_sync())
+        return 1;
+    return 0;
+}
+
+static void md_abandon(uint32_t clst)
+{
+    if (md_unlink() == 0)
+        release_chain(clst);
 }
 
 static int8_t md_incomplete(void)
 {
     fputs("\nCP/M Directory Extents incomplete", output);
+    md_abandon(md_1st);
     put_rc(1);
     return 1;
 }
@@ -1078,9 +1104,7 @@ int8_t ya_mkdrv(char ** args)   /* empty 8 MB CP/M drive */
     md_1st = 0;
     while (md_ncl) {
         if (fat_alloc(&md_clst)) {
-            if (md_1st)
-                release_chain(md_1st);
-            md_unlink();
+            md_abandon(md_1st);
             fputs("\nInsufficient space", output);
             put_rc(1);
             return 1;
@@ -1095,8 +1119,7 @@ int8_t ya_mkdrv(char ** args)   /* empty 8 MB CP/M drive */
      */
     if (fat_dir_open(&hg_parent) || dir_find_try(hg_name) ||
         dir_fill(AM_ARC, md_1st, 8388608ul)) {
-        release_chain(md_1st);
-        md_unlink();
+        md_abandon(md_1st);
         put_rc(1);
         return 1;
     }
@@ -1249,11 +1272,11 @@ int8_t ya_ls(char ** args)      /* print directory contents */
                 (uint32_t)ent[28] | ((uint32_t)ent[29] << 8) |
                 ((uint32_t)ent[30] << 16) | ((uint32_t)ent[31] << 24));
         for (i = 0; i < 8 && ent[i] != ' '; ++i)
-            fputc(ent[i], output);
+            put_vis(ent[i]);
         if (ent[8] != ' ') {
             fputc('.', output);
             for (i = 8; i < 11 && ent[i] != ' '; ++i)
-                fputc(ent[i], output);
+                put_vis(ent[i]);
         }
         fputc('\n', output);
     }
@@ -1538,17 +1561,16 @@ int8_t ya_cp(char ** args)
             return 1;
         }
         old = fat_found_sclust;
-        if (old >= 2) {
-            if (fat_free(&old) || fat_sync()) {
-                release_chain(first);
-                put_rc(1);
-                return 1;
-            }
-        }
-        if (fat_dir_open(&dp) || dir_find_try(dn) || dir_fill(AM_ARC, first, copied)) {
+        if (dir_fill(AM_ARC, first, copied)) {
             release_chain(first);
             put_rc(1);
+            return 1;
         }
+        /* The entry names the new chain. A free failure leaks the old
+         * clusters instead of leaving the name on freed ones.
+         */
+        if (old >= 2 && (fat_free(&old) || fat_sync()))
+            put_rc(1);
         return 1;
     }
     if (dir_create(dn) || dir_fill(AM_ARC, first, copied)) {
@@ -1708,7 +1730,7 @@ int8_t ya_ds(char ** args)      /* disk status */
                 fprintf(output, "Volume label = ");
                 for (i = 0; i < 11; ++i) {
                     if (ent[i] != ' ')
-                        fputc(ent[i], output);
+                        put_vis(ent[i]);
                 }
                 fputc('\n', output);
                 labelled = 1;

@@ -229,6 +229,55 @@ int main(void)
         expect("getfree_fat32_nibble", rc == 0 && nfree == 3);
     }
 
+    /* Full sector plus a short tail. FAT16: 256 entries, then 10.
+     * Clusters 0 and 1 are the media words; cluster 2 is used.
+     */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_fatent = 266;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.fatsz = 2;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0xFF;
+    ram_image[516] = 0xFF;
+    ram_image[517] = 0xFF;
+    {
+        uint32_t nfree = 0;
+
+        rc = fat_getfree(&nfree);
+        expect("getfree_fat16_span", rc == 0 && nfree == 263);
+    }
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 3;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_fatent = 130;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.fatsz = 2;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0x0F;
+    ram_image[516] = 0xFF;
+    ram_image[517] = 0xFF;
+    ram_image[518] = 0xFF;
+    ram_image[519] = 0x0F;
+    ram_image[520] = 0x01;
+    {
+        uint32_t nfree = 0;
+
+        rc = fat_getfree(&nfree);
+        expect("getfree_fat32_span", rc == 0 && nfree == 127);
+    }
+
     /* FAT32 put_fat keeps bits 28-31 (0xA0000000 -> EOC is 0xAFFFFFFF). */
     rt_invalidate();
     memset(ram_image, 0, sizeof ram_image);

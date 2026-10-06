@@ -31,6 +31,11 @@ export ZCCCFG="${ZCCCFG:-${Z88DK}/lib/config}"
 
 LOG="${WORK:-/tmp/cpm-ide-rebuild-hex}"
 MAXJOBS="${MAXJOBS:-2}"
+# 8085 PATA only. Same list as the README uart85 PATA line.
+# zcc runs lib/z80rules.8 when this argument contains "all" or "inlineints".
+# This list contains neither, which keeps that image within 32768 bytes.
+# The two 8085 CF images stay on --opt-code-speed=all.
+SPEED_8085_PATA=lshift32,rshift32,add32,sub32,sub16,intcompare,charcompare,longcompare,ucharmult,floatconst
 M4="${Z88DK}/libsrc/target/rc2014/config/config_target.m4"
 INC_Z80="${Z88DK}/libsrc/target/rc2014/config_rc2014_private.inc"
 INC_OBJ="${Z88DK}/libsrc/target/rc2014/obj/config_private.inc"
@@ -248,12 +253,16 @@ build_z80() {
 
 build_8085() {
   local dir=$1 sub=$2 out=$3 kind=$4
+  local speed=all
   local tmp="$LOG/tmp_$out"
+  if [[ "$dir" == "8085-pata-uart" ]]; then
+    speed="$SPEED_8085_PATA"
+  fi
   mkdir -p "$tmp"
   (
     export TMPDIR="$tmp"
     cd "$ROOT/$dir"
-    zcc +rc2014 -subtype="$sub" -O2 --opt-code-speed=all -m \
+    zcc +rc2014 -subtype="$sub" -O2 --opt-code-speed="$speed" -m \
       -D__CLASSIC -DAMALLOC \
       -I"${Z88DK}/include" \
       -I"${Z88DK}/include/_DEVELOPMENT/common" \
@@ -376,7 +385,7 @@ for f in "${HEX_OUTS[@]}"; do
   fi
 done
 echo
-echo "*.hex is gitignored (often assume-unchanged H):"
+echo "*.hex is gitignored (often assume-unchanged, git ls-files -v shows lowercase h):"
 echo "  git update-index --no-assume-unchanged rc2014-cpm22-*.hex"
 echo "  git add -f rc2014-cpm22-*.hex"
 exit 0

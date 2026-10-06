@@ -706,6 +706,17 @@ ldi_15:
 ;*                                                   *
 ;*****************************************************
 
+PUBLIC  flush_host
+flush_host:
+    ld      a,(hstwrt)      ;dirty host sector must be committed intact.
+    or      a
+    scf                     ;preset carry; a skipped call is still success.
+    call    NZ,writehst
+    ret     NC              ;leave the cache dirty if the write failed.
+    ld      hl,0
+    ld      (hstact),hl     ;hstact then hstwrt. DIRBUF overlays hstbuf.
+    ret
+
 writehst:
     ;hstdsk = host disk #, 0,1,2,3
     ;hsttrk = host track #, 64 tracks = 6 bits

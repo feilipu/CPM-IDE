@@ -1631,7 +1631,8 @@ cc_look:
     pop     bc
     ret     NC
 cc_ok:
-    call    fat_sync_window         ;FAT#2 miss: cluster is already on FAT#1
+    call    fat_sync_window         ;FAT#1 has the link; a failed mirror stays dirty
+    ret     NC
 cc_ret_cl:
     ld      hl,(fat_work+14)
     ld      bc,hl
@@ -2373,63 +2374,60 @@ gf_loop:
     ld      hl,(fat_work+10)
     or      h
     or      l
-    jr      Z,gf_scanned
+    jp      Z,gf_scanned
     ld      hl,(fat_work+6)
     ld      bc,hl
     ld      hl,(fat_work+4)
     ex      de,hl
     call    fat_move_window
-    jr      NC,gf_fail
+    jp      NC,gf_fail
     ld      hl,(fat_work+4)
     inc     hl
     ld      (fat_work+4),hl
     ld      a,h
     or      l
-    jr      NZ,gf_got
+    jr      NZ,gf_sect
     ld      hl,(fat_work+6)
     inc     hl
     ld      (fat_work+6),hl
-gf_got:
-    ld      hl,fatwin
+gf_sect:
+    ; One 16-bit tally per sector, then one 32-bit add. B=0 counts 256.
+    ld      bc,256
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
-    jr      Z,gf32
-    ld      b,0                     ;256 FAT16 entries / sector
-gf16_lp:
-    ld      a,(hl+)                 ;FAT16 free: both bytes zero
-    or      (hl-)
-    jr      NZ,gf16_used
-    call    gf_inc
-gf16_used:
-    ld      de,hl+2
-    ex      de,hl
-    call    gf_dec
-    jr      Z,gf_scanned
-    dec     b
-    jr      NZ,gf16_lp
-    jr      gf_loop
-gf32:
-    ld      b,128
-gf32_lp:
-    ld      a,(hl+)                 ;FAT32 free: 28-bit value zero
-    or      (hl+)
-    or      (hl+)
-    ld      c,a
-    ld      a,(hl-)
-    and     $0F
-    or      c
+    jr      NZ,gf_wide
+    ld      bc,128
+gf_wide:
+    ld      a,(fat_work+10)         ;remaining >= 65536 fills this sector
+    or      a
+    jr      NZ,gf_full
+    ld      a,(fat_work+11)
+    or      a
+    jr      NZ,gf_full
+    ld      hl,(fat_work+8)
+    sub     hl,bc                   ;C set when remaining < width
+    jr      NC,gf_full
+    ld      a,(fat_work+8)          ;tail is 1..width-1
+    ld      b,a
+    ld      hl,fatwin
+    call    gf_tally
+    call    gf_add
+    jp      gf_scanned
+gf_full:
+    push    bc
+    ld      b,c                     ;0 = 256 FAT16 entries, 128 FAT32
+    ld      hl,fatwin
+    call    gf_tally
+    call    gf_add
+    pop     bc
+    ld      hl,(fat_work+8)
+    sub     hl,bc
+    ld      (fat_work+8),hl
+    jp      NC,gf_loop
+    ld      hl,(fat_work+10)
     dec     hl
-    dec     hl
-    jr      NZ,gf32_used
-    call    gf_inc
-gf32_used:
-    ld      de,hl+4
-    ex      de,hl
-    call    gf_dec
-    jr      Z,gf_scanned
-    dec     b
-    jr      NZ,gf32_lp
-    jr      gf_loop
+    ld      (fat_work+10),hl
+    jp      gf_loop
 gf_scanned:
     ld      a,1
     ld      (_cpm_fat_vol+25),a
@@ -2451,41 +2449,45 @@ gf_fail:
     or      a
     ret
 
-gf_inc:
-    push    hl
+; HL = FAT window, B = entries (0 means 256). DE = free count on return.
+gf_tally:
+    ld      de,0
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,gf32_lp
+gf16_lp:
+    ld      a,(hl+)                 ;FAT16 free: both bytes zero
+    or      (hl+)
+    jr      NZ,gf16_used
+    inc     de
+gf16_used:
+    dec     b
+    jr      NZ,gf16_lp
+    ret
+gf32_lp:
+    ld      a,(hl+)                 ;FAT32 free: 28-bit value zero
+    or      (hl+)
+    or      (hl+)
+    ld      c,a
+    ld      a,(hl+)
+    and     $0F
+    or      c
+    jr      NZ,gf32_used
+    inc     de
+gf32_used:
+    dec     b
+    jr      NZ,gf32_lp
+    ret
+
+; fat_work (nfree) += DE. DE is at most one sector of entries.
+gf_add:
     ld      hl,(fat_work)
-    inc     hl
+    add     hl,de
     ld      (fat_work),hl
-    ld      a,h
-    or      l
-    jr      NZ,gf_inc_ok
+    ret     NC
     ld      hl,(fat_work+2)
     inc     hl
     ld      (fat_work+2),hl
-gf_inc_ok:
-    pop     hl
-    ret
-
-; Z if remaining hit 0
-gf_dec:
-    push    hl
-    ld      hl,(fat_work+8)
-    ld      a,h
-    or      l
-    jr      NZ,gf_dec_lo
-    ld      hl,(fat_work+10)
-    dec     hl
-    ld      (fat_work+10),hl
-    ld      hl,(fat_work+8)
-gf_dec_lo:
-    dec     hl
-    ld      (fat_work+8),hl
-    ld      a,h
-    or      l
-    ld      hl,(fat_work+10)
-    or      h
-    or      l
-    pop     hl
     ret
 
 ; Round *HL bytes up to whole clusters. csize is 2^n.

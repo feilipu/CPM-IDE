@@ -21,7 +21,7 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 ./.agents/scripts/rebuild-ff.sh
 ./.agents/scripts/rebuild-hex.sh       # PATA, then all five CF ROMs
 ./.agents/scripts/rebuild-hex.sh cf    # three CF ROMs only; skips the lib rebuild when the flag is already 1
-# *.hex gitignored; often assume-unchanged (git ls-files -v shows H)
+# *.hex gitignored; often assume-unchanged (git ls-files -v shows lowercase h)
 git update-index --no-assume-unchanged rc2014-cpm22-*.hex
 git add -f rc2014-cpm22-*.hex
 ```
@@ -49,6 +49,7 @@ After a flag change: `make -C $Z88DK/libsrc/newlib rc2014-clean rc2014`. Remove 
 
 - `cd` into the firmware tree before `zcc` (`@cpm22.lst` is relative).
 - ROM zcc lines are copied from `README.md`. Do not add `ff_ro` or `ff_85_ro`.
+- The 8085 PATA line names the sccz80 speed options and leaves `lib/z80rules.8` off. `--opt-code-speed=all` (and any value containing `inlineints`) runs that file and the PATA image passes 32 KiB. The two 8085 CF images stay on `=all`. `rebuild-ff.sh` still uses `=all` for the ChaN library.
 - `z88dk-lib +rc2014 ff` installs basename `ff` only. Copy `ff_ro` / `ff_85*` by hand (the ff script does this).
 - SDCC `ff_ro` is one `-clib=sdcc_iy` object, installed as `lib/clibs/sdcc_ix/lib/<target>/ff_ro.lib`. Do not leave a second copy under `sdcc_iy/`.
 - Restore `FF_FS_READONLY` to `0` after an RO build (`rebuild-ff.sh` traps this).

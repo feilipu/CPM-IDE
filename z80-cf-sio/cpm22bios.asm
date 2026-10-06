@@ -14,7 +14,7 @@ INCLUDE "config_rc2014_private.inc"
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_BIOS    ;base of bios
-defc    __COMMON_AREA_PHASE_BIOS    = 0xF200
+defc    __COMMON_AREA_PHASE_BIOS    = 0xF100
 
 defc    __CPM_BIOS_BSS_HEAD         = 0xF800    ;_cpm_dsk0_base on every port
 
@@ -688,6 +688,17 @@ ldi_31:
 ;*    disk.                                          *
 ;*                                                   *
 ;*****************************************************
+
+PUBLIC  flush_host
+flush_host:
+    ld      a,(hstwrt)      ;dirty host sector must be committed intact.
+    or      a
+    scf                     ;preset carry; a skipped call is still success.
+    call    NZ,writehst
+    ret     NC              ;leave the cache dirty if the write failed.
+    ld      hl,0
+    ld      (hstact),hl     ;hstact then hstwrt. DIRBUF overlays hstbuf.
+    ret
 
 writehst:
     ;hstdsk = host disk #, 0,1,2,3

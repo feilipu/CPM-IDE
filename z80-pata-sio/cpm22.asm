@@ -3275,8 +3275,6 @@ GETMT1:
 ;   for reading.
 ;
 GETNEXT:
-    LD      HL,(FILEPOS)    ;index of the extent about to be closed.
-    LD      (GTNXPOS),HL
     XOR     A
     LD      (CLOSEFLG),A    ;clear close flag.
     CALL    CLOSEIT         ;close this extent.
@@ -3298,7 +3296,8 @@ GETNEXT:
     INC     (HL)
     JP      Z,GTNEXT3
     DEC     (HL)
-    LD      C,15            ;read: same entry, search from the front.
+GTNXFULL:
+    LD      C,15            ;read, or a new entry whose close did not record a slot.
     CALL    FINDFST
     CALL    CKFILPOS
     JP      NZ,GTNEXT3
@@ -3314,8 +3313,11 @@ GTNEXT1:
 ;   Get here to open the next extent.
 ;
 GTNEXT2:
-    LD      HL,(GTNXPOS)    ;first entry examined is the one after this.
-    LD      (FILEPOS),HL
+    LD      A,(CLOSEFLG)    ;FFh: CLOSEIT stored this extent. FILEPOS is its slot.
+    INC     A
+    JP      NZ,GTNXFULL     ;otherwise the Calkins search from entry 0.
+    LD      HL,(FILEPOS)
+    LD      (GTNXPOS),HL    ;first entry examined is the one after this.
     CALL    TRKSEC          ;directory sector for that extent.
     CALL    DIRREAD
     LD      C,0             ;checksum, same as a directory read in FINDNXT.
@@ -3481,6 +3483,13 @@ WTSEQ6:
     DEC     A
     JP      NZ,WTSEQ9
     PUSH    HL
+    CALL    flush_host      ;commit the host sector before DIRBUF is cleared.
+    JP      C,WTSEQ7A
+    POP     HL
+    POP     BC
+    JP      IOERR1
+WTSEQ7A:
+    XOR     A
     LD      HL,(DIRBUF)     ;zero out the directory buffer.
     LD      D,A             ;note that (A) is zero here.
 WTSEQ7:
@@ -4246,6 +4255,7 @@ EXTERN    read      ;read disk
 EXTERN    write     ;write disk
 EXTERN    listst    ;return list status
 EXTERN    sectran   ;sector translate
+EXTERN    flush_host
 ;
 DEFC    BOOT    =   cboot
 DEFC    WBOOT   =   wboot
