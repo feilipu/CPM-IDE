@@ -198,38 +198,23 @@ Rather than spend time on long written descriptions, one picture is worth 2kByte
 </table>
 </div>
 
-## Software
+## CP/M Software
 
 The CP/M-IDE is built using the z88dk compilers and libraries, including a simple boot monitor or shell for the RC2014, together with the standard DRI CP/M CCP/BDOS, and a CP/M BIOS constructed specifically for the RC2014 in the above hardware configurations. Changes to the CCP and BDOS are in [Modifications to the CCP and BDOS](readme_ccp_bdos.md).
 
-### CP/M-IDE v2.5
-
-Version 2.5 is the current ROM. The shell, BDOS, and BIOS changes apply to Compact Flash and PATA builds.
-
-#### CP/M BDOS Modifications
-
-BDOS function 10 treats DEL as backspace. Digital Research Application Note 02 (APN 02) specifies that behaviour.
-
-A command with no drive letter is tried again on `A:` when the `.COM` file is not on the current drive. An explicit drive letter stays on that drive.
+#### CCP & BDOS Extension
 
 The CCP command `EXIT` returns to the shell. You can then start CP/M with different drive files.
 
-Origins, the `GETNEXT` resume, directory deblocking, and the block-move helpers are in [Modifications to the CCP and BDOS](readme_ccp_bdos.md).
+The BDOS function 10 treats DEL as backspace. Digital Research Application Note 02 (APN 02) specifies that behaviour.
 
-#### BIOS (CF and PATA)
+A command with no drive letter is tried again on `A:` when the `.COM` file is not on the current drive. An explicit drive letter searches only on that drive.
+
+#### BIOS Notes
 
 The FAT volume rules are in the BIOS section of [Modifications to the CCP and BDOS](readme_ccp_bdos.md).
 
 After an IDE or PPIDE command, the BIOS waits for DRQ. It does not wait for ready after the transfer. A posted write waits on the next command. This is the same for Compact Flash 8-bit and PATA 16-bit.
-
-#### PATA versus Compact Flash
-
-The shell FatFs path uses the z88dk IDE driver. Set `__IO_CF_8_BIT` in `config_target.m4`, then rebuild the rc2014 libraries, then build the HEX.
-
-- PATA (IDE Hard Drive Module, 8255 at `$20`–`$23`): `__IO_CF_8_BIT = 0`.
-- Compact Flash Module (ports `$10`–`$17`): `__IO_CF_8_BIT = 1`.
-
-A PATA ROM linked with the CF 8-bit library returns `FR_NOT_READY` on `ls` and `mount 1`. Delayed `mount` still prints `FR_OK` because it does not talk to the disk.
 
 ### Installation
 
@@ -332,7 +317,7 @@ Again, here is a view of what success looks like.
 - `hget <file>` — receive an Intel HEX file onto the FAT volume. The steps are in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014).
 - `mkdrv <file>` — create an empty 8 MB CP/M drive with 2048 directory entries. `frag` must report one cluster run before `cpm` mounts the file.
 
-From the CCP, `EXIT` returns to this shell. See [CP/M BDOS Modifications](#cpm-bdos-modifications).
+From the CCP, `EXIT` returns to this shell. See [CCP & BDOS Extension](#ccp--bdos-extension).
 
 ### File System Functions
 - `ls [path]` — directory listing. `ls` prints the free bytes on the volume after the names.
@@ -404,7 +389,7 @@ Then, on each subsequent boot-up of CP/M only mounting the working drive in driv
 
 Of course other development workflows are possible, as is simply mounting the [ZORK](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/ZORK.CPM.zip) games drive and playing an adventure game.
 
-## z88dk applications under CP/M-IDE (`-subtype=cpm`)
+## Preparing CP/M applications with z88dk using ChaN FatFS (`-subtype=cpm`)
 
 The **CP/M-IDE ROM** is built with bare-metal serial subtypes (`-subtype=sio` / `uart` / `acia`, or the 8085 hybrids). The shell mounts `.CPM` drive files through `common/fatfs.asm` (8085: `fatfs_85.asm`), linked from `cpm22.lst`. That is **firmware**, not a CP/M application.
 
@@ -461,12 +446,20 @@ The ROM shell no longer links ChaN `ff_ro`. `common/yash.c` calls the mini-FAT i
 
 CP/M "drives" are 8 MB `.CPM` files. Prepare them on a host with [cpmtools](http://www.moria.de/~michael/cpmtools/) using the `rc2014-8MB` diskdef in [`cpmtools/readme_cpmtools.md`](cpmtools/readme_cpmtools.md) (`blocksize 4096`, `maxdir 2048`, `boottrk -`).
 
-Again: ROM builds use **bare** subtypes and `common/fatfs.asm`; application `.COM` builds under running CP/M use **`-subtype=cpm`** (FCB file I/O) and optional full `ff` / `time` for FatFs — see [z88dk applications under CP/M-IDE](#z88dk-applications-under-cpm-ide--subtypecpm) above.
+Again: ROM builds use **bare** subtypes and `common/fatfs.asm`; application `.COM` builds under running CP/M use **`-subtype=cpm`** (FCB file I/O) and optional full `ff` / `time` for FatFs — see [Preparing CP/M applications with z88dk using ChaN FatFS](#preparing-cpm-applications-with-z88dk-using-chan-fatfs--subtypecpm) above.
 
 The size of the serial transmit and receive buffers are set within the z88dk RC2014 target configuration files for the [ACIA](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_acia.m4), [SIO/2](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_sio.m4), and [UART](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_uart.m4) respectively.
 
-The disk access configuration, for either 16-bit PPIDE or 8-bit CF IDE, is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_target.m4#L22). PATA HEX files in this tree were built with `__IO_CF_8_BIT = 0`. CF HEX files were built with `__IO_CF_8_BIT = 1`. Rebuild the rc2014 libraries when you change that flag. Do not mix a PATA HEX with a CF library. The availability of the shadow RAM for 128kB RAM systems ([SC108](https://smallcomputercentral.com/rcbus/sc100-series/sc108-z80-processor-rc2014/), etc) is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_ram.m4#L10). Following changes to any of the configurations the z88dk libraries for RC2014 should be rebuilt.
+#### PATA versus Compact Flash
 
+The shell FatFs path uses the z88dk IDE driver. Set `__IO_CF_8_BIT` in `config_target.m4`, then rebuild the rc2014 libraries, then build the HEX.
+
+- PATA (IDE Hard Drive Module, 8255 at `$20`–`$23`): `__IO_CF_8_BIT = 0`.
+- Compact Flash Module (ports `$10`–`$17`): `__IO_CF_8_BIT = 1`.
+
+A PATA ROM linked with the CF 8-bit library returns `FR_NOT_READY` on `ls` and `mount 1`. Delayed `mount` still prints `FR_OK` because it does not talk to the disk.
+
+The disk access configuration, for either 16-bit PPIDE or 8-bit CF IDE, is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_target.m4#L22). PATA HEX files in this tree were built with `__IO_CF_8_BIT = 0`. CF HEX files were built with `__IO_CF_8_BIT = 1`. Rebuild the rc2014 libraries when you change that flag. Do not mix a PATA HEX with a CF library. The availability of the shadow RAM for 128kB RAM systems ([SC108](https://smallcomputercentral.com/rcbus/sc100-series/sc108-z80-processor-rc2014/), etc) is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_ram.m4#L10). Following changes to any of the configurations the z88dk libraries for RC2014 should be rebuilt.
 
 ## Licence
 
