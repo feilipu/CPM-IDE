@@ -58,7 +58,7 @@ The shell prints `Waiting for Intel HEX`. Send the hex file with `ascii-xfr -s` 
 
 `cpm` mounts a file only when `frag` reports one run.
 
-When `frag` reports more than one run, copy the file to a new name. `cp` allocates a new cluster chain, starting at the next free cluster and then taking the following free clusters. That often falls as a single run:
+When `frag` reports more than one run, copy the file to a new name. `cp` allocates a new cluster chain, starting at the next free cluster and then taking the following free clusters. That often lands as a single run:
 
 ```text
 cp DRIVE.CPM DRIVE2.CPM

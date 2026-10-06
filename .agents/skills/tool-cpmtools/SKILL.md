@@ -13,8 +13,8 @@ Background, evidence and the `rc2014-8MB` diskdef live in
 `cpmtools/readme_cpmtools.md`. This skill is the repeatable procedure. Read that file
 first if you need the *why*.
 
-cpmtools is an **extract-only** tool for this project. Do not invent a write
-workflow into the FAT directories; use the host OS.
+cpmtools reads and writes files inside an 8 MB `.CPM` image. The host OS copies
+the `.CPM` files on the FAT volume. Do not point cpmtools at the FAT directory.
 
 ## Where things are
 
@@ -148,8 +148,10 @@ rm -f w.img /tmp/new.txt /tmp/got.com    # keep the repo clean
 
 ## Pitfalls
 
-- `mkfs.cpm` does **not** pad the image to the full format size here. `truncate -s 8M`
-  first or you get a 128 KB image.
+- `mkfs.cpm` does **not** pad the image to the full format size here. A fresh
+  `rc2014-8MB` image is 128 KB. `truncate -s 8388608` afterwards extends it
+  (`truncate -s 8M` is the same length). Truncating first also works: this
+  `mkfs.cpm` does not shrink a file that is already full size.
 - `cpmls` is never a writer. `-i` = print inode numbers. Testing extraction is not a
   test of `cpmcp`, and a `cpmls -i` abort says nothing about the write path.
 - A no-match glob legitimately aborts. Don't file that as a diskdef problem.

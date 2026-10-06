@@ -6,7 +6,7 @@ The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 
 
 ## Origins
 
-BDOS starts on a 256-byte page (`_cpm_bdos_head`). CCP starts `$20` below the previous page so that page stays the BDOS origin, and BDOS BSS `ALIGN $100`s onto the BIOS origin. `_cpm_dsk0_base` is `$F800` on every port. The BIOS code has to finish before that, so each BIOS origin is the highest page that still fits, and the CCP and BDOS origins move with it. The seven ROMs do not share one CCP or BDOS address.
+BDOS starts on a 256-byte page (`_cpm_bdos_head`). CCP starts `$20` below the previous page so that page stays the BDOS origin, and `ALIGN $100` places the BDOS BSS tail on the BIOS origin. `_cpm_dsk0_base` is `$F800` on every port. The BIOS code has to finish before that, so each BIOS origin is the highest page that still fits, and the CCP and BDOS origins move with it. The seven ROMs do not share one CCP or BDOS address.
 
 | ROM | CCP | BDOS | BIOS | BIOS ends | Spare before `$F800` | Disk |
 |-----|-----|------|------|-----------|---------------------:|------|
@@ -95,4 +95,4 @@ A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entri
 
 `mkdir` and `cp` free a new cluster chain when the directory update does not finish. `cp` also releases that chain when the source has walked as many clusters as the volume has. It does this before the new name is written. `mkdrv` removes and syncs the directory name before it frees a chain it cannot finish. `frag` stops if a cluster chain does not reach an end mark.
 
-`cpm` stores the base LBA of each drive file. The BIOS adds the track and the sector for CP/M I/O.
+`cpm` stores the base LBA of each drive file. The BIOS adds the track and the sector for CP/M I/O. After an IDE or PPIDE command the BIOS waits for DRQ. It does not wait for ready after the data transfer. A posted write waits until the next command. Compact Flash 8-bit and PATA 16-bit do this the same way.

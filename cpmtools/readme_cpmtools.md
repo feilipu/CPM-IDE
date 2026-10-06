@@ -1,8 +1,8 @@
 # cpmtools on the host — diskdef, and two upstream bugs
 
-Host-side `cpmtools` is only used to **extract** files from the old 8 MB `.CPM` images
-(see `README.md` → *CP/M TOOLS Usage*). Day-to-day you do not need it: copy 8.3 files in
-and out of the FAT directories with the host OS.
+Host-side `cpmtools` reads and writes the CP/M files inside an 8 MB `.CPM` image
+(see `README.md` → *CP/M TOOLS Usage*). The host operating system copies the `.CPM`
+files themselves on the FAT volume. It does not see the files stored inside an image.
 
 This file records the `rc2014-8MB` diskdef, the two bugs found while validating it, and
 the recipes to rebuild the tools. The reusable procedure lives in
@@ -146,8 +146,9 @@ Man pages in `/usr/local/share/man/man1/`. The apt package `cpmtools` was **remo
   **current directory** first, then the compile-time `DISKDEFS`. Put a scratch
   `diskdefs` in a scratch cwd to test format variants.
 - **`mkfs.cpm` does not pad the image to the full format size** in this build. A fresh
-  image comes out short (128 KB for `rc2014-8MB`). `truncate -s 8M` first when building
-  one by hand.
+  image comes out at 128 KB for `rc2014-8MB`. `truncate -s 8388608` afterwards extends
+  it (`truncate -s 8M` is the same length). Truncating to that length first also works,
+  because this `mkfs.cpm` does not shrink a file that is already full size.
 - **`cpmls` never writes.** `-i` means *print inode numbers*. The writer is `cpmcp`.
   Reading a real image and writing a new one are different code paths; do not use one as
   a smoke test for the other.
