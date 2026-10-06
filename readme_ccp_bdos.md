@@ -2,7 +2,7 @@
 
 Each firmware tree has its own `cpm22.asm`. The CCP and BDOS logic is the same in all seven. The block-move helpers are spelled with Z80 `LDI` on the Z80 trees and with `ld a,(hl+)` / `ld (de+),a` on the 8085 trees. The origin constant at the top of the file is the only other per-ROM difference.
 
-The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 (27 February 1981). That listing is the unmodified original this port was built from, and its header is still at the top of `cpm22.asm`. The version bytes stored in the image are unchanged: version 2, release 2, revision 0.
+The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 (27 February 1981). That listing is the unmodified original this port was built from, and its header is still at the top of `cpm22.asm`. The version bytes stored in the image are unchanged: version 2, release 2, revision 0. The BIOS section records the FAT volume rules and the LBA hand-off.
 
 ## Origins
 
@@ -22,7 +22,9 @@ Z80 CF ACIA is the short BIOS, `$499` bytes, so `$F300` ends at `$F799`. `$F400`
 
 The Calkins listing is one `ORG (MEM-7)*1024` image (CCP at `$E400` on a 64 KB machine) with its variables embedded after the code. This tree assembles the code and initialised data under `PHASE` at the addresses above, and puts the mutable cells in `SECTION bss_user`. The preamble copies the phased image into RAM. The 48-byte BDOS stack, which in the Calkins listing sits in the middle of the data pool, is at the end of that BSS. `ALIGN $100` then makes `_cpm_bdos_bss_tail` the BIOS origin. `GTNXPOS` (2 bytes) and `GTNXRUN` (1 byte) are new cells in that pool. `SAVEFCB` is the one word the search actually stores. The Calkins pool reserved two words and never read the second.
 
-The disk parameter block is the last fixed BIOS table. The spare column is `$F800` minus `dpbase`. The four headers and the parameter block occupy the last 79 bytes of that gap, so the free bytes are 79 fewer than the column. Initialised BIOS data ends at `$FE2A` on every port. Serial rings stay at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`). SIO transmit buffers are 32 bytes. TPA runs up to the CCP origin in that table.
+The disk parameter block is the last fixed BIOS table. The spare column is `$F800` minus `dpbase`. The four headers and the parameter block occupy the last 79 bytes of that gap, so the free bytes are 79 fewer than the column. Initialised BIOS data ends at `$FE2A` on every port. Serial rings stay at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`). SIO transmit buffers are 32 bytes.
+
+The transient program area runs from `$0100` to the CCP origin in that table. The two SIO ROMs start the CCP at `$D9E0` and leave 55520 bytes. The other five start higher. Four mounted drives is the disk table those origins were built around. `REGISTER_SP` sits at the CCP origin so the shell stack stays below the CCP.
 
 ## CCP
 
@@ -82,3 +84,15 @@ Directory I/O is different. BDOS snapshots DPH `DIRBUF` at `SELDSK` and then `SE
 That is 65 600 T-states saved per 32 directory records (about 2 050 T each, about 0.28 ms at 7.372 MHz), with the same number of CF/IDE reads. Open, search, rename, and other directory-heavy calls benefit. `PIP`, `MBASIC`, and `.COM` load to the TPA do not.
 
 The recovered `dirbf` is 128 bytes, which is not a full page. The per-ROM origins are in the table above.
+
+## BIOS
+
+The shell reads a FAT16 or a FAT32 volume. A cluster is 32 KB or less.
+
+A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entries fills the 16-bit directory offset. The shell can still list that root. FAT32 must be version 0 and must have a zero root count.
+
+`ls` stops at the last name of a full directory. A name that starts with byte `0xE5` is stored as `0x05`.
+
+`mkdir` and `cp` free a new cluster chain when the directory update does not finish. `cp` also releases that chain when the source has walked as many clusters as the volume has. It does this before the new name is written. `mkdrv` removes and syncs the directory name before it frees a chain it cannot finish. `frag` stops if a cluster chain does not reach an end mark.
+
+`cpm` stores the base LBA of each drive file. The BIOS adds the track and the sector for CP/M I/O.
