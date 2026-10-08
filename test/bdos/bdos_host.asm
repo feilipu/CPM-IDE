@@ -8,6 +8,8 @@
 SECTION code_lib
 
 PUBLIC  _bdos
+PUBLIC  _bdos_ab
+PUBLIC  _bdos_hl
 PUBLIC  _sp_bad
 PUBLIC  _bios_reset
 PUBLIC  _con_push
@@ -78,6 +80,24 @@ sp_mismatch:
     ld      (_sp_bad),a
 sp_ok:
     ld      hl,(bdos_result)
+    ret
+
+;
+; unsigned int bdos_ab(unsigned int fn, unsigned int de)
+; GOBACK pair apps read: L = A, H = B. The HL return is stored in bdos_hl.
+;
+_bdos_ab:
+    ld      hl,2
+    add     hl,sp
+    ld      e,(hl)
+    inc     hl
+    ld      d,(hl)
+    inc     hl
+    ld      c,(hl)
+    call    _cpm_bdos_fbase
+    ld      (_bdos_hl),hl
+    ld      l,a
+    ld      h,b
     ret
 
 _bios_reset:
@@ -227,6 +247,7 @@ SECTION bss_compiler
 _sp_bad:        defs    1
 sp_mark:        defs    2
 bdos_result:    defs    2
+_bdos_hl:       defs    2
 
 q_buf:          defs    32
 q_n:            defs    1

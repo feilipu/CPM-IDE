@@ -13,6 +13,9 @@ uint8_t ram_image[26112];
 uint8_t ram_nsect = 24;
 
 extern unsigned int bdos(unsigned int fn, unsigned int de);
+extern unsigned int bdos_ab(unsigned int fn, unsigned int de);
+extern unsigned int bdos_hl;
+extern unsigned char cpm_bdos_head[];
 extern unsigned int bdos_dma;
 extern uint8_t fatwin[];
 extern void bios_reset(void);
@@ -214,9 +217,40 @@ static void push_keys(const unsigned char *keys, unsigned n)
         con_push(keys[i]);
 }
 
+static unsigned word_at(unsigned char *p)
+{
+    return p[0] | ((unsigned)p[1] << 8);
+}
+
+/* Disk link: the four error words are the ROM handlers, each different.
+ * The character link aliases them and does not check this.
+ */
+static void test_vectors(void)
+{
+    unsigned char *p;
+    unsigned w0, w1, w2, w3;
+
+    p = cpm_bdos_head;
+    expect("entry_serial FAIL",
+           p[0] == 0x00 && p[1] == 0x16 && p[2] == 0x00 &&
+           p[3] == 0x00 && p[4] == 0x00 && p[5] == 0x00);
+    expect("entry_jp FAIL",
+           p[6] == 0xC3 && word_at(p + 7) == (unsigned)(p + 17));
+    expect("entry_op FAIL", p[17] == 0xEB);
+    w0 = word_at(p + 9);
+    w1 = word_at(p + 11);
+    w2 = word_at(p + 13);
+    w3 = word_at(p + 15);
+    expect("entry_err FAIL",
+           w0 != 0 && w1 != 0 && w2 != 0 && w3 != 0 &&
+           w0 != w1 && w0 != w2 && w0 != w3 &&
+           w1 != w2 && w1 != w3 && w2 != w3);
+}
+
 static void test_open(void)
 {
     unsigned rc;
+    unsigned ab;
 
     rebuild();
     clear_fcb();
@@ -224,6 +258,8 @@ static void test_open(void)
     fcb[14] = 0x0F;
     rc = call(15);
     expect("open_miss FAIL", rc == 0xFF && fcb[14] == 0 && fcb[1] == 'N');
+    ab = bdos_ab(15, (unsigned)fcb);
+    expect("open_miss_ab FAIL", ab == 0x00FF && bdos_hl == 0x00FF);
 
     /* open_miss loaded the empty root into fatwin. Planting into
        ram_image does not invalidate that window, so remount first. */
@@ -238,6 +274,8 @@ static void test_open(void)
     expect("open_keep FAIL", fcb[0] == 0 && fcb[12] == 0 && fcb[13] == 0 && fcb[32] == 0x5A);
     expect("open_al FAIL", fcb[16] == 0 && fcb[31] == 0);
     expect("open_name FAIL", memcmp(fcb + 1, "README  TXT", 11) == 0);
+    ab = bdos_ab(15, (unsigned)fcb);
+    expect("open_ab FAIL", ab == bdos_hl && ab != 0xFF && ab <= 3);
 
     clear_fcb();
     fcb[0] = 1;
@@ -895,6 +933,7 @@ static void test_login(void)
 {
     unsigned int vec;
     unsigned int dpb;
+    unsigned ab;
     unsigned char *bits;
     unsigned char *parm;
     unsigned hits;
@@ -926,12 +965,14 @@ static void test_login(void)
     base_files();
     bdos(26, (unsigned)dma);
     vec = bdos(27, 0);
+    ab = bdos_ab(27, 0);
     bits = (unsigned char *)vec;
     blocks = (unsigned long)cpm_fat_vol.free_clst * cpm_fat_vol.csize / 4;
     if (blocks > 2048)
         blocks = 2048;
     expect("vec_ptr FAIL", vec == (unsigned)fatwin &&
            cpm_fat_vol.free_clst > 4000 && cpm_fat_vol.free_clst < 4090);
+    expect("vec_ab FAIL", ab == bdos_hl && ab == (unsigned)fatwin);
     expect("vec_cnt FAIL", zero_bits(bits, 257) == (unsigned)blocks && bits[256] == 0xFF);
     expect("vec_b0 FAIL", bit_used(bits, 0) && blocks > 0 && blocks < 2048 &&
            !bit_used(bits, 2048 - (unsigned)blocks) &&
@@ -987,6 +1028,7 @@ int main(void)
     unsigned rc;
 
     fails = 0;
+    test_vectors();
     rc = bdos(12, 0);
     expect("bdos_ver FAIL", rc == 0x0022);
 

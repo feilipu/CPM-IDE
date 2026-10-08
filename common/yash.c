@@ -731,22 +731,14 @@ int8_t ya_mkcpm(char ** args)   /* boot CP/M on the mounted FAT volume */
 
 
 /*
- * hg_open creates or replaces a file for mkdrv and clears the
- * counters below. The Intel HEX parser is compiled out while
- * YASH_HGET is 0. -DYASH_HGET=1 restores ya_hget.
+ * hg_open creates or replaces a file for mkdrv. The Intel HEX parser
+ * is compiled out while YASH_HGET is 0. -DYASH_HGET=1 restores ya_hget.
+ * hg_parent and hg_name are the leaf that mkdrv and md_unlink reopen.
+ * Scratch used in one function is automatic. The counters below are
+ * the receive session, shared by hg_wr, hg_commit, and hg_record.
  */
 static uint32_t hg_parent;
-static uint32_t hg_clst;
-static uint32_t hg_first;
-static uint32_t hg_tmp;
-static uint16_t hg_page;
-static uint16_t hg_low;
-static uint16_t hg_pos;
-static uint16_t hg_bpage;
 static uint8_t hg_name[11];
-static uint8_t hg_have;
-static uint8_t hg_sec;
-static uint8_t hg_rc;
 
 #if YASH_HGET
 /*
@@ -754,13 +746,18 @@ static uint8_t hg_rc;
  * record selects the 64 KB page. Data records must follow the file
  * in order. One sector is held in `buffer`.
  */
+static uint32_t hg_clst;
+static uint32_t hg_first;
+static uint16_t hg_page;
+static uint16_t hg_low;
+static uint16_t hg_pos;
+static uint16_t hg_bpage;
+static uint8_t hg_have;
+static uint8_t hg_sec;
 static uint32_t hg_lba;
 static uint32_t hg_sz;
-static uint16_t hg_addr;
 static int hg_v;
 static uint8_t hg_sum;
-static uint8_t hg_n;
-static uint8_t hg_typ;
 
 static uint8_t hg_commit(void)
 {
@@ -780,6 +777,8 @@ static uint8_t hg_commit(void)
 /* Append one file byte. A full sector is written on the next byte. */
 static uint8_t hg_wr(uint8_t val)
 {
+    uint32_t tmp;
+
     if (hg_page >= 0x100)
         return 1;
     if (hg_pos == 512) {
@@ -795,18 +794,18 @@ static uint8_t hg_wr(uint8_t val)
     if (hg_have == 0) {
         if (cpm_fat_vol.csize == 0)
             return 1;
-        hg_tmp = hg_first ? hg_clst : 0;
-        if (fat_alloc(&hg_tmp))
+        tmp = hg_first ? hg_clst : 0;
+        if (fat_alloc(&tmp))
             return 1;
         if (hg_first == 0) {
-            hg_first = hg_tmp;
+            hg_first = tmp;
             if (hg_commit())
                 return 1;
         }
-        hg_clst = hg_tmp;
-        if (fat_clst2sect(&hg_tmp))
+        hg_clst = tmp;
+        if (fat_clst2sect(&tmp))
             return 1;
-        hg_lba = hg_tmp;
+        hg_lba = tmp;
         hg_sec = 0;
         hg_pos = 0;
         hg_have = 1;
@@ -822,6 +821,10 @@ static uint8_t hg_wr(uint8_t val)
 
 static uint8_t hg_open(const char *path)
 {
+    uint32_t tmp;
+    uint8_t rc;
+
+#if YASH_HGET
     hg_page = 0;
     hg_low = 0;
     hg_pos = 0;
@@ -830,9 +833,10 @@ static uint8_t hg_open(const char *path)
     hg_sec = 0;
     hg_first = 0;
     hg_clst = 0;
-    hg_rc = path_split(path, &hg_parent, hg_name);
-    if (hg_rc)
-        return hg_rc;
+#endif
+    rc = path_split(path, &hg_parent, hg_name);
+    if (rc)
+        return rc;
     if (is_dot_name(hg_name))
         return FR_INVALID_NAME;
     if (fat_dir_open(&hg_parent))
@@ -840,10 +844,10 @@ static uint8_t hg_open(const char *path)
     if (dir_find_try(hg_name) == 0) {
         if (fat_dir_ptr[11] & (AM_DIR | AM_RDO))
             return FR_DENIED;
-        hg_tmp = fat_found_sclust;
+        tmp = fat_found_sclust;
         if (dir_fill(AM_ARC, 0, 0))
             return FR_DISK_ERR;
-        if (hg_tmp >= 2 && (fat_free(&hg_tmp) || fat_sync()))
+        if (tmp >= 2 && (fat_free(&tmp) || fat_sync()))
             return FR_DISK_ERR;
         return 0;
     }
@@ -922,41 +926,46 @@ static uint8_t hg_cksum(uint8_t end)
 /* 0 more, 1 end, 2 bad hex, 3 checksum, 4 disk or offset. */
 static uint8_t hg_record(void)
 {
+    uint16_t addr;
+    uint8_t n;
+    uint8_t typ;
+    uint8_t rc;
+
     if (hg_colon())
         return 1;
     hg_sum = 0;
     if (hg_next())
         return 2;
-    hg_n = (uint8_t)hg_v;
+    n = (uint8_t)hg_v;
     if (hg_next())
         return 2;
-    hg_addr = (uint16_t)((uint16_t)hg_v << 8);
+    addr = (uint16_t)((uint16_t)hg_v << 8);
     if (hg_next())
         return 2;
-    hg_addr |= (uint8_t)hg_v;
+    addr |= (uint8_t)hg_v;
     if (hg_next())
         return 2;
-    hg_typ = (uint8_t)hg_v;
-    if (hg_typ == 0) {
-        if (hg_addr != hg_low || hg_bpage != hg_page)
+    typ = (uint8_t)hg_v;
+    if (typ == 0) {
+        if (addr != hg_low || hg_bpage != hg_page)
             return 4;
-        hg_rc = hg_take(hg_n, 1);
-        if (hg_rc)
-            return hg_rc;
-    } else if (hg_typ == 4) {
-        if (hg_n != 2)
+        rc = hg_take(n, 1);
+        if (rc)
+            return rc;
+    } else if (typ == 4) {
+        if (n != 2)
             return 2;
         if (hg_next())
             return 2;
-        hg_addr = (uint16_t)((uint16_t)hg_v << 8);
+        addr = (uint16_t)((uint16_t)hg_v << 8);
         if (hg_next())
             return 2;
-        hg_bpage = (uint16_t)(hg_addr | (uint8_t)hg_v);
+        hg_bpage = (uint16_t)(addr | (uint8_t)hg_v);
     } else {
-        hg_rc = hg_take(hg_n, 0);
-        if (hg_rc)
-            return hg_rc;
-        if (hg_typ == 1)
+        rc = hg_take(n, 0);
+        if (rc)
+            return rc;
+        if (typ == 1)
             return hg_cksum(1);
     }
     return hg_cksum(0);
@@ -969,6 +978,8 @@ static uint8_t hg_record(void)
  */
 int8_t ya_hget(char ** args)   /* receive an Intel HEX file */
 {
+    uint8_t rc;
+
     if (need_args(args, 1, "hget"))
         return 1;
     if (put_fail(hg_open(args[1])))
@@ -977,11 +988,11 @@ int8_t ya_hget(char ** args)   /* receive an Intel HEX file */
     fflush(output);
     cpu_delay_ms(1);
     do {
-        hg_rc = hg_record();
-    } while (hg_rc == 0);
-    if (hg_commit() || hg_rc == 4)
+        rc = hg_record();
+    } while (rc == 0);
+    if (hg_commit() || rc == 4)
         put_rc(1);
-    else if (hg_rc != 1)
+    else if (rc != 1)
         fputs("bad hex\n", error);
     else
         fprintf(output, "%lu bytes\n", hg_sz);
@@ -1004,20 +1015,14 @@ int8_t ya_hget(char ** args)   /* receive an Intel HEX file */
  * (0xE5, eleven spaces, then zeros). The remaining clusters are
  * allocated and left untouched.
  *
- * directoryBlock is a ROM constant. The counters below are only
- * used inside ya_mkdrv. They stay file-scope: sccz80 builds a stack
- * frame at every branch once a function has an automatic, and that
- * frame pushes the 8085 PATA image past 32768 bytes.
+ * directoryBlock is a ROM constant, the empty directory record.
+ * The counters are automatics in ya_mkdrv. md_incomplete receives
+ * the first cluster. Nothing here is remembered across commands.
  */
 static uint8_t directoryBlock[32] = {
     0xE5, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
-
-static uint32_t md_ncl, md_clst, md_1st, md_lba;
-static uint16_t md_left;
-static uint8_t md_sec, md_n;
-static uint8_t *md_p;
 
 /* 0: the name is gone. Same order as ya_rm and ChaN f_unlink:
  * remove the directory entry, sync, and only then free the chain.
@@ -1039,10 +1044,10 @@ static void md_abandon(uint32_t clst)
         release_chain(clst);
 }
 
-static int8_t md_incomplete(void)
+static int8_t md_incomplete(uint32_t first)
 {
     fputs("\nCP/M Directory Extents incomplete", output);
-    md_abandon(md_1st);
+    md_abandon(first);
     put_rc(1);
     return 1;
 }
@@ -1054,6 +1059,15 @@ static int8_t md_incomplete(void)
  */
 int8_t ya_mkdrv(char ** args)   /* empty 8 MB CP/M drive */
 {
+    uint32_t ncl;
+    uint32_t clst;
+    uint32_t first;
+    uint32_t lba;
+    uint16_t left;
+    uint8_t sec;
+    uint8_t n;
+    uint8_t *p;
+
     if (need_args(args, 1, "mkdrv"))
         return 1;
     fprintf(output, "Creating \"%s\"", args[1]);
@@ -1063,77 +1077,77 @@ int8_t ya_mkdrv(char ** args)   /* empty 8 MB CP/M drive */
     /* Round 8388608 bytes up to whole clusters. 0 means this volume
      * has no cluster size, or the count overflowed.
      */
-    md_ncl = 8388608ul;
-    fat_clusters(&md_ncl);
-    if (md_ncl == 0) {
+    ncl = 8388608ul;
+    fat_clusters(&ncl);
+    if (ncl == 0) {
         md_unlink();
         put_rc(FR_INVALID_PARAMETER);
         return 1;
     }
 
-    md_clst = 0;
-    md_1st = 0;
-    while (md_ncl) {
-        if (fat_alloc(&md_clst)) {
-            md_abandon(md_1st);
+    clst = 0;
+    first = 0;
+    while (ncl) {
+        if (fat_alloc(&clst)) {
+            md_abandon(first);
             fputs("\nInsufficient space", output);
             put_rc(1);
             return 1;
         }
-        if (md_1st == 0)
-            md_1st = md_clst;
-        --md_ncl;
+        if (first == 0)
+            first = clst;
+        --ncl;
     }
 
     /* FAT writes move the sector window, so the entry from hg_open
      * has to be found again before it can be stamped.
      */
     if (fat_dir_open(&hg_parent) || dir_find_try(hg_name) ||
-        dir_fill(AM_ARC, md_1st, 8388608ul)) {
-        md_abandon(md_1st);
+        dir_fill(AM_ARC, first, 8388608ul)) {
+        md_abandon(first);
         put_rc(1);
         return 1;
     }
 
-    md_p = buffer;
-    md_n = 16;
-    while (md_n) {
-        memcpy(md_p, directoryBlock, 32);
-        md_p += 32;
-        --md_n;
+    p = buffer;
+    n = 16;
+    while (n) {
+        memcpy(p, directoryBlock, 32);
+        p += 32;
+        --n;
     }
 
-    md_clst = md_1st;
-    md_lba = md_1st;
-    if (fat_clst2sect(&md_lba))
-        return md_incomplete();
-    md_sec = 0;
-    md_left = 128;
-    while (md_left) {
-        if (disk_write(0, buffer, md_lba, 1))
-            return md_incomplete();
-        --md_left;
-        if (md_left == 0)
+    clst = first;
+    lba = first;
+    if (fat_clst2sect(&lba))
+        return md_incomplete(first);
+    sec = 0;
+    left = 128;
+    while (left) {
+        if (disk_write(0, buffer, lba, 1))
+            return md_incomplete(first);
+        --left;
+        if (left == 0)
             break;
         /* Sectors inside one cluster are consecutive LBAs.
          * The next cluster is the FAT link, which may not be adjacent.
          */
-        if (++md_sec < cpm_fat_vol.csize) {
-            ++md_lba;
+        if (++sec < cpm_fat_vol.csize) {
+            ++lba;
             continue;
         }
-        md_sec = 0;
-        if (fat_next(&md_clst) || is_eoc(md_clst))
-            return md_incomplete();
-        md_lba = md_clst;
-        if (fat_clst2sect(&md_lba))
-            return md_incomplete();
+        sec = 0;
+        if (fat_next(&clst) || is_eoc(clst))
+            return md_incomplete(first);
+        lba = clst;
+        if (fat_clst2sect(&lba))
+            return md_incomplete(first);
     }
 
-    md_lba = md_1st;
-    if (put_fail(fat_clst2sect(&md_lba)))
+    lba = first;
+    if (put_fail(fat_clst2sect(&lba)))
         return 1;
-    fprintf(output, " at base sector LBA %lu\n", md_lba);
+    fprintf(output, " at base sector LBA %lu\n", lba);
     return 1;
 }
 

@@ -6,6 +6,9 @@
 #include <stdio.h>
 
 extern unsigned int bdos(unsigned int fn, unsigned int de);
+extern unsigned int bdos_ab(unsigned int fn, unsigned int de);
+extern unsigned int bdos_hl;
+extern unsigned char cpm_bdos_head[];
 extern void bios_reset(void);
 extern void con_push(unsigned int ch);
 extern unsigned int con_out_n(void);
@@ -67,6 +70,86 @@ static void fill(unsigned char *p, unsigned n, unsigned char v)
 
     for (i = 0; i < n; i++)
         p[i] = v;
+}
+
+static unsigned word_at(unsigned char *p)
+{
+    return p[0] | ((unsigned)p[1] << 8);
+}
+
+/* Serial, JP fbase, the word-table index, and a clobber of the six
+ * serial bytes. Turbo Pascal, C/80, and Digital Link overwrite those
+ * bytes and then call through the JP. The four error words alias one
+ * ret under BDOS_ROM_OMIT, so this link does not require them distinct.
+ */
+static void test_entry(void)
+{
+    unsigned char *p;
+    unsigned char saved[6];
+    unsigned char *fb;
+    unsigned table;
+    unsigned w0, w12, w38, w39, w40;
+    unsigned ab;
+    unsigned i;
+    int found;
+
+    p = cpm_bdos_head;
+    expect("entry_serial FAIL",
+           p[0] == 0x00 && p[1] == 0x16 && p[2] == 0x00 &&
+           p[3] == 0x00 && p[4] == 0x00 && p[5] == 0x00);
+    expect("entry_jp FAIL", p[6] == 0xC3);
+    expect("entry_fbase FAIL", word_at(p + 7) == (unsigned)(p + 17));
+    expect("entry_op FAIL", p[17] == 0xEB);
+    for (i = 0; i < 6; i++)
+        saved[i] = p[i];
+    for (i = 0; i < 6; i++)
+        p[i] = 0xA5;
+    ab = bdos_ab(12, 0);
+    expect("entry_clobber FAIL",
+           p[6] == 0xC3 && word_at(p + 7) == (unsigned)(p + 17) &&
+           ab == 0x0022 && bdos_hl == 0x0022);
+    for (i = 0; i < 6; i++)
+        p[i] = saved[i];
+    fb = p + 17;
+    table = 0;
+    found = 0;
+    for (i = 0; i < 40; i++) {
+        if (fb[i] == 0x21 && fb[i + 3] == 0x5F && fb[i + 4] == 0x16 &&
+            fb[i + 5] == 0x00 && fb[i + 6] == 0x19 && fb[i + 7] == 0x19 &&
+            fb[i + 8] == 0x5E && fb[i + 9] == 0x23 && fb[i + 10] == 0x56) {
+            table = word_at(fb + i + 1);
+            found = 1;
+            break;
+        }
+    }
+    expect("entry_index FAIL", found);
+    if (found) {
+        w0 = word_at((unsigned char *)table);
+        w12 = word_at((unsigned char *)table + 24);
+        w38 = word_at((unsigned char *)table + 76);
+        w39 = word_at((unsigned char *)table + 78);
+        w40 = word_at((unsigned char *)table + 80);
+        expect("entry_words FAIL",
+               w0 != 0 && w12 != 0 && w0 != w12 &&
+               w38 != 0 && w38 == w39 && w40 != 0 && w40 != w38);
+    }
+}
+
+/* A = L and B = H. Function 11 parks the key in charbuf, so reset after. */
+static void test_goback(void)
+{
+    unsigned ab;
+
+    ab = bdos_ab(12, 0);
+    expect("goback_ver FAIL", ab == 0x0022 && bdos_hl == 0x0022);
+    ab = bdos_ab(11, 0);
+    expect("goback_stat0 FAIL", ab == 0 && bdos_hl == 0);
+    con_push('Z');
+    ab = bdos_ab(11, 0);
+    expect("goback_stat1 FAIL", ab == 0x00FF && bdos_hl == 0x00FF);
+    ab = bdos_ab(41, 99);
+    expect("goback_reject FAIL", ab == 0 && bdos_hl == 0);
+    bios_reset();
 }
 
 static void test_bytes(void)
@@ -301,6 +384,8 @@ int main(void)
     unsigned int hits;
 
     fails = 0;
+    test_entry();
+    test_goback();
     test_bytes();
     test_out();
     test_in();
