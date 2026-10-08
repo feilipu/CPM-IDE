@@ -744,7 +744,8 @@ static uint8_t hg_name[11];
 /*
  * ascii-xfr -s sends CRLF lines and -e may send Ctrl-Z. A type 04
  * record selects the 64 KB page. Data records must follow the file
- * in order. One sector is held in `buffer`.
+ * in order. One sector is held in `buffer`. The parsed byte and the
+ * committed size are automatics.
  */
 static uint32_t hg_clst;
 static uint32_t hg_first;
@@ -755,11 +756,9 @@ static uint16_t hg_bpage;
 static uint8_t hg_have;
 static uint8_t hg_sec;
 static uint32_t hg_lba;
-static uint32_t hg_sz;
-static int hg_v;
 static uint8_t hg_sum;
 
-static uint8_t hg_commit(void)
+static uint8_t hg_commit(uint32_t *sz)
 {
     if (hg_have && hg_pos) {
         if (disk_write(0, buffer, hg_lba, 1))
@@ -769,15 +768,16 @@ static uint8_t hg_commit(void)
         return 1;
     if (dir_find_try(hg_name))
         return 1;
-    hg_sz = (uint32_t)hg_page << 16;
-    hg_sz |= hg_low;
-    return dir_fill(AM_ARC, hg_first, hg_sz);
+    *sz = (uint32_t)hg_page << 16;
+    *sz |= hg_low;
+    return dir_fill(AM_ARC, hg_first, *sz);
 }
 
 /* Append one file byte. A full sector is written on the next byte. */
 static uint8_t hg_wr(uint8_t val)
 {
     uint32_t tmp;
+    uint32_t sz;
 
     if (hg_page >= 0x100)
         return 1;
@@ -799,7 +799,7 @@ static uint8_t hg_wr(uint8_t val)
             return 1;
         if (hg_first == 0) {
             hg_first = tmp;
-            if (hg_commit())
+            if (hg_commit(&sz))
                 return 1;
         }
         hg_clst = tmp;
@@ -898,18 +898,23 @@ static uint8_t hg_colon(void)
     }
 }
 
-static uint8_t hg_next(void)
+static int hg_next(void)
 {
-    hg_v = hg_hexbyte();
-    return (hg_v < 0) ? 2 : 0;
+    int v;
+
+    v = hg_hexbyte();
+    return v;
 }
 
 static uint8_t hg_take(uint8_t n, uint8_t store)
 {
+    int v;
+
     while (n) {
-        if (hg_next())
+        v = hg_next();
+        if (v < 0)
             return 2;
-        if (store && hg_wr((uint8_t)hg_v))
+        if (store && hg_wr((uint8_t)v))
             return 4;
         --n;
     }
@@ -918,7 +923,7 @@ static uint8_t hg_take(uint8_t n, uint8_t store)
 
 static uint8_t hg_cksum(uint8_t end)
 {
-    if (hg_next())
+    if (hg_next() < 0)
         return 2;
     return hg_sum ? 3 : end;
 }
@@ -930,22 +935,27 @@ static uint8_t hg_record(void)
     uint8_t n;
     uint8_t typ;
     uint8_t rc;
+    int v;
 
     if (hg_colon())
         return 1;
     hg_sum = 0;
-    if (hg_next())
+    v = hg_next();
+    if (v < 0)
         return 2;
-    n = (uint8_t)hg_v;
-    if (hg_next())
+    n = (uint8_t)v;
+    v = hg_next();
+    if (v < 0)
         return 2;
-    addr = (uint16_t)((uint16_t)hg_v << 8);
-    if (hg_next())
+    addr = (uint16_t)((uint16_t)v << 8);
+    v = hg_next();
+    if (v < 0)
         return 2;
-    addr |= (uint8_t)hg_v;
-    if (hg_next())
+    addr |= (uint8_t)v;
+    v = hg_next();
+    if (v < 0)
         return 2;
-    typ = (uint8_t)hg_v;
+    typ = (uint8_t)v;
     if (typ == 0) {
         if (addr != hg_low || hg_bpage != hg_page)
             return 4;
@@ -955,12 +965,14 @@ static uint8_t hg_record(void)
     } else if (typ == 4) {
         if (n != 2)
             return 2;
-        if (hg_next())
+        v = hg_next();
+        if (v < 0)
             return 2;
-        addr = (uint16_t)((uint16_t)hg_v << 8);
-        if (hg_next())
+        addr = (uint16_t)((uint16_t)v << 8);
+        v = hg_next();
+        if (v < 0)
             return 2;
-        hg_bpage = (uint16_t)(addr | (uint8_t)hg_v);
+        hg_bpage = (uint16_t)(addr | (uint8_t)v);
     } else {
         rc = hg_take(n, 0);
         if (rc)
@@ -979,6 +991,7 @@ static uint8_t hg_record(void)
 int8_t ya_hget(char ** args)   /* receive an Intel HEX file */
 {
     uint8_t rc;
+    uint32_t sz;
 
     if (need_args(args, 1, "hget"))
         return 1;
@@ -990,12 +1003,12 @@ int8_t ya_hget(char ** args)   /* receive an Intel HEX file */
     do {
         rc = hg_record();
     } while (rc == 0);
-    if (hg_commit() || rc == 4)
+    if (hg_commit(&sz) || rc == 4)
         put_rc(1);
     else if (rc != 1)
         fputs("bad hex\n", error);
     else
-        fprintf(output, "%lu bytes\n", hg_sz);
+        fprintf(output, "%lu bytes\n", sz);
     return 1;
 }
 #endif
