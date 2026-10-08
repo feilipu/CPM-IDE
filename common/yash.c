@@ -1166,6 +1166,11 @@ int8_t ya_mkdrv(char ** args)   /* empty 8 MB CP/M drive */
     return 1;
 }
 
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "md". args[1] is an optional origin in hexadecimal.
+   @return Always returns 1, to continue executing.
+ */
 int8_t ya_md(char ** args)      /* dump RAM contents from nominated origin. */
 {
     static uint8_t * origin = 0;   /* next page, remembered across md */
