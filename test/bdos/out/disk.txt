@@ -1,0 +1,3 @@
+BDOS_DISK_OK
+
+Ticks: 33841588

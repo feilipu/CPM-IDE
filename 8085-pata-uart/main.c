@@ -20,7 +20,7 @@
 #include "../common/yash.h"
 #include "../common/fatfs.h"
 
-#pragma output REGISTER_SP = 0xDAE0
+#pragma output REGISTER_SP = 0xE880
 #pragma printf = "%c %s %d %u %lu %X"
 
 extern uint8_t bios_iobyte;

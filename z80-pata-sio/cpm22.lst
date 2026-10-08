@@ -1,6 +1,7 @@
 cpm22preamble
 cpm22bios
 cpm22
+../common/bdos22.asm
 sio_init_async_rodata
 ../common/fatfs.asm
 ../common/fat_bss.asm

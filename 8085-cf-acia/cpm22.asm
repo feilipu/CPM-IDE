@@ -33,7 +33,11 @@ SECTION rodata_lib           ;read only library (code)
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xDAE0  ; 0x20 below 0xDB00 so BDOS stays at 0xE300
+; Live image length is $86A when this origin is 32-byte aligned.
+; ALIGN 0x20 above CCPSTACK changes the pad if the origin is not.
+; $E8E0 produced tail $F14A (74 bytes past bdos). $E896 produced tail $F10A.
+; $E880 + $86A = $F0EA, 22 bytes before bdos at $F100.
+defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE880
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -44,6 +48,7 @@ EXTERN  _cpm_cdisk
 EXTERN  _cpm_ccp_tfcb
 EXTERN  _cpm_ccp_tbuff
 EXTERN  _cpm_ccp_tbase
+EXTERN  _cpm_bdos_fbase
 
 DEFC    IOBYTE      =       _cpm_iobyte     ;i/o definition byte
 DEFC    TDRIVE      =       _cpm_cdisk      ;current drive name and user number
@@ -1446,6 +1451,56 @@ ALIGN       0x20
 CCPSTACK:                   ;top of ccp stack area.
 
 ;
+;   CCP copies. These run with ROM latched out, so they stay in this image.
+;   LDI_16 falls through 15, 8, and 3. LDI_128 pushes LDI_32 four times.
+;
+LDI_128:                    ;(HL++)->(DE++), 128 times.
+    LD      BC,LDI_32
+    PUSH    BC
+    PUSH    BC
+    PUSH    BC
+
+LDI_32:                     ;(HL++)->(DE++), 32 times.
+    CALL    LDI_16
+LDI_16:                     ;(HL++)->(DE++), 16 times.
+    LD      A,(HL+)
+    LD      (DE+),A
+LDI_15:                     ;(HL++)->(DE++), 15 times.
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+LDI_8:                      ;(HL++)->(DE++), 8 times.
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+LDI_3:                      ;(HL++)->(DE++), 3 times.
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+    LD      A,(HL+)
+    LD      (DE+),A
+    RET
+
+;
 ;   Note that the following six bytes must match those at
 ;   (PATTRN1) or cp/m will HALT. Why?
 ;
@@ -1453,6 +1508,14 @@ CCPSTACK:                   ;top of ccp stack area.
 
 PUBLIC  _cpm_ccp_data_tail
 _cpm_ccp_data_tail:         ;tail of the cpm ccp
+
+DEPHASE
+
+;
+; The DRI disk BDOS is not linked. CALL 5 is the resident stub.
+; Kept here so the CCP source above stays in its original file.
+;
+IF 0
 
 ;
 ;**************************************************************
@@ -4237,6 +4300,9 @@ PUBLIC  _cpm_bdos_bss_tail
 _cpm_bdos_bss_tail:         ;tail of the cpm bdos bss
 ;
 DEPHASE
+
+ENDIF
+
 ;
 ;**************************************************************
 ;*
@@ -4261,7 +4327,6 @@ EXTERN    read      ;read disk
 EXTERN    write     ;write disk
 EXTERN    listst    ;return list status
 EXTERN    sectran   ;sector translate
-EXTERN    flush_host
 ;
 DEFC    BOOT    =   cboot
 DEFC    WBOOT   =   wboot

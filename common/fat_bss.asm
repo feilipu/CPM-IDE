@@ -7,6 +7,17 @@
 
 SECTION bss_compiler
 
+;
+; Product link defines FAT_BSS_ORG and copies nothing: the preamble
+; zeros this block at the run address. The +test harness does not
+; link this file.
+;
+IFDEF FAT_BSS_ORG
+PHASE FAT_BSS_ORG
+PUBLIC _fat_bss_head
+_fat_bss_head:
+ENDIF
+
 PUBLIC _cpm_fat_vol
 PUBLIC _fatwin
 PUBLIC fatwin
@@ -27,6 +38,11 @@ PUBLIC dir_ofs
 PUBLIC fat_work
 PUBLIC pack_sv
 PUBLIC fat_last_clst
+PUBLIC _fat_last_clst
+PUBLIC fat_fsi_lba
+PUBLIC _fat_fsi_lba
+PUBLIC fat_fsi_dirty
+PUBLIC _fat_fsi_dirty
 PUBLIC clst_cache_sclust
 PUBLIC clst_cache_ci
 PUBLIC clst_cache_clst
@@ -55,4 +71,15 @@ _fat_cwd:
 fat_cwd:                defs 4
 fat_work:               defs 16
 pack_sv:                defs 16
+_fat_last_clst:
 fat_last_clst:          defs 4      ;last cluster this session allocated
+_fat_fsi_lba:
+fat_fsi_lba:            defs 4      ;absolute FSInfo LBA, or 0 if none
+_fat_fsi_dirty:
+fat_fsi_dirty:          defs 1      ;1 = free count or next-free needs a write
+
+IFDEF FAT_BSS_ORG
+PUBLIC _fat_bss_tail
+_fat_bss_tail:
+DEPHASE
+ENDIF

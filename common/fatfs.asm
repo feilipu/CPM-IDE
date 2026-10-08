@@ -18,9 +18,11 @@
 ;   dir_sdi, dir_next, dir_find, dir_create
 ;
 ; In scope: FAT16 and FAT32, 512-byte sectors, 8.3 SFN only.
-; Out of scope: FAT12, exFAT, LFN, GPT, directory stretch.
-; FAT32 FSInfo is read at mount (free count and the next-free hint).
-; It is not rewritten; the hint lives in fat_last_clst for this session.
+; Out of scope: FAT12, exFAT, LFN, GPT.
+; FAT32 directory stretch is dir_create only, when the chain is at end.
+; FAT16 root and FAT16 subdirectories stay a fixed size.
+; FAT32 FSInfo is read at mount. A sync writes FSI_Free_Count and
+; FSI_Nxt_Free when the free count or fat_last_clst has changed.
 ;
 ; FatFs cases we honour:
 ;   cluster < 2 invalid; n_fatent = nclst + 2
@@ -42,7 +44,7 @@
 ;
 ; FatFs cases we skip (on purpose):
 ;   JumpBoot $EB/$E9/$E8; GPT protective MBR; logical partitions
-;   dir_next stretch (create_chain + dir_clear) when a subdir hits EOC
+;   dir_next itself does not stretch (dir_create does, FAT32 only)
 ;   dir_zap is E5 only; the caller frees the chain with _fat_free
 ;
 ; How to read this file. Each operation is one label, top to bottom:
@@ -80,6 +82,8 @@ EXTERN  dir_ofs
 EXTERN  fat_work
 EXTERN  pack_sv
 EXTERN  fat_last_clst       ;last cluster this session allocated
+EXTERN  fat_fsi_lba         ;absolute FSInfo LBA, or 0
+EXTERN  fat_fsi_dirty       ;1 = write FSI_Free_Count and FSI_Nxt_Free
 EXTERN  clst_cache_sclust
 EXTERN  clst_cache_ci
 EXTERN  clst_cache_clst
@@ -269,8 +273,72 @@ fat_sync_clear:
     xor     a
     ld      (fat_wflag),a
 fat_sync_ok:
+    call    fat_fsi_write
     ld      hl,0
     scf
+    ret
+
+; Write FSI_Free_Count and FSI_Nxt_Free. A failed write leaves the dirty
+; flag set and does not fail the FAT sync that called this. Dirty is
+; cleared before fat_move_window so that call cannot re-enter here.
+; free_valid clear stores $FFFFFFFF (unknown). A next-free hint below
+; 2 stores $FFFFFFFF. LBA 0 means this volume has no info sector.
+fat_fsi_write:
+    ld      a,(fat_fsi_dirty)
+    or      a
+    ret     Z
+    ld      hl,(fat_fsi_lba)
+    ld      a,h
+    or      l
+    ld      hl,(fat_fsi_lba+2)
+    or      h
+    or      l
+    ret     Z
+    xor     a
+    ld      (fat_fsi_dirty),a
+    ld      de,(fat_fsi_lba)
+    ld      bc,(fat_fsi_lba+2)
+    call    fat_move_window
+    jr      NC,fat_fsi_again
+    ld      a,(_cpm_fat_vol+25)
+    or      a
+    jr      Z,fat_fsi_unk
+    ld      de,(_cpm_fat_vol+28)
+    ld      bc,(_cpm_fat_vol+30)
+    jr      fat_fsi_free
+fat_fsi_unk:
+    ld      de,$FFFF
+    ld      bc,$FFFF
+fat_fsi_free:
+    ld      hl,fatwin+488
+    call    fat_st32
+    ld      de,(fat_last_clst)
+    ld      bc,(fat_last_clst+2)
+    ld      a,b
+    or      c
+    or      d
+    jr      NZ,fat_fsi_nxt
+    ld      a,e
+    cp      2
+    jr      NC,fat_fsi_nxt
+    ld      de,$FFFF
+    ld      bc,$FFFF
+fat_fsi_nxt:
+    ld      hl,fatwin+492
+    call    fat_st32
+    ld      de,(fat_fsi_lba)
+    ld      bc,(fat_fsi_lba+2)
+    ld      hl,fatwin
+    call    ide_write_sector
+    ret     C
+fat_fsi_again:
+    ld      a,1
+    ld      (fat_fsi_dirty),a
+    ret
+
+fat_fsi_mark:
+    ld      a,1
+    ld      (fat_fsi_dirty),a
     ret
 
 
@@ -410,6 +478,16 @@ fat_mount_cold:
     ld      (fat_last_clst+1),a
     ld      (fat_last_clst+2),a
     ld      (fat_last_clst+3),a
+    ld      (fat_fsi_lba),a
+    ld      (fat_fsi_lba+1),a
+    ld      (fat_fsi_lba+2),a
+    ld      (fat_fsi_lba+3),a
+    ld      (fat_fsi_dirty),a
+    ld      hl,clst_cache_sclust
+    ld      (hl+),a
+    ld      (hl+),a
+    ld      (hl+),a
+    ld      (hl),a
     ld      hl,$FFFF
     ld      (fat_winsect),hl
     ld      (fat_winsect+2),hl
@@ -787,40 +865,48 @@ fat_seed_fsinfo:
     ld      bc,0
     adc     hl,bc
     ld      bc,hl
+    push    bc
+    push    de
     call    fat_move_window
-    ret     NC
+    jp      NC,seed_drop
     ld      hl,fatwin
     ld      a,(hl+)
     cp      $52
-    ret     NZ
+    jp      NZ,seed_drop
     ld      a,(hl+)
     cp      $61
-    ret     NZ
+    jp      NZ,seed_drop
     ld      a,(hl+)
     cp      $41
-    ret     NZ
+    jp      NZ,seed_drop
     ld      a,(hl)
     cp      $41                     ;FSI_LeadSig 0x41615252
-    ret     NZ
+    jp      NZ,seed_drop
     ld      hl,fatwin+484
     ld      a,(hl+)
     cp      $72
-    ret     NZ
+    jp      NZ,seed_drop
     ld      a,(hl+)
     cp      $72
-    ret     NZ
+    jp      NZ,seed_drop
     ld      a,(hl+)
     cp      $41
-    ret     NZ
+    jp      NZ,seed_drop
     ld      a,(hl)
     cp      $61                     ;FSI_StrucSig 0x61417272
-    ret     NZ
+    jp      NZ,seed_drop
     ld      a,(fatwin+510)
     cp      $55
-    ret     NZ
+    jp      NZ,seed_drop
     ld      a,(fatwin+511)
     cp      $AA
-    ret     NZ
+    jp      NZ,seed_drop
+    pop     de
+    pop     bc
+    ld      (fat_fsi_lba),de
+    ld      (fat_fsi_lba+2),bc
+    xor     a
+    ld      (fat_fsi_dirty),a
     ld      hl,fatwin+492           ;FSI_Nxt_Free
     call    fat_ld32
     ld      a,e
@@ -901,6 +987,10 @@ seed_ncl:
     ld      (_cpm_fat_vol+30),bc
     ld      a,1
     ld      (_cpm_fat_vol+25),a
+    ret
+seed_drop:
+    pop     de
+    pop     bc
     ret
 
 ;------------------------------------------------------------------------------
@@ -1145,11 +1235,13 @@ fat_nfree_inc:
     ld      (_cpm_fat_vol+28),hl
     ld      a,h
     or      l
-    ret     NZ
+    jr      Z,fat_nfree_inc_hi
+    jp      fat_fsi_mark
+fat_nfree_inc_hi:
     ld      hl,(_cpm_fat_vol+30)
     inc     hl
     ld      (_cpm_fat_vol+30),hl
-    ret
+    jp      fat_fsi_mark
 
 fat_nfree_dec:
     ld      hl,(_cpm_fat_vol+28)
@@ -1169,7 +1261,7 @@ fat_nfree_dec:
 fat_nfree_dec_lo:
     dec     hl
     ld      (_cpm_fat_vol+28),hl
-    ret
+    jp      fat_fsi_mark
 
 ; ff.c ld_32 / st_32 as *(DWORD *). Byte stream through HL (no ld hl,(de)
 ; on Z80). Last byte has no post-increment: HL at offset +3. Streamed
@@ -1415,6 +1507,10 @@ cc_look:
     jp      NZ,cc_next              ;in use
     ld      de,(fat_work+12)
     ld      bc,(fat_work+14)
+    call    cc_wipe                 ;zero data before the FAT link is published
+    ret     NC
+    ld      de,(fat_work+12)
+    ld      bc,(fat_work+14)
     ld      hl,cc_eoc
     call    put_fat
     ret     NC
@@ -1434,13 +1530,15 @@ cc_look:
     pop     bc
     ret     NC
 cc_ok:
-    call    fat_sync_window         ;FAT#1 has the link; a failed mirror stays dirty
-    ret     NC
-cc_ret_cl:
     ld      de,(fat_work+12)
     ld      bc,(fat_work+14)
     ld      (fat_last_clst),de
     ld      (fat_last_clst+2),bc
+    call    fat_fsi_mark
+    call    fat_sync_window         ;FAT#1 has the link; a failed mirror stays dirty
+cc_ret_cl:
+    ld      de,(fat_work+12)        ;mirror failure still returns the cluster
+    ld      bc,(fat_work+14)
     scf
     ret
 cc_next:
@@ -1479,6 +1577,87 @@ cc_fail:
     ret
 cc_eoc:
     defb    $FF,$FF,$FF,$0F
+
+; Zero every sector of cluster BCDE before put_fat publishes it.
+; NC leaves the FAT unchanged. fat_work is not used. csize 0 fails.
+; The window is invalidated before the zero fill so fatwin is not a
+; cached FAT sector full of zeros.
+cc_wipe:
+    ld      a,(_cpm_fat_vol+1)
+    or      a
+    jr      Z,cc_wipe_bad
+    push    bc
+    push    de
+    call    clst2sect
+    jr      C,cc_wipe_lba
+    pop     de
+    pop     bc
+cc_wipe_bad:
+    or      a
+    ret
+cc_wipe_lba:
+    pop     hl
+    pop     hl
+    ld      a,(_cpm_fat_vol+1)
+    push    bc
+    push    de
+    push    af
+    call    fat_sync_window
+    jr      C,cc_wipe_clr
+    pop     af
+    pop     de
+    pop     bc
+    or      a
+    ret
+cc_wipe_clr:
+    ld      hl,$FFFF
+    ld      (fat_winsect),hl
+    ld      (fat_winsect+2),hl
+    xor     a
+    ld      (fat_wflag),a
+    ld      hl,fatwin
+    ld      d,h
+    ld      e,l
+    inc     de
+    ld      (hl),a
+    ld      bc,511
+    ldir
+cc_wipe_wr:
+    pop     af
+    pop     de
+    pop     bc
+    push    bc
+    push    de
+    push    af
+    ld      hl,fatwin
+    call    ide_write_sector
+    jr      C,cc_wipe_adv
+    pop     af
+    pop     de
+    pop     bc
+    or      a
+    ret
+cc_wipe_adv:
+    pop     af
+    pop     de
+    pop     bc
+    dec     a
+    jr      Z,cc_wipe_ok
+    push    af
+    inc     de
+    ld      a,d
+    or      e
+    jr      NZ,cc_wipe_push
+    inc     bc
+cc_wipe_push:
+    pop     af
+    push    bc
+    push    de
+    push    af
+    jr      cc_wipe_wr
+cc_wipe_ok:
+    scf
+    ret
 
 ; ff.c remove_chain (entire chain, pclst=0). Walks until 0 or a link
 ; that is not a cluster (EOC, bad, or >= n_fatent). The step stops at
@@ -1915,7 +2094,7 @@ df_miss:
     ret
 
 ; ff.c dir_alloc(n=1) + dir_register SFN. Reuses 0x00 or 0xE5.
-; Does not stretch the directory if the table is full.
+; FAT32 stretches one cluster when the chain is at end. FAT16 does not.
 ; IN: HL -> 11-byte 8.3
 _dir_create:
 dir_create:
@@ -1933,11 +2112,36 @@ dc_loop:
     jr      Z,dc_fill
     cp      $E5
     jr      Z,dc_fill
+    ld      hl,(dir_ofs)
+    push    hl
+    ld      hl,(dir_clust)
+    push    hl
+    ld      hl,(dir_clust+2)
+    push    hl
+    ld      hl,(dir_sect)
+    push    hl
+    ld      hl,(dir_sect+2)
+    push    hl
     call    dir_next
-    jr      C,dc_loop
+    jr      NC,dc_at_end
+    ld      hl,10
+    add     hl,sp
+    ld      sp,hl
+    jr      dc_loop
+dc_at_end:
+    call    dir_stretch
+    jr      C,dc_stretched
+    ld      hl,10
+    add     hl,sp
+    ld      sp,hl
     ld      hl,1
     or      a
     ret
+dc_stretched:
+    ld      hl,10
+    add     hl,sp
+    ld      sp,hl
+    jr      dc_loop
 dc_fill:
     ld      hl,(dir_ptr)
     ld      b,32
@@ -1958,6 +2162,99 @@ dc_stored:
     ld      a,1
     ld      (fat_wflag),a
     ld      hl,0
+    scf
+    ret
+
+; FAT32 only. dir_create's 10-byte cursor snapshot is at SP+2:
+; sect+2, sect, clust+2, clust, ofs. Carry set: one new cluster is
+; zeroed and linked, and dir_ptr aims at its first 0x00 byte.
+; Offset wrap, a moved cluster or sector, and a non-EOC link do not stretch.
+dir_stretch:
+    ld      a,(_cpm_fat_vol)
+    cp      FS_FAT32
+    jr      Z,ds_32
+ds_no:
+    or      a
+    ret
+ds_32:
+    ld      hl,2
+    add     hl,sp
+    ld      a,(dir_sect+2)
+    cp      (hl)
+    jr      NZ,ds_no
+    inc     hl
+    ld      a,(dir_sect+3)
+    cp      (hl)
+    jr      NZ,ds_no
+    inc     hl
+    ld      a,(dir_sect)
+    cp      (hl)
+    jr      NZ,ds_no
+    inc     hl
+    ld      a,(dir_sect+1)
+    cp      (hl)
+    jr      NZ,ds_no
+    inc     hl
+    ld      a,(dir_clust+2)
+    cp      (hl)
+    jr      NZ,ds_no
+    inc     hl
+    ld      a,(dir_clust+3)
+    cp      (hl)
+    jr      NZ,ds_no
+    inc     hl
+    ld      a,(dir_clust)
+    cp      (hl)
+    jr      NZ,ds_no
+    inc     hl
+    ld      a,(dir_clust+1)
+    cp      (hl)
+    jr      NZ,ds_no
+    inc     hl
+    ld      a,(dir_ofs)
+    cp      (hl)
+    jr      NZ,ds_moved
+    inc     hl
+    ld      a,(dir_ofs+1)
+    cp      (hl)
+    jr      Z,ds_no
+ds_moved:
+    ld      a,(dir_ofs)
+    or      a
+    jr      NZ,ds_no
+    ld      a,(dir_ofs+1)
+    srl     a
+    ld      hl,_cpm_fat_vol+1
+    ld      l,(hl)
+    dec     l
+    and     l
+    jr      NZ,ds_no
+    ld      de,(dir_clust)
+    ld      bc,(dir_clust+2)
+    call    get_fat
+    ret     NC
+    ld      a,b
+    cp      $0F
+    jr      NZ,ds_no
+    ld      a,c
+    and     d
+    and     e
+    inc     a
+    jr      NZ,ds_no
+    ld      de,(dir_clust)
+    ld      bc,(dir_clust+2)
+    call    create_chain
+    ret     NC
+    ld      (dir_clust),de
+    ld      (dir_clust+2),bc
+    call    clst2sect
+    ret     NC
+    ld      (dir_sect),de
+    ld      (dir_sect+2),bc
+    call    fat_move_window
+    ret     NC
+    ld      hl,fatwin
+    ld      (dir_ptr),hl
     scf
     ret
 

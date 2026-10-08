@@ -21,7 +21,7 @@
 #include "../common/fatfs.h"
 
 #pragma output CRT_ORG_VECTOR_TABLE = 0
-#pragma output REGISTER_SP = 0xDAE0
+#pragma output REGISTER_SP = 0xE8E0
 #pragma output CRT_ITERM_TERMINAL_FLAGS = 0
 #pragma output TTY_ITERM_TERMINAL_FLAGS = 0
 #pragma printf = "%c %s %d %u %lu %X"

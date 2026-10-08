@@ -26,6 +26,13 @@ extern FILE *input;
 extern FILE *output;
 extern FILE *error;
 
+/* 0 compiles the Intel HEX receiver out. -DYASH_HGET=1 puts it back.
+ * mkdrv still calls hg_open either way.
+ */
+#ifndef YASH_HGET
+#define YASH_HGET 0
+#endif
+
 /* Per-tree: pick stdin/tty and set bios_iobyte. */
 void select_console(void);
 
@@ -34,7 +41,9 @@ void put_rc(uint8_t rc);
 
 int8_t ya_mkcpm(char **args);
 int8_t ya_mkdrv(char **args);
+#if YASH_HGET
 int8_t ya_hget(char **args);
+#endif
 int8_t ya_md(char **args);
 int8_t ya_help(char **args);
 int8_t ya_exit(char **args);

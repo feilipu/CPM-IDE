@@ -17,7 +17,6 @@ typedef uint32_t DWORD;
 #include <arch/rc2014/diskio.h>
 
 extern uint8_t bios_iobyte;
-extern uint32_t cpm_dsk0_base[4];
 extern void cpm_boot(void);
 
 void *buffer;
@@ -40,8 +39,10 @@ struct Builtin {
 
 struct Builtin builtins[] = {
   // CP/M related functions
-    { "cpm", &ya_mkcpm, "file.a [file.b] [file.c] [file.d] - initiate CP/M with up to 4 drive files"},
+    { "cpm", &ya_mkcpm, "- boot CP/M on this FAT volume"},
+#if YASH_HGET
     { "hget", &ya_hget, "<file> - ascii-xfr -s"},
+#endif
     { "mkdrv", &ya_mkdrv, "<file> - empty 8 MB CP/M drive"},
 
 // fat related functions
@@ -710,55 +711,16 @@ void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt)
 
 /**
    @brief Builtin command:
-   @param args List of args.  args[0] is "cpm". args[1..4] are .CPM container files.
+   @param args List of args. args[0] is "cpm". Drive A: is this FAT volume.
    @return Always returns 1, to continue executing.
  */
-int8_t ya_mkcpm(char ** args)   /* initialise CP/M with up to 4 container files */
+int8_t ya_mkcpm(char ** args)   /* boot CP/M on the mounted FAT volume */
 {
-    uint8_t i;
-    uint8_t n11[11];
-    uint32_t parent, cl, prev, lba;
+    (void)args;
 
-    if (args[1] == NULL) {
-        fprintf(output, "Expected 1 to 4 arguments to \"cpm\"\n");
-        return 1;
-    }
     if (fat_mount()) {
         put_rc(1);
         return 1;
-    }
-
-    for (i = 0; i < 4; ++i)
-        cpm_dsk0_base[i] = 0;
-
-    for (i = 0; i < 4 && args[i + 1] != NULL; ++i) {
-        fprintf(output, "Opening \"%s\"", args[i + 1]);
-        if (put_fail(open_leaf(args[i + 1], &parent, n11)))
-            return 1;
-        if (fat_dir_ptr[11] & AM_DIR) {
-            put_rc(FR_DENIED);
-            return 1;
-        }
-        cl = fat_found_sclust;
-        if (cl < 2) {
-            put_rc(FR_INT_ERR);
-            return 1;
-        }
-        prev = 0;
-        while (is_eoc(cl) == 0) {
-            if (prev && cl != prev + 1) {
-                fprintf(output, " is fragmented\n");
-                return 1;
-            }
-            prev = cl;
-            if (put_fail(fat_next(&cl)))
-                return 1;
-        }
-        lba = fat_found_sclust;
-        if (put_fail(fat_clst2sect(&lba)))
-            return 1;
-        cpm_dsk0_base[i] = lba;
-        fprintf(output, " at LBA %lu\n", lba);
     }
 
     fprintf(output, "Initialised CP/M\n");
@@ -769,30 +731,36 @@ int8_t ya_mkcpm(char ** args)   /* initialise CP/M with up to 4 container files 
 
 
 /*
- * Intel HEX receive. ascii-xfr -s sends CRLF lines and -e may send
- * Ctrl-Z. A type 04 record selects the 64 KB page. Data records must
- * follow the file in order. One sector is held in `buffer`. These
- * values are shared by hg_open, hg_wr, hg_record, and hg_commit.
+ * hg_open creates or replaces a file for mkdrv and clears the
+ * counters below. The Intel HEX parser is compiled out while
+ * YASH_HGET is 0. -DYASH_HGET=1 restores ya_hget.
  */
 static uint32_t hg_parent;
 static uint32_t hg_clst;
 static uint32_t hg_first;
-static uint32_t hg_lba;
 static uint32_t hg_tmp;
-static uint32_t hg_sz;
 static uint16_t hg_page;
 static uint16_t hg_low;
 static uint16_t hg_pos;
 static uint16_t hg_bpage;
-static uint16_t hg_addr;
-static int hg_v;
 static uint8_t hg_name[11];
 static uint8_t hg_have;
 static uint8_t hg_sec;
+static uint8_t hg_rc;
+
+#if YASH_HGET
+/*
+ * ascii-xfr -s sends CRLF lines and -e may send Ctrl-Z. A type 04
+ * record selects the 64 KB page. Data records must follow the file
+ * in order. One sector is held in `buffer`.
+ */
+static uint32_t hg_lba;
+static uint32_t hg_sz;
+static uint16_t hg_addr;
+static int hg_v;
 static uint8_t hg_sum;
 static uint8_t hg_n;
 static uint8_t hg_typ;
-static uint8_t hg_rc;
 
 static uint8_t hg_commit(void)
 {
@@ -850,6 +818,7 @@ static uint8_t hg_wr(uint8_t val)
         ++hg_page;
     return 0;
 }
+#endif
 
 static uint8_t hg_open(const char *path)
 {
@@ -883,6 +852,7 @@ static uint8_t hg_open(const char *path)
     return 0;
 }
 
+#if YASH_HGET
 static int hg_nibble(void)
 {
     int c;
@@ -1017,6 +987,7 @@ int8_t ya_hget(char ** args)   /* receive an Intel HEX file */
         fprintf(output, "%lu bytes\n", hg_sz);
     return 1;
 }
+#endif
 
 /*
  * mkdrv NAME
@@ -1166,6 +1137,11 @@ int8_t ya_mkdrv(char ** args)   /* empty 8 MB CP/M drive */
     return 1;
 }
 
+/**
+   @brief Builtin command:
+   @param args List of args.  args[0] is "md". args[1] is an optional origin in hexadecimal.
+   @return Always returns 1, to continue executing.
+ */
 int8_t ya_md(char ** args)      /* dump RAM contents from nominated origin. */
 {
     static uint8_t * origin = 0;   /* next page, remembered across md */

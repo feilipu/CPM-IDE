@@ -10,6 +10,9 @@ uint8_t ram_nsect = 48;
 extern void rt_invalidate(void);
 extern uint8_t rt_dir_ofs_wrap(void);
 extern uint8_t rt_wflag(void);
+extern uint32_t fat_fsi_lba;
+extern uint8_t fat_fsi_dirty;
+extern uint32_t fat_last_clst;
 
 static int fails;
 
@@ -726,6 +729,173 @@ int main(void)
     clst = 512;
     fat_clusters(&clst);
     expect("cl_nocs", clst == 0);
+
+    /* New cluster data is zero before the FAT link is published. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_fatent = 8;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.database = 4;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0xFF;
+    memset(ram_image + 4 * 512, 0xA5, 512);
+    clst = 0;
+    rc = fat_alloc(&clst);
+    expect("alloc_wipe", rc == 0 && clst == 2 &&
+           ram_image[4 * 512] == 0 && ram_image[4 * 512 + 511] == 0);
+    expect("alloc_wipe_fat",
+           ram_image[512 + 4] == 0xFF && ram_image[512 + 5] == 0xFF);
+
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 2;
+    cpm_fat_vol.n_fatent = 6;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0xFF;
+    memset(ram_image + 3 * 512, 0x5A, 1024);
+    clst = 0;
+    rc = fat_alloc(&clst);
+    expect("alloc_wipe_csize2", rc == 0 && clst == 2 &&
+           ram_image[3 * 512] == 0 && ram_image[3 * 512 + 511] == 0 &&
+           ram_image[4 * 512] == 0 && ram_image[4 * 512 + 511] == 0);
+
+    /* FAT16 root stays fixed. A full table does not allocate a cluster. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_rootent = 16;
+    cpm_fat_vol.n_fatent = 8;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 2;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    {
+        uint8_t slot;
+
+        for (slot = 0; slot < 16; ++slot) {
+            ram_image[2 * 512 + slot * 32] = 'A';
+            ram_image[2 * 512 + slot * 32 + 11] = 0x20;
+        }
+    }
+    parent = 0;
+    rc = fat_dir_open(&parent);
+    memset(n, ' ', 11);
+    memcpy(n, "NEWFILE TXT", 11);
+    rc = dir_create(n);
+    expect("fat16_root_full", rc == 1 && ram_image[512 + 4] == 0);
+
+    /* FAT32 directory at EOC grows by one zeroed cluster. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 3;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_fatent = 8;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.dirbase = 2;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0x0F;
+    ram_image[516] = 0xFF;
+    ram_image[517] = 0xFF;
+    ram_image[518] = 0xFF;
+    ram_image[519] = 0x0F;
+    ram_image[512 + 8] = 0xFF;
+    ram_image[512 + 9] = 0xFF;
+    ram_image[512 + 10] = 0xFF;
+    ram_image[512 + 11] = 0x0F;
+    {
+        uint8_t slot;
+
+        for (slot = 0; slot < 16; ++slot) {
+            ram_image[3 * 512 + slot * 32] = 'B';
+            ram_image[3 * 512 + slot * 32 + 11] = 0x20;
+        }
+    }
+    parent = 2;
+    rc = fat_dir_open(&parent);
+    expect("fat32_dir_open", rc == 0);
+    memset(n, ' ', 11);
+    memcpy(n, "STRETCH TXT", 11);
+    rc = dir_create(n);
+    rc |= fat_sync();
+    expect("fat32_stretch", rc == 0);
+    expect("fat32_stretch_link",
+           ram_image[512 + 8] == 3 && ram_image[512 + 9] == 0 &&
+           ram_image[512 + 10] == 0 && ram_image[512 + 11] == 0 &&
+           ram_image[512 + 12] == 0xFF && ram_image[512 + 13] == 0xFF &&
+           ram_image[512 + 14] == 0xFF && ram_image[512 + 15] == 0x0F);
+    expect("fat32_stretch_name",
+           memcmp(ram_image + 4 * 512, "STRETCH TXT", 11) == 0);
+
+    /* Sync writes the two FSInfo fields and leaves the signatures. */
+    rt_invalidate();
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 3;
+    cpm_fat_vol.csize = 1;
+    cpm_fat_vol.n_fatent = 8;
+    cpm_fat_vol.fatbase = 1;
+    cpm_fat_vol.database = 3;
+    cpm_fat_vol.fatsz = 1;
+    cpm_fat_vol.n_fats = 1;
+    cpm_fat_vol.free_valid = 1;
+    cpm_fat_vol.free_clst = 5;
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0x0F;
+    ram_image[516] = 0xFF;
+    ram_image[517] = 0xFF;
+    ram_image[518] = 0xFF;
+    ram_image[519] = 0x0F;
+    ram_image[6 * 512 + 0] = 0x52;
+    ram_image[6 * 512 + 1] = 0x61;
+    ram_image[6 * 512 + 2] = 0x41;
+    ram_image[6 * 512 + 3] = 0x41;
+    ram_image[6 * 512 + 484] = 0x72;
+    ram_image[6 * 512 + 485] = 0x72;
+    ram_image[6 * 512 + 486] = 0x41;
+    ram_image[6 * 512 + 487] = 0x61;
+    ram_image[6 * 512 + 510] = 0x55;
+    ram_image[6 * 512 + 511] = 0xAA;
+    fat_fsi_lba = 6;
+    fat_fsi_dirty = 0;
+    fat_last_clst = 0;
+    clst = 0;
+    rc = fat_alloc(&clst);
+    expect("fsinfo_alloc", rc == 0 && clst == 2 && fat_fsi_dirty == 0);
+    expect("fsinfo_free",
+           ram_image[6 * 512 + 488] == 4 && ram_image[6 * 512 + 489] == 0 &&
+           ram_image[6 * 512 + 490] == 0 && ram_image[6 * 512 + 491] == 0);
+    expect("fsinfo_nxt",
+           ram_image[6 * 512 + 492] == 2 && ram_image[6 * 512 + 493] == 0 &&
+           ram_image[6 * 512 + 494] == 0 && ram_image[6 * 512 + 495] == 0);
+    expect("fsinfo_sig",
+           ram_image[6 * 512] == 0x52 && ram_image[6 * 512 + 484] == 0x72 &&
+           ram_image[6 * 512 + 510] == 0x55 && ram_image[6 * 512 + 511] == 0xAA);
 
     puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");
     return fails ? 1 : 0;

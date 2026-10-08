@@ -14,13 +14,14 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 | Script | What |
 |--------|------|
 | `rebuild-ff.sh` | ChaN `ff` RW+RO, Z80 all FatFs targets + rc2014 `ff_85` / `ff_85_ro`. Installs into `$ZCCCFG/../clibs`. |
-| `rebuild-hex.sh` | All seven ROMs. PATA first (`__IO_CF_8_BIT` 0, both libraries: Z80 SIO and 8085 UART), then CF (flag 1, both libraries: three Z80 and two 8085). Copies `.ihx` → `.hex`, deletes leftovers. |
+| `rebuild-hex.sh` | All seven ROMs on the FAT map (stub `$F100`, BDOS BSS `$F650`, FAT BSS `$F6D0`, BIOS `$F960`). PATA first (`__IO_CF_8_BIT` 0, both libraries: Z80 SIO and 8085 UART), then CF (flag 1, both libraries: three Z80 and two 8085). Copies `.ihx` → `.hex` only after `gate_fat`. |
 
 ```bash
 # from repo root
 ./.agents/scripts/rebuild-ff.sh
 ./.agents/scripts/rebuild-hex.sh       # PATA, then all five CF ROMs
-./.agents/scripts/rebuild-hex.sh cf    # three CF ROMs only; skips the lib rebuild when the flag is already 1
+./.agents/scripts/rebuild-hex.sh cf    # five CF ROMs; skips the lib rebuild when the flag is already 1
+./.agents/scripts/rebuild-hex.sh acia  # z80-cf-acia FAT image only; skips the lib rebuild when the flag is already 1
 # *.hex gitignored; often assume-unchanged (git ls-files -v shows lowercase h)
 git update-index --no-assume-unchanged rc2014-cpm22-*.hex
 git add -f rc2014-cpm22-*.hex
@@ -30,7 +31,7 @@ git add -f rc2014-cpm22-*.hex
 
 The ROM zcc lines are the README lines. They do not link ChaN `ff_ro` or `ff_85_ro`. `common/yash.c` calls mini-FAT.
 
-Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `$7F81`, a BDOS tail that is not the BIOS origin, the wrong IDE port bytes, or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). Job-dir `rm` is not success. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`); `reap` exits on the first non-zero child. After HEX `wait_all`, every product in that run must exist and be non-empty or the script exits 1. The flag is left at 1. A failed PATA phase restores the CF libraries before exiting.
+Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `$7F81`, a FAT-map overlap (`gate_fat`: `0006h` six bytes after `bdos`, CCP tail, stub tail, FAT tail, BIOS code tail against the ring), the wrong IDE port bytes, or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). The v2.6 check that the BDOS tail equals the BIOS origin is not the live gate. A failed ROM is not copied to `.hex`. `reap` records the failure and the other products still build. The script exits 1 if any product failed. Job-dir `rm` is not success. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`). After HEX `wait_all`, every product in that run must exist and be non-empty or the script exits 1. The flag is left at 1. A crash before the CF libraries are selected restores them from the EXIT trap.
 
 ## CF vs PATA (before any ROM `zcc`)
 

@@ -33,7 +33,7 @@ SECTION rodata_lib           ;read only library (code)
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xD9E0  ; 0x20 below 0xDA00 so BDOS stays at 0xE200, BSS tail at BIOS 0xF100
+defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE8E0
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -44,6 +44,10 @@ EXTERN  _cpm_cdisk
 EXTERN  _cpm_ccp_tfcb
 EXTERN  _cpm_ccp_tbuff
 EXTERN  _cpm_ccp_tbase
+EXTERN  _cpm_bdos_fbase
+EXTERN  LDI_128
+EXTERN  LDI_32
+EXTERN  LDI_16
 
 DEFC    IOBYTE      =       _cpm_iobyte     ;i/o definition byte
 DEFC    TDRIVE      =       _cpm_cdisk      ;current drive name and user number
@@ -1455,6 +1459,14 @@ CCPSTACK:                   ;top of ccp stack area.
 
 PUBLIC  _cpm_ccp_data_tail
 _cpm_ccp_data_tail:         ;tail of the cpm ccp
+
+DEPHASE
+
+;
+; The DRI disk BDOS is not linked. CALL 5 is the resident stub.
+; Kept here so the CCP source above stays in its original file.
+;
+IF 0
 
 ;
 ;**************************************************************
@@ -4233,6 +4245,9 @@ PUBLIC  _cpm_bdos_bss_tail
 _cpm_bdos_bss_tail:         ;tail of the cpm bdos bss
 ;
 DEPHASE
+
+ENDIF
+
 ;
 ;**************************************************************
 ;*
@@ -4257,7 +4272,6 @@ EXTERN    read      ;read disk
 EXTERN    write     ;write disk
 EXTERN    listst    ;return list status
 EXTERN    sectran   ;sector translate
-EXTERN    flush_host
 ;
 DEFC    BOOT    =   cboot
 DEFC    WBOOT   =   wboot
