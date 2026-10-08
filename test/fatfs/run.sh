@@ -100,6 +100,45 @@ echo "=== compare mount-fail on small image ==="
 # ChaN may still mount nclst=100 as FAT12; mini-FAT must reject FAT12.
 grep -E 'ff_mount|fs_type' "$HERE/out/ff-small.txt" || true
 echo "mini-FAT: FAT12 reject is the documented edge vs ChaN (ChaN still mounts FAT12)."
+
+echo "=== CPMIDE.CFG (Z80, then 8085) ==="
+run_cfg() {
+    cpu="$1"
+    suffix="$2"
+    out="$HERE/out/cfg${suffix}"
+    # host/sys/compiler.h is the gcc stub. A -I of that directory hides
+    # the z88dk header and sccz80 then rejects fcntl.h. diskio.h alone
+    # is what yash.c includes.
+    cfg_inc="$HERE/out/cfginc"
+    mkdir -p "$cfg_inc/arch/rc2014"
+    cp "$HERE/host/arch/rc2014/diskio.h" "$cfg_inc/arch/rc2014/diskio.h"
+    if [ "$cpu" = "8085" ]; then
+        ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m -DYASH_TEST \
+            -I"$ROOT/common" -I"$cfg_inc" \
+            "$HERE/test_cfg.c" "$ROOT/common/yash.c" \
+            "$ROOT/common/fatfs_85.asm" "$HERE/ide_ram_8085.asm" \
+            "$HERE/bss_ram.asm" \
+            -o "$out.bin" -lndos )
+        z88dk-ticks -m8085 "$out.bin" -x "$out.map" \
+            -counter 999999999 | tee "$out.txt"
+    else
+        ( cd /tmp && zcc +test -vn -m -DYASH_TEST \
+            -I"$ROOT/common" -I"$cfg_inc" \
+            "$HERE/test_cfg.c" "$ROOT/common/yash.c" \
+            "$ROOT/common/fatfs.asm" "$HERE/ide_ram.asm" \
+            "$HERE/bss_ram.asm" \
+            -o "$out.bin" -lndos )
+        z88dk-ticks "$out.bin" -x "$out.map" \
+            -counter 999999999 | tee "$out.txt"
+    fi
+    grep -q 'YASH_CFG_OK' "$out.txt"
+    if grep -q 'FAIL' "$out.txt"; then
+        echo "FAIL line in $out.txt" >&2
+        exit 1
+    fi
+}
+run_cfg z80 ""
+run_cfg 8085 "85"
 else
 echo "=== skip v3 mini-FAT (no common/fatfs.asm) ==="
 fi

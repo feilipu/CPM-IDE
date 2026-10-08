@@ -39,7 +39,7 @@ struct Builtin {
 
 struct Builtin builtins[] = {
   // CP/M related functions
-    { "cpm", &ya_mkcpm, "- boot CP/M on this FAT volume"},
+    { "cpm", &ya_mkcpm, "- boot CP/M from FAT directories A: through P:"},
 #if YASH_HGET
     { "hget", &ya_hget, "<file> - ascii-xfr -s"},
 #endif
@@ -709,20 +709,177 @@ void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt)
   Builtin function implementations (CLI user functions, ya_*).
 */
 
+#define CPM_DRIVES 16
+
+/* parent + '/' + letter, in the 512-byte sector buffer. */
+static uint8_t parent_letter(const char *parent, char letter, char *dst)
+{
+    uint16_t n;
+
+    n = 0;
+    while (parent[n] && n < BUFFER_SIZE - 3) {
+        dst[n] = parent[n];
+        ++n;
+    }
+    if (parent[n])
+        return 1;
+    dst[n++] = '/';
+    dst[n++] = letter;
+    dst[n] = 0;
+    return 0;
+}
+
+/* Cluster 0 is the FAT16 root. A drive is a subdirectory cluster. */
+static uint8_t mount_dir(const char *path, uint32_t *out)
+{
+    uint8_t rc;
+    uint32_t clst;
+
+    rc = path_to_dir(path, &clst);
+    if (rc == 0 && clst < 2)
+        rc = FR_NO_PATH;
+    if (rc == 0)
+        *out = clst;
+    return rc;
+}
+
+/**
+   @brief Bind A: through P: from CPMIDE.CFG in the working directory or the root.
+   @return 0 when A: was set. One sector is read. Parsing stops at the file length.
+ */
+static uint8_t read_cfg(void)
+{
+    uint8_t n[11];
+    uint32_t clst, lba;
+    char *p, *start, saved;
+    uint8_t drv;
+
+    name83(n, "CPMIDE.CFG");
+    clst = fat_cwd;
+    if (fat_dir_open(&clst) || dir_find_try(n)) {
+        clst = root_clst();
+        if (fat_dir_open(&clst) || dir_find_try(n))
+            return 1;
+    }
+    if (fat_found_sclust < 2)
+        return 1;
+    lba = fat_found_sclust;
+    if (fat_clst2sect(&lba))
+        return 1;
+    if (disk_read(0, buffer, lba, 1) != 0)
+        return 1;
+    if (fat_found_size < 511)
+        ((uint8_t *)buffer)[fat_found_size] = 0;
+    else
+        ((uint8_t *)buffer)[511] = 0;
+    p = (char *)buffer;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == '\r')
+            ++p;
+        if (*p == 0)
+            break;
+        if (*p == '#' || *p == '[') {
+            while (*p && *p != '\n')
+                ++p;
+            if (*p == '\n')
+                ++p;
+            continue;
+        }
+        drv = (uint8_t)*p;
+        if (drv >= 'a' && drv <= 'p')
+            drv = (uint8_t)(drv - 32);
+        if (drv < 'A' || drv > 'P') {
+            while (*p && *p != '\n')
+                ++p;
+            if (*p == '\n')
+                ++p;
+            continue;
+        }
+        ++p;
+        while (*p == ' ' || *p == '\t' || *p == '=')
+            ++p;
+        if (*p == '"')
+            ++p;
+        start = p;
+        while (*p && *p != '"' && *p != '\n' && *p != '\r')
+            ++p;
+        saved = *p;
+        *p = 0;
+        if (mount_dir(start, &clst) == 0) {
+            cpm_dir_sclust[drv - 'A'] = clst;
+            fprintf(output, "%c: \"%s\" cluster %lu\n", drv, start, clst);
+        }
+        *p = saved;
+        while (*p && *p != '\n')
+            ++p;
+        if (*p == '\n')
+            ++p;
+    }
+    return (cpm_dir_sclust[0] == 0) ? 1 : 0;
+}
+
 /**
    @brief Builtin command:
-   @param args List of args. args[0] is "cpm". Drive A: is this FAT volume.
+   @param args args[0] is "cpm". Optional directories, a parent, or CPMIDE.CFG.
    @return Always returns 1, to continue executing.
  */
-int8_t ya_mkcpm(char ** args)   /* boot CP/M on the mounted FAT volume */
+int8_t ya_mkcpm(char ** args)   /* boot CP/M from up to 16 FAT directories */
 {
-    (void)args;
+    uint8_t i;
+    uint32_t clst, cwd;
+    char *path;
 
+    cwd = fat_cwd;
     if (fat_mount()) {
         put_rc(1);
         return 1;
     }
+    fat_cwd = cwd;
 
+    for (i = 0; i < CPM_DRIVES; ++i)
+        cpm_dir_sclust[i] = 0;
+
+    if (args[1] == NULL) {
+        if (read_cfg() == 0)
+            goto cpm_go;
+        fprintf(output,
+            "Expected <dirA> [dirB] .. [dirP], a parent with A-P, or CPMIDE.CFG\n");
+        return 1;
+    }
+
+    if (args[2] == NULL) {
+        path = (char *)buffer;
+        for (i = 0; i < CPM_DRIVES; ++i) {
+            if (parent_letter(args[1], (char)('A' + i), path))
+                break;
+            if (mount_dir(path, &clst) == 0) {
+                cpm_dir_sclust[i] = clst;
+                fprintf(output, "%c: \"%s\" cluster %lu\n",
+                    (char)('A' + i), path, clst);
+            }
+        }
+        if (cpm_dir_sclust[0] == 0) {
+            if (put_fail(mount_dir(args[1], &clst)))
+                return 1;
+            cpm_dir_sclust[0] = clst;
+            fprintf(output, "A: \"%s\" cluster %lu\n", args[1], clst);
+        }
+    } else {
+        for (i = 0; i < CPM_DRIVES && args[i + 1] != NULL; ++i) {
+            fprintf(output, "Opening \"%s\"", args[i + 1]);
+            if (put_fail(mount_dir(args[i + 1], &clst)))
+                return 1;
+            cpm_dir_sclust[i] = clst;
+            fprintf(output, " cluster %lu\n", clst);
+        }
+    }
+
+    if (cpm_dir_sclust[0] == 0) {
+        fprintf(output, "A: not mounted\n");
+        return 1;
+    }
+
+cpm_go:
     fprintf(output, "Initialised CP/M\n");
     cpu_delay_ms(1);
     cpm_boot();
@@ -1978,3 +2135,10 @@ void ya_loop(void)
     free(args);
     free(line);
 }
+
+#ifdef YASH_TEST
+uint8_t yash_read_cfg(void)
+{
+    return read_cfg();
+}
+#endif

@@ -13,11 +13,29 @@ EXTERN  _ram_nsect
 
 DEFC    RAM_NSECT = 64
 
+; One LBA the BDOS extent test must not be able to write. 0 disables it.
+; Cluster 34 is LBA 51; the directory drives sit at LBA 52 and 53.
+SECTION bss_compiler
+PUBLIC  _ram_bad_lba
+_ram_bad_lba:   defb    0
+
+SECTION code_compiler
+
 ; DE = LBA low (from E,D), *512 = <<9
 lba_to_ptr:
     ld      a,b
     or      c
     jr      NZ,lba_bad
+    ld      a,(_ram_bad_lba)
+    or      a
+    jr      Z,lba_lim
+    ld      a,d
+    or      a
+    jr      NZ,lba_lim
+    ld      a,(_ram_bad_lba)
+    cp      e
+    jr      Z,lba_bad
+lba_lim:
     ld      a,(_ram_nsect)
     ld      c,a
     ld      a,e

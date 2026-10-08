@@ -620,10 +620,11 @@ bdos_stack:
 
 ; Bit 1 set: open_name is the FCB name whose io_sclust, io_size, and
 ; io_ofs are still valid. Bit 0 is that directory entry's read-only bit.
-; Twelve bytes. The 37-byte gap under srch_on cannot also hold the
-; v2.6 128-byte unroll.
+; Thirteen bytes. open_drv is the drive 0..15 whose open_name is
+; still valid. The gap under srch_on cannot hold the 128-byte unroll.
 open_ok:            defs    1
 open_name:          defs    11
+open_drv:           defs    1
 
 IFDEF BDOS_STUB_ORG
 PUBLIC  _bdos_stub_bss_tail
@@ -668,6 +669,7 @@ EXTERN  dir_ofs
 EXTERN  fat_wflag
 EXTERN  _cpm_fat_vol
 EXTERN  fat_mount
+EXTERN  _cpm_dir_sclust
 EXTERN  _fat_getfree
 EXTERN  conout
 EXTERN  wboot
@@ -717,64 +719,142 @@ open_void:
     ret
 
 ;
-; Log A: in on the first use after a log-off. Mount failure leaves the
-; bit clear so the caller's gate still returns not-ready.
-;
-log_mount:
-    ld      a,(bdos_login)
-    and     1
-    ret     nz
+; A: through P:. A cluster of 0 is not mounted. Carry set means proceed.
+; '?' on a file call prints Select. Search treats '?' as the current drive.
+
+eff_num:
+    ld      a,(bdos_fcb)
+    and     $1F
+    jp      z,en_cur
+    dec     a
+    cp      16
+    ret
+en_cur:
+    ld      a,(bdos_drive)
+    scf
+    ret
+
+; A = drive 0..15. Carry set and A kept when the cluster is nonzero.
+; BCDE is that cluster.
+drv_mounted:
+    push    af
+    add     a,a
+    add     a,a
+    ld      l,a
+    ld      h,0
+    ld      de,_cpm_dir_sclust
+    add     hl,de
+    ld      e,(hl+)
+    ld      d,(hl+)
+    ld      c,(hl+)
+    ld      b,(hl)
+    ld      a,e
+    or      d
+    or      c
+    or      b
+    jp      z,dm_no
+    pop     af
+    scf
+    ret
+dm_no:
+    pop     af
+    or      a
+    ret
+
+; HL = login or R/O word. A = drive. Returns A = mask, HL = byte.
+drv_ref:
+    cp      8
+    jp      c,dr_lo
+    sub     8
+    inc     hl
+dr_lo:
+    push    hl
+    ld      hl,bit01
+    add     a,l
+    ld      l,a
+    ld      a,h
+    adc     a,0
+    ld      h,a
+    ld      a,(hl)
+    pop     hl
+    ret
+
+drv_test:
+    call    drv_ref
+    and     (hl)
+    ret
+
+drv_set:
+    call    drv_ref
+    or      (hl)
+    ld      (hl),a
+    ret
+
+bit01:
+    defb    1,2,4,8,16,32,64,128
+
+vol_ready:
+    ld      a,(_cpm_fat_vol)
+    or      a
+    jp      z,vr_mount
+    scf
+    ret
+vr_mount:
     call    open_void
     call    fat_mount
-    ret     nc
-    ld      a,1
-    ld      (bdos_login),a
     ret
 
 ;
-; Mounted volume, user 0, drive A. Carry set when the call may proceed.
-; Not mounted or another user: carry clear, caller returns FF.
-; Any other drive, including '?', prints Select and warm-boots.
+; Mounted volume, user 0, and a mounted drive. Carry set to proceed.
+; Not mounted or another user: carry clear. '?' and an empty letter
+; print Select and warm-boot.
 ;
 gate:
-    call    log_mount
-    ld      a,(_cpm_fat_vol)
-    or      a
-    ret     z
+    call    vol_ready
+    ret     nc
     ld      a,(bdos_user)
     or      a
     ret     nz
     ld      a,(bdos_fcb)
     cp      '?'
     jp      z,fatal_sel
-    and     $1F
-    jp      z,gate_ok
-    dec     a
-    jp      nz,fatal_sel
-gate_ok:
+    call    eff_num
+    jp      nc,fatal_sel
+    call    drv_mounted
+    jp      nc,fatal_sel
+    ld      hl,bdos_login
+    call    drv_set
     scf
     ret
 
 ;
-; Search gate. Drive '?' is the raw scan and ignores the user number.
+; Search gate. Drive '?' scans the current drive and ignores the user.
+; An unmounted '?' misses. A numbered drive that is not mounted prints
+; Select.
 ;
 srch_gate:
-    call    log_mount
-    ld      a,(_cpm_fat_vol)
-    or      a
-    ret     z
+    call    vol_ready
+    ret     nc
     ld      a,(bdos_fcb)
     cp      '?'
-    jp      z,srch_ok
+    jp      nz,sg_num
+    ld      a,(bdos_drive)
+    call    drv_mounted
+    ret     nc
+    ld      hl,bdos_login
+    call    drv_set
+    scf
+    ret
+sg_num:
     ld      a,(bdos_user)
     or      a
     ret     nz
-    ld      a,(bdos_fcb)
-    and     $1F
-    jp      z,srch_ok
-    dec     a
-    jp      nz,fatal_sel
-srch_ok:
+    call    eff_num
+    jp      nc,fatal_sel
+    call    drv_mounted
+    jp      nc,fatal_sel
+    ld      hl,bdos_login
+    call    drv_set
     scf
     ret
 
@@ -802,13 +882,28 @@ ret_index:
     ret
 
 ;
-; HL = byte offset, BCDE = 0. JP so HL reaches dir_sdi as the offset.
+; HL = byte offset. '?' and drive 0 use the current drive. JP so HL
+; reaches dir_sdi as the offset and BCDE as the directory cluster.
 ;
 root_at:
-    ld      bc,0
-    ld      d,b
-    ld      e,c
+    push    hl
+    ld      a,(bdos_fcb)
+    cp      '?'
+    jp      nz,ra_num
+    ld      a,(bdos_drive)
+    jp      ra_go
+ra_num:
+    call    eff_num
+    jp      nc,ra_none
+ra_go:
+    call    drv_mounted
+    jp      nc,ra_none
+    pop     hl
     jp      dir_sdi
+ra_none:
+    pop     hl
+    or      a
+    ret
 
 ;
 ; HL src, DE dst, BC count nonzero.
@@ -2090,9 +2185,12 @@ at_end:
 ; File R/O and Select. The drive letter is printed, not patched into ROM.
 ;
 disk_ro:
-    ld      a,(bdos_ro)
-    and     1
+    call    eff_num
+    jp      nc,rodisk
+    ld      hl,bdos_ro
+    call    drv_test
     ret     z
+    jp      rodisk
 rodisk:
     ld      hl,msg_dsk
     jp      fatal_go
@@ -2568,6 +2666,11 @@ open_hit:
     ld      a,(open_ok)
     and     2
     ret     z
+    call    eff_num
+    jp      nc,oh_no
+    ld      hl,open_drv
+    cp      (hl)
+    jp      nz,oh_no
     ld      hl,bdos_fcb+1
     ld      de,open_name
     ld      a,(hl)
@@ -2614,6 +2717,8 @@ open_save:
     and     1
     or      2
     ld      (open_ok),a
+    call    eff_num
+    ld      (open_drv),a
     ld      hl,bdos_fcb+1
     ld      de,open_name
     ld      a,(hl)
@@ -3286,24 +3391,35 @@ ret_a3:
     ret
 
 ;
+sz_bad:
+    pop     af
+    jp      fatal_sel
+sz_novol:
+sz_nouser:
+    pop     af
+    jp      sz_zero
+
+;
 ; Function 35. A is 0 for a hit, a miss, an empty file, another user,
-; and a volume that is not mounted. A drive other than A: still fatals.
+; and a volume that is not mounted. An unmounted drive still fatals.
 ;
 fn_size:
     ld      a,(bdos_fcb)
     cp      '?'
     jp      z,fatal_sel
-    and     $1F
-    jp      z,sz_drv
-    dec     a
-    jp      nz,fatal_sel
-sz_drv:
-    ld      a,(_cpm_fat_vol)
-    or      a
-    jp      z,sz_zero
+    call    eff_num
+    jp      nc,fatal_sel
+    push    af
+    call    drv_mounted
+    jp      nc,sz_bad
+    call    vol_ready
+    jp      nc,sz_novol
     ld      a,(bdos_user)
     or      a
-    jp      nz,sz_zero
+    jp      nz,sz_nouser
+    pop     af
+    ld      hl,bdos_login
+    call    drv_set
     call    find_name
     jp      nc,sz_zero
     ld      hl,(dir_ptr)
@@ -3424,8 +3540,8 @@ fn_tell:
 
 ;
 ; Function 13. Drives go read/write, login is cleared, DMA is 0080h,
-; then A: is mounted and logged in. A live '$' name for this user
-; returns 00FFh. Any other user returns 0.
+; then A: is logged in when its cluster is set. A live '$' name for
+; this user returns 00FFh. Any other user returns 0.
 ;
 fn_reset:
     call    bdos_warm
@@ -3433,11 +3549,16 @@ fn_reset:
     ld      (bdos_dma),hl
     call    fat_mount
     jp      nc,dol_none
-    ld      a,1
-    ld      (bdos_login),a
+    xor     a
+    call    drv_mounted
+    jp      nc,dol_none
+    ld      hl,bdos_login
+    call    drv_set
     jp      fn_dollar
 
 fn_dollar:
+    xor     a
+    ld      (bdos_fcb),a
     ld      a,(bdos_user)
     or      a
     jp      nz,dol_none
@@ -3472,28 +3593,44 @@ dol_none:
     ret
 
 ;
-; Function 14. E = 0 logs in A: and returns 0. Any other drive returns
-; 00FFh and leaves A: selected.
+; Function 14. E is the drive, 0 = A: through 15 = P:. An unmounted
+; letter returns 00FFh and leaves the current drive selected.
 ;
 fn_select:
     ld      a,e
-    or      a
-    jp      nz,ret_ff
-    ld      a,(bdos_login)
-    and     1
-    jp      z,sel_do
+    cp      16
+    jp      nc,ret_ff
+    push    af
+    call    drv_mounted
+    jp      c,sel_have
+    pop     af
+    jp      ret_ff
+sel_have:
+    pop     af
+    ld      c,a
     ld      a,(_cpm_fat_vol)
     or      a
-    jp      nz,sel_ok
-sel_do:
+    jp      nz,sel_vol
     call    open_void
+    push    bc
     call    fat_mount
+    pop     bc
     jp      nc,ret_ff
-    ld      a,1
-    ld      (bdos_login),a
-sel_ok:
-    xor     a
+sel_vol:
+    ld      a,(bdos_drive)
+    cp      c
+    jp      nz,sel_void
+    ld      hl,bdos_login
+    ld      a,c
+    call    drv_test
+    jp      nz,sel_store
+sel_void:
+    call    open_void
+sel_store:
+    ld      a,c
     ld      (bdos_drive),a
+    ld      hl,bdos_login
+    call    drv_set
     ld      hl,0
     ret
 
@@ -3506,10 +3643,9 @@ fn_rov:
     ret
 
 fn_wprot:
+    ld      a,(bdos_drive)
     ld      hl,bdos_ro
-    ld      a,(hl)
-    or      1
-    ld      (hl),a
+    call    drv_set
     ld      hl,0
     ret
 

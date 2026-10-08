@@ -27,7 +27,7 @@ typedef struct {
 } fat_vol_t;
 
 extern fat_vol_t  cpm_fat_vol;
-extern uint32_t   cpm_dir_sclust[4];
+extern uint32_t   cpm_dir_sclust[16];
 extern uint32_t   fat_cwd;
 extern uint32_t   fat_found_sclust;
 extern uint32_t   fat_found_size;

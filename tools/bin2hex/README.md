@@ -56,7 +56,7 @@ The shell prints `Waiting for Intel HEX`. Send the hex file with `ascii-xfr -s` 
 16384 cluster(s), 1 run(s), 8388608 bytes
 ```
 
-`cpm` mounts a file only when `frag` reports one run.
+`cpm` boots from FAT directories. `frag` reports whether a file is one cluster run.
 
 When `frag` reports more than one run, copy the file to a new name. `cp` allocates a new cluster chain, starting at the next free cluster and then taking the following free clusters. That often lands as a single run:
 

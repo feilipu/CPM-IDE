@@ -14,7 +14,7 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 | Script | What |
 |--------|------|
 | `rebuild-ff.sh` | ChaN `ff` RW+RO, Z80 all FatFs targets + rc2014 `ff_85` / `ff_85_ro`. Installs into `$ZCCCFG/../clibs`. |
-| `rebuild-hex.sh` | All seven ROMs on the FAT map (stub `$F100`, BDOS BSS `$F650`, FAT BSS `$F6D0`, BIOS `$F960`). PATA first (`__IO_CF_8_BIT` 0, both libraries: Z80 SIO and 8085 UART), then CF (flag 1, both libraries: three Z80 and two 8085). Copies `.ihx` → `.hex` only after `gate_fat`. |
+| `rebuild-hex.sh` | All seven ROMs on the FAT map (stub `$F100`, BDOS BSS `$F650`, FAT BSS `$F6D0`, BIOS `$F984`). PATA first (`__IO_CF_8_BIT` 0, both libraries: Z80 SIO and 8085 UART), then CF (flag 1, both libraries: three Z80 and two 8085). Copies `.ihx` → `.hex` only after `gate_fat`. |
 
 ```bash
 # from repo root

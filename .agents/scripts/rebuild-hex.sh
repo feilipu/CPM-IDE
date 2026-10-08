@@ -16,7 +16,7 @@
 # Optional arg: acia85 — 8085-cf-acia only.
 # Default (no arg) is PATA (Z80 SIO and 8085 UART), then all five CF ROMs.
 # Every product uses the FAT resident map: stub $F100, BDOS BSS $F650,
-# FAT BSS $F6D0, BIOS $F960. The v2.6 tail==BIOS gate is not used.
+# FAT BSS $F6D0, BIOS $F984. The v2.6 tail==BIOS gate is not used.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

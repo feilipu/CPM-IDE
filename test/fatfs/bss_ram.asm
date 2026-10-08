@@ -19,7 +19,7 @@ PUBLIC rsflag, readop
 PUBLIC DIRBUF, _dirbuf
 PUBLIC ldi_body, _ldi_body
 
-_cpm_dir_sclust:        defs 16
+_cpm_dir_sclust:        defs 64     ;A: through P:. 0 is not mounted
 _cpm_fat_vol:           defs 32
 _fatwin:
 fatwin:                 defs 512

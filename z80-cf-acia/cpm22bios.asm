@@ -14,7 +14,7 @@ INCLUDE "config_rc2014_private.inc"
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_BIOS    ;base of bios
-defc    __COMMON_AREA_PHASE_BIOS    = 0xF960
+defc    __COMMON_AREA_PHASE_BIOS    = 0xF984
 
 
 ;------------------------------------------------------------------------------
@@ -23,6 +23,7 @@ defc    __COMMON_AREA_PHASE_BIOS    = 0xF960
 
 EXTERN  _cpm_ccp_head               ;base of ccp
 EXTERN  _cpm_bdos_fbase             ;entry of bdos
+EXTERN  _cpm_dir_sclust
 
 PUBLIC  _cpm_disks
 
@@ -32,7 +33,7 @@ PUBLIC  _cpm_ccp_tfcb
 PUBLIC  _cpm_ccp_tbuff
 PUBLIC  _cpm_ccp_tbase
 
-DEFC    _cpm_disks      =   1       ;drive A: is this FAT volume
+DEFC    _cpm_disks      =   16      ;A: through P:
 
 DEFC    _cpm_iobyte     =   $0003   ;address of CP/M IOBYTE
 DEFC    _cpm_cdisk      =   $0004   ;address of CP/M TDRIVE
@@ -41,8 +42,8 @@ DEFC    _cpm_ccp_tbuff  =   $0080   ;i/o buffer and command line storage
 DEFC    _cpm_ccp_tbase  =   $0100   ;transient program storage area
 
 ;
-; Disk geometry lives in the ROM BDOS. This BIOS answers seldsk with one
-; DPH and returns an error from read and write.
+; Disk geometry lives in the ROM BDOS. seldsk returns one DPH for each
+; mounted directory A: through P:, and an error from read and write.
 ;
 
 ;=============================================================================
@@ -301,7 +302,7 @@ listst:     ;return list status
 
 
 ;=============================================================================
-; Disk entry points. The ROM BDOS owns the FAT volume. Drive A: only.
+; Disk entry points. The ROM BDOS owns the FAT volume. A: through P:.
 ;=============================================================================
 
 home:
@@ -323,8 +324,22 @@ setdma:
 
 seldsk:
     ld      a,c
-    or      a
-    jp      NZ,seldsk_none
+    cp      16
+    jp      NC,seldsk_none
+    add     a,a
+    add     a,a
+    ld      l,a
+    ld      h,0
+    ld      de,_cpm_dir_sclust
+    add     hl,de
+    ld      a,(hl+)
+    or      (hl)
+    inc     hl
+    ld      e,a
+    ld      a,(hl+)
+    or      e
+    or      (hl)
+    jp      Z,seldsk_none
     ld      hl,dph0
     ret
 

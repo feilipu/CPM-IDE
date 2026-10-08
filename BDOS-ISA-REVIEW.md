@@ -192,7 +192,7 @@ Leave these alone:
 - `sra hl` flags are `-----0C` (Z unchanged). Do not `sra hl` / `jp z`. Do not use `sra hl` on a 32-bit BCDE value. `rl de` flags are `-----VC` (Z unchanged).
 - Z80 `fn_vec` overlapping `ldir` of 256 bytes, and Z80 `clr_bit` as three `srl h` / `rr l`. Both are already the fast form (measured).
 - Z80 `vec_mul` as `sla e` / `rl d` / `rl c` / `rl b` (8 T each). Swapping that 32-bit value into `add hl,hl` adds moves and does not retire the high word. 8085 `rl de` plus `adc` through BC is the matching form.
-- Origins `$F650`, `$F6D0`, `$F960`. BIOS rings `$FEC0` / `$FEE0` / `$FF00`. `__IO_CF_8_BIT` stays `0x01`. Do not put `--opt-code-speed=all` back on the 8085 PATA line.
+- Origins `$F650`, `$F6D0`, `$F984`. BIOS rings `$FEC0` / `$FEE0` / `$FF00`. `__IO_CF_8_BIT` stays `0x01`. Do not put `--opt-code-speed=all` back on the 8085 PATA line.
 - Function 12 returns `0022h`. APN 02 DEL=BS stays. Return codes follow the Calkins BDOS in `z80-cf-acia/cpm22.asm` where that agrees with Elliott, and the CP/M 2.2 manual where Elliott agrees with the manual. CP/M 3, MP/M, and DOS Plus stay out.
 - POWER.COM is the program that needs this entry (serial, `JP`, four error words, word table). It does not walk a `JP` slot per function. Turbo Pascal, Toolworks C/80, and Digital Link overwrite the six serial bytes. MOVCPM compares serials. Those are a different use of the same six bytes.
 

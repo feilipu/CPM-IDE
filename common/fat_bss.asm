@@ -48,7 +48,7 @@ PUBLIC clst_cache_ci
 PUBLIC clst_cache_clst
 PUBLIC _cpm_dir_sclust
 
-_cpm_dir_sclust:        defs 16
+_cpm_dir_sclust:        defs 64     ;A: through P:, one start cluster each. 0 is not mounted
 _cpm_fat_vol:           defs 32
 _fatwin:
 fatwin:                 defs 512

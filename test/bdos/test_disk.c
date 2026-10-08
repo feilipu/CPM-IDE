@@ -8,9 +8,11 @@
 #include <stdint.h>
 #include "fatfs.h"
 
-/* Step 4 uses the first 24 sectors. Step 5's extent walk needs 51. */
-uint8_t ram_image[26112];
-uint8_t ram_nsect = 24;
+/* A: is cluster 35 at LBA 52. The extent walk reaches LBA 50.
+ * B: in the two-drive case is cluster 36 at LBA 53. */
+uint8_t ram_image[27648];
+uint8_t ram_nsect = 54;
+extern uint8_t ram_bad_lba;
 
 extern unsigned int bdos(unsigned int fn, unsigned int de);
 extern unsigned int bdos_ab(unsigned int fn, unsigned int de);
@@ -67,7 +69,20 @@ static void put_vbr(uint8_t *s)
 
 static uint8_t *slot(int n)
 {
-    return ram_image + 18 * 512 + n * 32;
+    return ram_image + 52 * 512 + n * 32;
+}
+
+/* Directory cluster 35, outside the chains the extent tests assert. */
+static void arm_a(void)
+{
+    unsigned i;
+
+    ram_image[582] = 0xFF;
+    ram_image[583] = 0xFF;
+    ram_nsect = 54;
+    for (i = 0; i < 16; i++)
+        cpm_dir_sclust[i] = 0;
+    cpm_dir_sclust[0] = 35;
 }
 
 static void put_size(uint8_t *e, unsigned long sz)
@@ -99,7 +114,7 @@ static void rebuild(void)
     ram_image[515] = 0xFF;
     ram_image[516] = 0xFF;
     ram_image[517] = 0xFF;
-    ram_nsect = 24;
+    arm_a();
     expect("mount FAIL", fat_mount() == 0);
     bdos(32, 0);
     bdos(26, (unsigned)dma);
@@ -597,7 +612,7 @@ static void rebuild_io(void)
     ram_image[513] = 0xFF;
     ram_image[514] = 0xFF;
     ram_image[515] = 0xFF;
-    ram_nsect = 51;
+    arm_a();
     expect("mount_io FAIL", fat_mount() == 0);
     bdos(32, 0);
     bdos(26, (unsigned)dma);
@@ -1006,6 +1021,112 @@ static void test_login(void)
     bdos(32, 0);
 }
 
+static void mount_two(void)
+{
+    unsigned i;
+
+    fat_sync();
+    memset(ram_image, 0, sizeof ram_image);
+    put_vbr(ram_image);
+    ram_image[512] = 0xF8;
+    ram_image[513] = 0xFF;
+    ram_image[514] = 0xFF;
+    ram_image[515] = 0xFF;
+    ram_image[516] = 0xFF;
+    ram_image[517] = 0xFF;
+    ram_image[520] = 0xFF;
+    ram_image[521] = 0xFF;
+    ram_image[582] = 0xFF;
+    ram_image[583] = 0xFF;
+    ram_image[584] = 0xFF;
+    ram_image[585] = 0xFF;
+    ram_nsect = 54;
+    for (i = 0; i < 16; i++)
+        cpm_dir_sclust[i] = 0;
+    cpm_dir_sclust[0] = 35;
+    cpm_dir_sclust[1] = 36;
+    expect("mount_two FAIL", fat_mount() == 0);
+    bdos(32, 0);
+    bdos(26, (unsigned)dma);
+    memset(ram_image + 19 * 512, 0x41, 128);
+    memset(ram_image + 21 * 512, 0x42, 128);
+    plant_name(slot(0), "README  TXT", 100, 0x20, 2);
+    plant_name(ram_image + 53 * 512, "README  TXT", 200, 0x20, 4);
+}
+
+static void test_drives(void)
+{
+    mount_two();
+    clear_fcb();
+    set_name("README  TXT");
+    expect("ab_opena FAIL", call(15) != 0xFF && fcb[15] == 1);
+    expect("ab_rda FAIL", call(20) == 0 && dma[0] == 0x41);
+    fcb[0] = 2;
+    fcb[32] = 0;
+    expect("ab_rdb FAIL", call(20) == 0 && dma[0] == 0x42);
+    expect("ab_login FAIL", bdos(24, 0) == 3 && bdos(25, 0) == 0);
+    expect("ab_selq FAIL", bdos(14, 16) == 0xFF && bdos(25, 0) == 0);
+    expect("ab_selb FAIL", bdos(14, 1) == 0 && bdos(25, 0) == 1);
+    expect("ab_selp FAIL", bdos(14, 15) == 0xFF && bdos(25, 0) == 1);
+    bdos(28, 0);
+    expect("ab_ro FAIL", bdos(29, 0) == 2);
+    clear_fcb();
+    fcb[0] = 1;
+    set_name("README  TXT");
+    expect("ab_explicit_a FAIL", call(15) != 0xFF && fcb[15] == 1);
+    bdos(37, 0xFFFF);
+    expect("ab_home FAIL", bdos(14, 0) == 0 && bdos(25, 0) == 0 &&
+           bdos(24, 0) == 1 && bdos(29, 0) == 0);
+}
+
+/* A: is directory 35. That directory contains B, which is drive B:. */
+static void test_nest(void)
+{
+    int n;
+
+    mount_two();
+    plant_name(slot(1), "B          ", 0, 0x10, 36);
+    plant_name(ram_image + 53 * 512, "NOTE    TXT", 50, 0x20, 4);
+    memset(ram_image + 21 * 512, 0x4E, 128);
+    expect("nest_sel FAIL", bdos(14, 0) == 0);
+
+    clear_fcb();
+    set_name("???????????");
+    n = count_search();
+    expect("nest_dir_hidden FAIL", n == 1);
+
+    clear_fcb();
+    set_name("B          ");
+    expect("nest_open_dir FAIL", call(15) == 0xFF);
+
+    clear_fcb();
+    fcb[0] = 2;
+    set_name("NOTE    TXT");
+    expect("nest_open_b FAIL", call(15) != 0xFF && fcb[15] == 1);
+    expect("nest_read_b FAIL", call(20) == 0 && dma[0] == 0x4E);
+
+    clear_fcb();
+    fcb[0] = 2;
+    set_name("README  TXT");
+    expect("nest_a_not_on_b FAIL", call(15) == 0xFF);
+
+    clear_fcb();
+    set_name("B          ");
+    expect("nest_make FAIL", call(22) != 0xFF);
+    expect("nest_dir_kept FAIL", slot(1)[0] == 'B' && slot(1)[11] == 0x10 &&
+           slot(1)[26] == 36 && slot(1)[27] == 0);
+    expect("nest_file_added FAIL", slot(2)[0] == 'B' && slot(2)[11] == 0);
+    clear_fcb();
+    fcb[0] = 2;
+    set_name("NOTE    TXT");
+    expect("nest_b_after_make FAIL", call(15) != 0xFF);
+    expect("nest_b_bytes FAIL", call(20) == 0 && dma[0] == 0x4E);
+
+    bdos(37, 0xFFFF);
+    expect("nest_home FAIL", bdos(14, 0) == 0 && bdos(25, 0) == 0 &&
+           bdos(24, 0) == 1 && bdos(29, 0) == 0);
+}
+
 static void test_select(void)
 {
     unsigned hits;
@@ -1028,6 +1149,8 @@ int main(void)
     unsigned rc;
 
     fails = 0;
+    /* Cluster 34 is LBA 51. The extent walk must fail to allocate it. */
+    ram_bad_lba = 51;
     test_vectors();
     rc = bdos(12, 0);
     expect("bdos_ver FAIL", rc == 0x0022);
@@ -1037,6 +1160,8 @@ int main(void)
     expect("open_nomount FAIL", call(15) == 0xFF);
 
     test_open();
+    test_drives();
+    test_nest();
     test_search();
     test_close();
     test_delete();

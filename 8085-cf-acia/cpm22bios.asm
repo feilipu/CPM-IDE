@@ -16,7 +16,7 @@ INCLUDE "config_rc2014-8085_private.inc"
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_BIOS    ;base of bios
-defc    __COMMON_AREA_PHASE_BIOS    = 0xF960
+defc    __COMMON_AREA_PHASE_BIOS    = 0xF984
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -24,6 +24,7 @@ defc    __COMMON_AREA_PHASE_BIOS    = 0xF960
 
 EXTERN  _cpm_ccp_head               ;base of ccp
 EXTERN  _cpm_bdos_fbase             ;entry of bdos
+EXTERN  _cpm_dir_sclust
 
 PUBLIC  _cpm_disks
 
@@ -33,7 +34,7 @@ PUBLIC  _cpm_ccp_tfcb
 PUBLIC  _cpm_ccp_tbuff
 PUBLIC  _cpm_ccp_tbase
 
-DEFC    _cpm_disks      =   1       ;drive A: is this FAT volume
+DEFC    _cpm_disks      =   16      ;A: through P:
 
 DEFC    _cpm_iobyte     =   $0003   ;address of CP/M IOBYTE
 DEFC    _cpm_cdisk      =   $0004   ;address of CP/M TDRIVE
@@ -317,7 +318,7 @@ listst:     ;return list status
 
 ;=============================================================================
 ;=============================================================================
-; Disk entry points. The ROM BDOS owns the FAT volume. Drive A: only.
+; Disk entry points. The ROM BDOS owns the FAT volume. A: through P:.
 ;=============================================================================
 
 home:
@@ -340,8 +341,22 @@ setdma:
 
 seldsk:
     ld      a,c
-    or      a
-    jp      nz,seldsk_none
+    cp      16
+    jp      nc,seldsk_none
+    add     a,a
+    add     a,a
+    ld      l,a
+    ld      h,0
+    ld      de,_cpm_dir_sclust
+    add     hl,de
+    ld      a,(hl+)
+    or      (hl)
+    inc     hl
+    ld      e,a
+    ld      a,(hl+)
+    or      e
+    or      (hl)
+    jp      z,seldsk_none
     ld      hl,dph0
     ret
 
