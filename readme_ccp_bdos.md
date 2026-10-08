@@ -93,6 +93,6 @@ A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entri
 
 `ls` stops at the last name of a full directory. A name that starts with byte `0xE5` is stored as `0x05`.
 
-`mkdir` and `cp` free a new cluster chain when the directory update does not finish. `cp` also releases that chain when the source has walked as many clusters as the volume has. It does this before the new name is written. `mkdrv` removes and syncs the directory name before it frees a chain it cannot finish. `frag` stops if a cluster chain does not reach an end mark.
+`mkdir` and `cp` free a new cluster chain when the directory update does not finish. `cp` also releases that chain when the source has walked as many clusters as the volume has. It does this before the new name is written. A file read walks the FAT chain, including a chain that is more than one run.
 
-`cpm` stores the base LBA of each drive file. The BIOS adds the track and the sector for CP/M I/O. After an IDE or PPIDE command the BIOS waits for DRQ. It does not wait for ready after the data transfer. A posted write waits until the next command. Compact Flash 8-bit and PATA 16-bit do this the same way.
+`cpm` records the start cluster of each letter directory. `seldsk` returns that drive when the cluster is present. CP/M sector I/O is done by the BDOS on the FAT volume.

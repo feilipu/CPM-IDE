@@ -2,7 +2,7 @@
 
 This directory contains example CP/M drives stored as compressed zip files. The files can be extracted and stored on a PATA or CF disk formatted with FAT32 (or FAT16 if quite small).
 
-In the CP/M-IDE shell, check each resulting file (example listing below) with __`frag`__ to confirm it is not fragmented. This check is needed only once, when the file is created.
+The shell follows a file's cluster chain, so a file that occupies more than one run needs no separate fragmentation check.
 
 __`ls`__ lists the CP/M drive files in the current directory. __`cd`__ and __`pwd`__ move through sub-directories.
 

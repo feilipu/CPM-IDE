@@ -101,7 +101,7 @@ echo "=== compare mount-fail on small image ==="
 grep -E 'ff_mount|fs_type' "$HERE/out/ff-small.txt" || true
 echo "mini-FAT: FAT12 reject is the documented edge vs ChaN (ChaN still mounts FAT12)."
 
-echo "=== CPMIDE.CFG (Z80, then 8085) ==="
+echo "=== cpm starting directory (Z80, then 8085) ==="
 run_cfg() {
     cpu="$1"
     suffix="$2"
@@ -113,7 +113,7 @@ run_cfg() {
     mkdir -p "$cfg_inc/arch/rc2014"
     cp "$HERE/host/arch/rc2014/diskio.h" "$cfg_inc/arch/rc2014/diskio.h"
     if [ "$cpu" = "8085" ]; then
-        ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m -DYASH_TEST \
+        ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
             -I"$ROOT/common" -I"$cfg_inc" \
             "$HERE/test_cfg.c" "$ROOT/common/yash.c" \
             "$ROOT/common/fatfs_85.asm" "$HERE/ide_ram_8085.asm" \
@@ -122,7 +122,7 @@ run_cfg() {
         z88dk-ticks -m8085 "$out.bin" -x "$out.map" \
             -counter 999999999 | tee "$out.txt"
     else
-        ( cd /tmp && zcc +test -vn -m -DYASH_TEST \
+        ( cd /tmp && zcc +test -vn -m \
             -I"$ROOT/common" -I"$cfg_inc" \
             "$HERE/test_cfg.c" "$ROOT/common/yash.c" \
             "$ROOT/common/fatfs.asm" "$HERE/ide_ram.asm" \

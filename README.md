@@ -254,7 +254,7 @@ The [CP/M Drives directory](https://github.com/feilipu/CPM-IDE/tree/master/CPM%2
 
 An empty [CP/M 8 MB drive](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/TEMPLATE.CPM.zip) file is provided as a template to create additional user drives. `mkfs.cpm -f rc2014-8MB` writes the directory and leaves the image at 128 KB. `truncate -s 8388608 file.cpm` extends that file to a full drive (`truncate -s 8M` is the same length). The directory already written stays in place, and the added bytes read as zeros. Unzipping the template and renaming it also produces a full 8 MB drive with 2048 directory entries.
 
-`hget` writes an image onto the card without moving the drive to the host. [Sending a file to the RC2014](#sending-a-file-to-the-rc2014) covers `bin2hex.py`, `frag`, and a `cp` that allocates a fresh chain. `cpm` boots from FAT directories on this volume.
+`hget` receives an Intel HEX file onto the FAT volume. The seven HEX files are built without that command. `-DYASH_HGET=1` compiles it in. [Sending a file to the RC2014](#sending-a-file-to-the-rc2014) covers that transfer. `cpm` boots from FAT directories on this volume.
 
 FAT32 can hold more than 65,000 files in one directory. A 128 GB drive holds about 16,000 of these 8 MB CP/M drives. A larger disk can hold more, and that upper limit has not been tested.
 
@@ -313,9 +313,8 @@ Again, here is a view of what success looks like.
 </div>
 
 ### CP/M Functions
-- `cpm [dirA] [dirB] .. [dirP]` — boot CP/M with up to 16 FAT directories on `A:` through `P:`. No arguments reads `CPMIDE.CFG` from the working directory, then from the volume root. One argument is a parent that contains `A` through `P`, or one directory mounted as `A:`.
-- `hget <file>` — receive an Intel HEX file onto the FAT volume. The steps are in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014).
-- `mkdrv <file>` — create an empty 8 MB file with a CP/M directory image. `cpm` does not mount that file.
+- `cpm <directory>` — boot CP/M from subdirectories `A` through `P` in that directory. A missing letter is an empty drive. `A` has to be present.
+- `hget <file>` — receive an Intel HEX file onto the FAT volume. The steps are in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014). The seven HEX files are built without this command. `-DYASH_HGET=1` compiles it in.
 
 From the CCP, `EXIT` returns to this shell. See [CCP & BDOS Extension](#ccp--bdos-extension).
 
@@ -328,7 +327,6 @@ From the CCP, `EXIT` returns to this shell. See [CCP & BDOS Extension](#ccp--bdo
 - `mkdir <path>` — create a directory
 - `cp <src> <dst>` — copy a file. `cp` allocates a new cluster chain.
 - `mv <src> <dst>` — in one directory, `mv` renames the entry. To another directory, `mv` writes a new entry for the same chain and removes the old name. `mv` keeps the existing cluster chain.
-- `frag <file>` — cluster-run count for a file
 - `mount` — mount the FAT file system
 
 ### Disk Functions
@@ -342,13 +340,15 @@ From the CCP, `EXIT` returns to this shell. See [CCP & BDOS Extension](#ccp--bdo
 
 ### Sending a file to the RC2014
 
-[`tools/bin2hex/bin2hex.py`](tools/bin2hex/bin2hex.py) converts a normal file into Intel HEX for __`hget`__. One command runs `objcopy -I binary -O ihex` and writes the `.hex` beside the input (`drive.cpm` becomes `drive.hex`). `objcopy` marks each 64 KB boundary below 1 MB with a type `02` record. __`hget`__ advances past 64 KB only on a type `04` record, so the script rewrites those records. An 8 MB `.CPM` image and any smaller binary use the same command. The result has to be 16 MB or less, which is the size __`hget`__ accepts. The tool's own notes are in [`tools/bin2hex/README.md`](tools/bin2hex/README.md).
+__`hget`__ stores the file on the FAT volume. The shell follows the cluster chain, including a file that is more than one run. On the host, `mkfs.cpm -f rc2014-8MB` followed by `truncate -s 8388608` builds an empty image, and unzipping the template does the same.
+
+[`tools/bin2hex/bin2hex.py`](tools/bin2hex/bin2hex.py) converts a normal file into Intel HEX for __`hget`__. One command runs `objcopy -I binary -O ihex` and writes the `.hex` beside the input (`drive.cpm` becomes `drive.hex`). `objcopy` marks each 64 KB boundary below 1 MB with a type `02` record. The parser advances past 64 KB only on a type `04` record, so the script rewrites those records. An 8 MB image and any smaller binary use the same command. The result has to be 16 MB or less, which is the size the parser accepts. The tool's own notes are in [`tools/bin2hex/README.md`](tools/bin2hex/README.md). The seven HEX files are built without __`hget`__. `-DYASH_HGET=1` compiles it in.
 
 ```bash
 python3 tools/bin2hex/bin2hex.py drive.cpm
 ```
 
-On the shell, with the serial link at __115200 baud 8n2__ and hardware flow control enabled:
+With the serial link at __115200 baud 8n2__ and hardware flow control enabled:
 
 ```text
 hget DRIVE.CPM
@@ -356,32 +356,22 @@ hget DRIVE.CPM
 
 __`hget`__ prints `Waiting for Intel HEX`. Send `drive.hex` with `ascii-xfr -s` (in minicom, Ctrl-A S, then the ascii protocol). Leave `-e` off. The type `01` record at the end of the file finishes the receive, and a trailing Ctrl-Z would be left for the shell. Hardware flow control lets the receive ring pause the host while a sector is written. Success prints the byte count (`8388608 bytes` for a full CP/M drive). A bad line prints `bad hex`. The name stored on the card is the __`hget`__ argument, in 8.3 form.
 
-__`frag DRIVE.CPM`__ prints the cluster count, the run count, and the size. __`cpm`__ boots from directories on this volume, not from the `.CPM` file.
-
-When __`frag`__ reports more than one run, copy the file to a new name. __`cp`__ allocates a new cluster chain, starting at the next free cluster and then taking each following free cluster, which often lands as a single run:
-
-```text
-cp DRIVE.CPM DRIVE2.CPM
-frag DRIVE2.CPM
-```
-
-When the copy is one run, __`rm DRIVE.CPM`__ drops the fragmented original. __`mv DRIVE2.CPM DRIVE.CPM`__ puts the name back. A rename keeps the clusters of the copy. __`mv`__ of the fragmented file does not allocate a new chain, so it cannot join the runs.
-
 ### Working drive
 
 The shell writes on the FAT volume, so a new working drive does not have to be built on a PC. On the card:
 
 ```text
-mkdir SYS
-mkdir WORK
-cpm SYS WORK
+mkdir DRIVES
+mkdir DRIVES/A
+mkdir DRIVES/B
+cpm DRIVES
 ```
 
-__`cpm`__ with no arguments reads `CPMIDE.CFG`. One name is a parent directory of `A` through `P`, or that directory mounted as `A:`. __`mkdrv`__ still writes an empty 8 MB file with 2048 directory entries, and __`cpm`__ does not mount it. __`cp`__, __`mv`__, __`rm`__, __`mkdir`__, and __`rmdir`__ change the FAT volume as well. A file prepared on the host, including a full `.CPM` image, is sent with __`hget`__ as described in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014). Copying the template drive onto the card from a PC still works, and so does `mkfs.cpm -f rc2014-8MB` followed by `truncate -s 8388608`.
+__`cpm`__ takes that one directory. `DRIVES/A` is `A:` and `DRIVES/B` is `B:`. A letter with no directory is an empty drive, and a missing `A` does not boot. __`cp`__, __`mv`__, __`rm`__, __`mkdir`__, and __`rmdir`__ change the FAT volume as well. A file prepared on the host, including a full `.CPM` image, is copied onto the card as described in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014). Copying the template drive onto the card from a PC still works, and so does `mkfs.cpm -f rc2014-8MB` followed by `truncate -s 8388608`.
 
 When working with a CP/M compiler or editor, keep that work on its own drive file. The shell can __`cp`__ an existing drive to a new name, which allocates a fresh cluster chain.
 
-On first entry to CP/M, mount `sys.cpm` and the new working drive. Copy the CP/M commands you want onto the working drive with `PIP`. Later boots can mount only the working drive on `A:`. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`. A program that runs under the CCP is a file inside the CP/M drive. Upload that file with `XMODEM` after __`cpm`__ has started. __`hget`__ stores its file on the FAT volume.
+On first entry to CP/M, `A` can hold the system files and another letter the work. Copy the CP/M commands onto the working drive with `PIP`. Later, the starting directory can contain only `A`. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`. A program that runs under the CCP is a file inside the CP/M drive. Upload that file with `XMODEM` after __`cpm`__ has started. The seven HEX files leave __`hget`__ out. __`cp`__ and the other shell commands still change the FAT volume, and `-DYASH_HGET=1` compiles the receiver in.
 
 Then, on each subsequent boot-up of CP/M only mounting the working drive in drive `A:` is necessary. After compiling a new project with z88dk, the work-in-progress application `*.COM` file can be uploaded to the RC2014 using `XMODEM` and then tested. If the work-in-progress crashes CP/M, or needs further work, then repeat the process as needed without danger of trashing any other unmounted drives. An example `picocom` command line is provided below, although many other `XMODEM` tools are available.
 

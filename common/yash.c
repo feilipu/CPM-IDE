@@ -39,11 +39,10 @@ struct Builtin {
 
 struct Builtin builtins[] = {
   // CP/M related functions
-    { "cpm", &ya_mkcpm, "- boot CP/M from FAT directories A: through P:"},
+    { "cpm", &ya_mkcpm, "- boot CP/M from A-P in one directory"},
 #if YASH_HGET
     { "hget", &ya_hget, "<file> - ascii-xfr -s"},
 #endif
-    { "mkdrv", &ya_mkdrv, "<file> - empty 8 MB CP/M drive"},
 
 // fat related functions
     { "ls", &ya_ls, "[path] - directory listing"},
@@ -55,7 +54,6 @@ struct Builtin builtins[] = {
     { "cp", &ya_cp, "<src> <dst> - copy a file"},
     { "mv", &ya_mv, "<src> <dst> - rename or move a file"},
     { "mount", &ya_mount, "- mount a FAT file system"},
-    { "frag", &ya_frag, "<file> - cluster-run count for a file"},
 
 // disk related functions
     { "ds", &ya_ds, "- disk status"},
@@ -744,86 +742,11 @@ static uint8_t mount_dir(const char *path, uint32_t *out)
 }
 
 /**
-   @brief Bind A: through P: from CPMIDE.CFG in the working directory or the root.
-   @return 0 when A: was set. One sector is read. Parsing stops at the file length.
- */
-static uint8_t read_cfg(void)
-{
-    uint8_t n[11];
-    uint32_t clst, lba;
-    char *p, *start, saved;
-    uint8_t drv;
-
-    name83(n, "CPMIDE.CFG");
-    clst = fat_cwd;
-    if (fat_dir_open(&clst) || dir_find_try(n)) {
-        clst = root_clst();
-        if (fat_dir_open(&clst) || dir_find_try(n))
-            return 1;
-    }
-    if (fat_found_sclust < 2)
-        return 1;
-    lba = fat_found_sclust;
-    if (fat_clst2sect(&lba))
-        return 1;
-    if (disk_read(0, buffer, lba, 1) != 0)
-        return 1;
-    if (fat_found_size < 511)
-        ((uint8_t *)buffer)[fat_found_size] = 0;
-    else
-        ((uint8_t *)buffer)[511] = 0;
-    p = (char *)buffer;
-    while (*p) {
-        while (*p == ' ' || *p == '\t' || *p == '\r')
-            ++p;
-        if (*p == 0)
-            break;
-        if (*p == '#' || *p == '[') {
-            while (*p && *p != '\n')
-                ++p;
-            if (*p == '\n')
-                ++p;
-            continue;
-        }
-        drv = (uint8_t)*p;
-        if (drv >= 'a' && drv <= 'p')
-            drv = (uint8_t)(drv - 32);
-        if (drv < 'A' || drv > 'P') {
-            while (*p && *p != '\n')
-                ++p;
-            if (*p == '\n')
-                ++p;
-            continue;
-        }
-        ++p;
-        while (*p == ' ' || *p == '\t' || *p == '=')
-            ++p;
-        if (*p == '"')
-            ++p;
-        start = p;
-        while (*p && *p != '"' && *p != '\n' && *p != '\r')
-            ++p;
-        saved = *p;
-        *p = 0;
-        if (mount_dir(start, &clst) == 0) {
-            cpm_dir_sclust[drv - 'A'] = clst;
-            fprintf(output, "%c: \"%s\" cluster %lu\n", drv, start, clst);
-        }
-        *p = saved;
-        while (*p && *p != '\n')
-            ++p;
-        if (*p == '\n')
-            ++p;
-    }
-    return (cpm_dir_sclust[0] == 0) ? 1 : 0;
-}
-
-/**
    @brief Builtin command:
-   @param args args[0] is "cpm". Optional directories, a parent, or CPMIDE.CFG.
+   @param args args[0] is "cpm". args[1] is the directory that holds A through P.
    @return Always returns 1, to continue executing.
  */
-int8_t ya_mkcpm(char ** args)   /* boot CP/M from up to 16 FAT directories */
+int8_t ya_mkcpm(char ** args)   /* boot CP/M from letter directories */
 {
     uint8_t i;
     uint32_t clst, cwd;
@@ -839,38 +762,19 @@ int8_t ya_mkcpm(char ** args)   /* boot CP/M from up to 16 FAT directories */
     for (i = 0; i < CPM_DRIVES; ++i)
         cpm_dir_sclust[i] = 0;
 
-    if (args[1] == NULL) {
-        if (read_cfg() == 0)
-            goto cpm_go;
-        fprintf(output,
-            "Expected <dirA> [dirB] .. [dirP], a parent with A-P, or CPMIDE.CFG\n");
+    if (args[1] == NULL || args[2] != NULL) {
+        fprintf(output, "cpm <directory>\n");
         return 1;
     }
 
-    if (args[2] == NULL) {
-        path = (char *)buffer;
-        for (i = 0; i < CPM_DRIVES; ++i) {
-            if (parent_letter(args[1], (char)('A' + i), path))
-                break;
-            if (mount_dir(path, &clst) == 0) {
-                cpm_dir_sclust[i] = clst;
-                fprintf(output, "%c: \"%s\" cluster %lu\n",
-                    (char)('A' + i), path, clst);
-            }
-        }
-        if (cpm_dir_sclust[0] == 0) {
-            if (put_fail(mount_dir(args[1], &clst)))
-                return 1;
-            cpm_dir_sclust[0] = clst;
-            fprintf(output, "A: \"%s\" cluster %lu\n", args[1], clst);
-        }
-    } else {
-        for (i = 0; i < CPM_DRIVES && args[i + 1] != NULL; ++i) {
-            fprintf(output, "Opening \"%s\"", args[i + 1]);
-            if (put_fail(mount_dir(args[i + 1], &clst)))
-                return 1;
+    path = (char *)buffer;
+    for (i = 0; i < CPM_DRIVES; ++i) {
+        if (parent_letter(args[1], (char)('A' + i), path))
+            break;
+        if (mount_dir(path, &clst) == 0) {
             cpm_dir_sclust[i] = clst;
-            fprintf(output, " cluster %lu\n", clst);
+            fprintf(output, "%c: \"%s\" cluster %lu\n",
+                (char)('A' + i), path, clst);
         }
     }
 
@@ -879,7 +783,6 @@ int8_t ya_mkcpm(char ** args)   /* boot CP/M from up to 16 FAT directories */
         return 1;
     }
 
-cpm_go:
     fprintf(output, "Initialised CP/M\n");
     cpu_delay_ms(1);
     cpm_boot();
@@ -887,23 +790,20 @@ cpm_go:
 }
 
 
-/*
- * hg_open creates or replaces a file for mkdrv. The Intel HEX parser
- * is compiled out while YASH_HGET is 0. -DYASH_HGET=1 restores ya_hget.
- * hg_parent and hg_name are the leaf that mkdrv and md_unlink reopen.
- * Scratch used in one function is automatic. The counters below are
- * the receive session, shared by hg_wr, hg_commit, and hg_record.
- */
-static uint32_t hg_parent;
-static uint8_t hg_name[11];
-
 #if YASH_HGET
 /*
+ * hg_open creates or replaces the file hget receives. -DYASH_HGET=0
+ * leaves this receiver out. A value read or written by one function
+ * is an automatic of that function. The names below are the receive
+ * session: hg_open clears them and more than one function uses each.
+ *
  * ascii-xfr -s sends CRLF lines and -e may send Ctrl-Z. A type 04
  * record selects the 64 KB page. Data records must follow the file
  * in order. One sector is held in `buffer`. The parsed byte and the
  * committed size are automatics.
  */
+static uint32_t hg_parent;
+static uint8_t hg_name[11];
 static uint32_t hg_clst;
 static uint32_t hg_first;
 static uint16_t hg_page;
@@ -974,14 +874,12 @@ static uint8_t hg_wr(uint8_t val)
         ++hg_page;
     return 0;
 }
-#endif
 
 static uint8_t hg_open(const char *path)
 {
     uint32_t tmp;
     uint8_t rc;
 
-#if YASH_HGET
     hg_page = 0;
     hg_low = 0;
     hg_pos = 0;
@@ -990,7 +888,6 @@ static uint8_t hg_open(const char *path)
     hg_sec = 0;
     hg_first = 0;
     hg_clst = 0;
-#endif
     rc = path_split(path, &hg_parent, hg_name);
     if (rc)
         return rc;
@@ -1013,7 +910,6 @@ static uint8_t hg_open(const char *path)
     return 0;
 }
 
-#if YASH_HGET
 static int hg_nibble(void)
 {
     int c;
@@ -1169,157 +1065,6 @@ int8_t ya_hget(char ** args)   /* receive an Intel HEX file */
     return 1;
 }
 #endif
-
-/*
- * mkdrv NAME
- *
- * One container for the rc2014-8MB disk definition: 8388608 bytes and
- * 2048 directory entries. The BIOS uses that shape, so the command
- * takes a file name and nothing else.
- *
- * fat_alloc takes the next free cluster. The file may be several runs.
- * frag prints the run count. cpm mounts a file only when it is one run.
- *
- * The directory is 2048 records of 32 bytes, which is 65536 bytes and
- * exactly 128 sectors. Each sector is 16 copies of the empty record
- * (0xE5, eleven spaces, then zeros). The remaining clusters are
- * allocated and left untouched.
- *
- * directoryBlock is a ROM constant, the empty directory record.
- * The counters are automatics in ya_mkdrv. md_incomplete receives
- * the first cluster. Nothing here is remembered across commands.
- */
-static uint8_t directoryBlock[32] = {
-    0xE5, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-};
-
-/* 0: the name is gone. Same order as ya_rm and ChaN f_unlink:
- * remove the directory entry, sync, and only then free the chain.
- */
-static uint8_t md_unlink(void)
-{
-    if (fat_dir_open(&hg_parent))
-        return 1;
-    if (dir_find_try(hg_name))
-        return 1;
-    if (dir_zap() || fat_sync())
-        return 1;
-    return 0;
-}
-
-static void md_abandon(uint32_t clst)
-{
-    if (md_unlink() == 0)
-        release_chain(clst);
-}
-
-static int8_t md_incomplete(uint32_t first)
-{
-    fputs("\nCP/M Directory Extents incomplete", output);
-    md_abandon(first);
-    put_rc(1);
-    return 1;
-}
-
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "mkdrv". args[1] is the file.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_mkdrv(char ** args)   /* empty 8 MB CP/M drive */
-{
-    uint32_t ncl;
-    uint32_t clst;
-    uint32_t first;
-    uint32_t lba;
-    uint16_t left;
-    uint8_t sec;
-    uint8_t n;
-    uint8_t *p;
-
-    if (need_args(args, 1, "mkdrv"))
-        return 1;
-    fprintf(output, "Creating \"%s\"", args[1]);
-    if (put_fail(hg_open(args[1])))
-        return 1;
-
-    /* Round 8388608 bytes up to whole clusters. 0 means this volume
-     * has no cluster size, or the count overflowed.
-     */
-    ncl = 8388608ul;
-    fat_clusters(&ncl);
-    if (ncl == 0) {
-        md_unlink();
-        put_rc(FR_INVALID_PARAMETER);
-        return 1;
-    }
-
-    clst = 0;
-    first = 0;
-    while (ncl) {
-        if (fat_alloc(&clst)) {
-            md_abandon(first);
-            fputs("\nInsufficient space", output);
-            put_rc(1);
-            return 1;
-        }
-        if (first == 0)
-            first = clst;
-        --ncl;
-    }
-
-    /* FAT writes move the sector window, so the entry from hg_open
-     * has to be found again before it can be stamped.
-     */
-    if (fat_dir_open(&hg_parent) || dir_find_try(hg_name) ||
-        dir_fill(AM_ARC, first, 8388608ul)) {
-        md_abandon(first);
-        put_rc(1);
-        return 1;
-    }
-
-    p = buffer;
-    n = 16;
-    while (n) {
-        memcpy(p, directoryBlock, 32);
-        p += 32;
-        --n;
-    }
-
-    clst = first;
-    lba = first;
-    if (fat_clst2sect(&lba))
-        return md_incomplete(first);
-    sec = 0;
-    left = 128;
-    while (left) {
-        if (disk_write(0, buffer, lba, 1))
-            return md_incomplete(first);
-        --left;
-        if (left == 0)
-            break;
-        /* Sectors inside one cluster are consecutive LBAs.
-         * The next cluster is the FAT link, which may not be adjacent.
-         */
-        if (++sec < cpm_fat_vol.csize) {
-            ++lba;
-            continue;
-        }
-        sec = 0;
-        if (fat_next(&clst) || is_eoc(clst))
-            return md_incomplete(first);
-        lba = clst;
-        if (fat_clst2sect(&lba))
-            return md_incomplete(first);
-    }
-
-    lba = first;
-    if (put_fail(fat_clst2sect(&lba)))
-        return 1;
-    fprintf(output, " at base sector LBA %lu\n", lba);
-    return 1;
-}
 
 /**
    @brief Builtin command:
@@ -1809,51 +1554,6 @@ int8_t ya_mount(char ** args)    /* mount a FAT file system */
 }
 
 
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "frag". args[1] is the file.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_frag(char ** args)    /* cluster-run count for a file */
-{
-    uint32_t parent, cl, prev, ncl, nfrag, steps;
-    uint8_t n[11];
-
-    if (need_args(args, 1, "frag"))
-        return 1;
-    if (put_fail(open_leaf(args[1], &parent, n)))
-        return 1;
-    if (fat_dir_ptr[11] & AM_DIR) {
-        put_rc(FR_DENIED);
-        return 1;
-    }
-    cl = fat_found_sclust;
-    ncl = 0;
-    nfrag = 0;
-    prev = 0;
-    if (cl >= 2) {
-        nfrag = 1;
-        steps = 0;
-        while (is_eoc(cl) == 0) {
-            if (steps >= cpm_fat_vol.n_fatent) {
-                put_rc(FR_INT_ERR);
-                return 1;
-            }
-            ++steps;
-            ncl++;
-            if (prev && cl != prev + 1)
-                nfrag++;
-            prev = cl;
-            if (put_fail(fat_next(&cl)))
-                return 1;
-        }
-    }
-    fprintf(output, "%lu cluster(s), %lu run(s), %lu bytes\n",
-            ncl, nfrag, fat_found_size);
-    return 1;
-}
-
-
 /*
   disk related functions
  */
@@ -2136,9 +1836,3 @@ void ya_loop(void)
     free(line);
 }
 
-#ifdef YASH_TEST
-uint8_t yash_read_cfg(void)
-{
-    return read_cfg();
-}
-#endif

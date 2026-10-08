@@ -1,8 +1,7 @@
 /*
- * Adding drives. CPMIDE.CFG and `cpm` arguments bind any directory to
- * A: through P:. A child directory mounted as its own drive stays a
- * separate directory from its parent. cpm_boot is counted and does not
- * enter CP/M.
+ * Adding drives. `cpm <directory>` mounts subdirectories A through P.
+ * A missing letter stays an empty slot. cpm_boot is counted and does
+ * not enter CP/M.
  */
 #include <stdio.h>
 #include <string.h>
@@ -19,7 +18,6 @@ typedef uint32_t DWORD;
 uint8_t ram_image[12288];
 uint8_t ram_nsect = 24;
 
-extern uint8_t yash_read_cfg(void);
 extern void *buffer;
 extern FILE *input;
 extern FILE *output;
@@ -76,45 +74,6 @@ static void dent(uint8_t *e, const char *n11, unsigned attr, unsigned cl,
     e[31] = (uint8_t)(sz >> 24);
 }
 
-static void zero_drives(void)
-{
-    unsigned i;
-
-    for (i = 0; i < 16; i++)
-        cpm_dir_sclust[i] = 0;
-}
-
-static void vol(void)
-{
-    uint8_t *root;
-    uint8_t *sec;
-
-    memset(ram_image, 0, sizeof ram_image);
-    put_vbr(ram_image);
-    ram_image[512] = 0xF8;
-    ram_image[513] = 0xFF;
-    ram_image[514] = 0xFF;
-    ram_image[515] = 0xFF;
-    ram_image[516] = 0xFF;
-    ram_image[517] = 0xFF;
-    ram_image[518] = 0xFF;
-    ram_image[519] = 0xFF;
-    ram_image[520] = 0xFF;
-    ram_image[521] = 0xFF;
-    ram_nsect = 24;
-    root = ram_image + 18 * 512;
-    dent(root, "CPMIDE  CFG", 0x20, 2, 420);
-    dent(root + 32, "SYS        ", 0x10, 3, 0);
-    dent(root + 64, "USER       ", 0x10, 4, 0);
-    sec = ram_image + 19 * 512;
-    memset(sec, ' ', 512);
-    memcpy(sec, "A = \"SYS\"\n", 10);
-    memcpy(sec + 360, "P = \"SYS\"\n", 10);
-    memcpy(sec + 380, "Q = \"SYS\"\n", 10);
-    memcpy(sec + 400, "b = \"USER\"\n", 11);
-    memcpy(sec + 430, "C = \"USER\"\n", 11);
-}
-
 static void eoc_cl(unsigned cl)
 {
     unsigned off;
@@ -149,18 +108,8 @@ static void nest_vol(void)
     dent(root + 96, "TOOLONGN   ", 0x10, 6, 0);
     sys = ram_image + 20 * 512;
     dent(sys, "B          ", 0x10, 5, 0);
-}
-
-static void set_cfg(const char *text)
-{
-    uint8_t *sec;
-    unsigned n;
-
-    sec = ram_image + 19 * 512;
-    memset(sec, 0, 512);
-    n = (unsigned)strlen(text);
-    memcpy(sec, text, n);
-    dent(ram_image + 18 * 512, "CPMIDE  CFG", 0x20, 2, n);
+    /* TOOLONGN holds A, so a long starting-directory name can mount. */
+    dent(ram_image + 23 * 512, "A          ", 0x10, 4, 0);
 }
 
 static int drives_are(uint32_t a, uint32_t b)
@@ -177,16 +126,6 @@ static void run_cpm(char **args)
 static int booted(unsigned before)
 {
     return boot_n == before + 1;
-}
-
-static uint8_t load_cfg(const char *text)
-{
-    set_cfg(text);
-    fat_cwd = 0;
-    if (fat_mount() != 0)
-        return 0xFE;
-    zero_drives();
-    return yash_read_cfg();
 }
 
 /* 63 tokens are kept. The 64th is dropped. */
@@ -216,95 +155,66 @@ static void test_tokens(void)
 
 static void test_adding(void)
 {
-    char *pair[4];
+    char *none[2];
     char *one[3];
-    char *many[19];
-    char *bad[4];
+    char *two[4];
     char *filearg[3];
     char *exact[3];
     char *boundary[3];
     char *over[3];
+    char *missing[3];
     unsigned before;
     unsigned i;
     int ok;
-    uint8_t rc;
-    uint8_t *sec;
 
     nest_vol();
     expect("nest_mount FAIL", fat_mount() == 0);
 
-    pair[0] = "cpm";
-    pair[1] = "SYS";
-    pair[2] = "SYS/B";
-    pair[3] = 0;
+    none[0] = "cpm";
+    none[1] = 0;
     before = boot_n;
-    run_cpm(pair);
-    expect("cli_two FAIL", booted(before) && drives_are(3, 5));
+    run_cpm(none);
+    expect("cli_none FAIL", boot_n == before && cpm_dir_sclust[0] == 0);
 
-    pair[2] = "SYS";
+    two[0] = "cpm";
+    two[1] = "SYS";
+    two[2] = "USER";
+    two[3] = 0;
     before = boot_n;
-    run_cpm(pair);
-    expect("cli_same FAIL", booted(before) && drives_are(3, 3));
+    run_cpm(two);
+    ok = boot_n == before;
+    for (i = 0; i < 16; i++) {
+        if (cpm_dir_sclust[i] != 0)
+            ok = 0;
+    }
+    expect("cli_names FAIL", ok);
 
+    /* SYS holds B and no A. B is mounted. A stays empty, so no boot. */
     one[0] = "cpm";
     one[1] = "SYS";
     one[2] = 0;
     before = boot_n;
     run_cpm(one);
-    expect("cli_parent FAIL", booted(before) && drives_are(3, 5));
+    expect("cli_gap FAIL", boot_n == before && drives_are(0, 5) &&
+           cpm_dir_sclust[2] == 0);
+
+    one[1] = "sys";
+    before = boot_n;
+    run_cpm(one);
+    expect("cli_fold FAIL", boot_n == before && drives_are(0, 5));
 
     dent(ram_image + 20 * 512 + 32, "A          ", 0x10, 6, 0);
     expect("nest_remount FAIL", fat_mount() == 0);
+    one[1] = "SYS";
     before = boot_n;
     run_cpm(one);
     expect("cli_child_a FAIL", booted(before) && cpm_dir_sclust[0] == 6 &&
-           cpm_dir_sclust[1] == 5);
+           cpm_dir_sclust[1] == 5 && cpm_dir_sclust[2] == 0);
 
     one[1] = "sys/b";
     before = boot_n;
     run_cpm(one);
-    expect("cli_fold FAIL", booted(before) && drives_are(5, 0));
-
-    pair[1] = "USER";
-    pair[2] = "SYS";
-    before = boot_n;
-    run_cpm(pair);
-    expect("cli_order FAIL", booted(before) && drives_are(4, 3));
-
-    many[0] = "cpm";
-    for (i = 1; i <= 16; i++)
-        many[i] = "SYS";
-    many[17] = "NO/SUCH";
-    many[18] = 0;
-    before = boot_n;
-    run_cpm(many);
-    ok = booted(before);
-    for (i = 0; i < 16; i++) {
-        if (cpm_dir_sclust[i] != 3)
-            ok = 0;
-    }
-    expect("cli_past_p FAIL", ok);
-
-    for (i = 1; i <= 15; i++)
-        many[i] = "SYS";
-    many[16] = "NOPE";
-    many[17] = 0;
-    before = boot_n;
-    run_cpm(many);
-    ok = (boot_n == before) && cpm_dir_sclust[15] == 0;
-    for (i = 0; i < 15; i++) {
-        if (cpm_dir_sclust[i] != 3)
-            ok = 0;
-    }
-    expect("cli_bad16 FAIL", ok);
-
-    bad[0] = "cpm";
-    bad[1] = "SYS";
-    bad[2] = "MISSING";
-    bad[3] = 0;
-    before = boot_n;
-    run_cpm(bad);
-    expect("cli_missing FAIL", boot_n == before && cpm_dir_sclust[0] == 3);
+    expect("cli_no_letters FAIL", boot_n == before && drives_are(0, 0));
 
     filearg[0] = "cpm";
     filearg[1] = "CPMIDE.CFG";
@@ -318,7 +228,7 @@ static void test_adding(void)
     exact[2] = 0;
     before = boot_n;
     run_cpm(exact);
-    expect("cli_eight FAIL", booted(before) && cpm_dir_sclust[0] == 6);
+    expect("cli_eight FAIL", booted(before) && drives_are(4, 0));
 
     /* Twelve characters still resolve as the 8.3 name. The thirteenth
      * starts a new component, so the lookup misses. */
@@ -327,7 +237,7 @@ static void test_adding(void)
     boundary[2] = 0;
     before = boot_n;
     run_cpm(boundary);
-    expect("cli_twelve FAIL", booted(before) && cpm_dir_sclust[0] == 6);
+    expect("cli_twelve FAIL", booted(before) && drives_are(4, 0));
 
     over[0] = "cpm";
     over[1] = "TOOLONGNAMEHERE";
@@ -336,38 +246,12 @@ static void test_adding(void)
     run_cpm(over);
     expect("cli_over12 FAIL", boot_n == before && cpm_dir_sclust[0] == 0);
 
-    rc = load_cfg("A = SYS\nB = SYS/B\n# P = USER\nQ = SYS\n");
-    expect("cfg_nest FAIL", rc == 0 && drives_are(3, 5) &&
-           cpm_dir_sclust[2] == 0 && cpm_dir_sclust[15] == 0);
-
-    rc = load_cfg("A = SYS\nA = USER\n");
-    expect("cfg_dup FAIL", rc == 0 && cpm_dir_sclust[0] == 4);
-
-    rc = load_cfg("A = SYS\nB = GONE\n");
-    expect("cfg_skip_missing FAIL", rc == 0 && drives_are(3, 0));
-
-    rc = load_cfg("B = SYS\n");
-    expect("cfg_needs_a FAIL", rc == 1 && cpm_dir_sclust[0] == 0 &&
-           cpm_dir_sclust[1] == 3);
-    one[1] = 0;
+    missing[0] = "cpm";
+    missing[1] = "NOWHERE";
+    missing[2] = 0;
     before = boot_n;
-    run_cpm(one);
-    expect("cli_cfg_needs_a FAIL", boot_n == before);
-
-    rc = load_cfg("A = /\n");
-    expect("cfg_fat16_root FAIL", rc == 1 && cpm_dir_sclust[0] == 0);
-
-    sec = ram_image + 19 * 512;
-    memset(sec, ' ', 512);
-    memcpy(sec, "A = SYS\n", 8);
-    memcpy(sec + 506, "P = USER\n", 10);
-    dent(ram_image + 18 * 512, "CPMIDE  CFG", 0x20, 2, 512);
-    fat_cwd = 0;
-    expect("cfg_cut_mount FAIL", fat_mount() == 0);
-    zero_drives();
-    rc = yash_read_cfg();
-    expect("cfg_sector_cut FAIL", rc == 0 && cpm_dir_sclust[0] == 3 &&
-           cpm_dir_sclust[15] == 0);
+    run_cpm(missing);
+    expect("cli_missing FAIL", boot_n == before && cpm_dir_sclust[0] == 0);
 
     test_tokens();
 }
@@ -398,40 +282,16 @@ void cpm_boot(void)
 void select_console(void) {}
 uint8_t bios_iobyte;
 
-/* Classic malloc's header. read_cfg does not allocate. */
+/* Classic malloc's header. The shell link expects _heap. */
 unsigned int heap[2];
 
 int main(void)
 {
-    uint8_t rc;
-    uint8_t *root;
-    uint8_t *sec;
-
     buffer = store;
     input = stdin;
     output = stdout;
     error = stderr;
     fails = 0;
-
-    vol();
-    expect("cfg_mount FAIL", fat_mount() == 0);
-    zero_drives();
-    rc = yash_read_cfg();
-    expect("cfg_two_drives FAIL", rc == 0 && cpm_dir_sclust[0] == 3 &&
-           cpm_dir_sclust[1] == 4 && cpm_dir_sclust[15] == 3);
-    expect("cfg_stops_at_size FAIL", cpm_dir_sclust[2] == 0);
-
-    root = ram_image + 18 * 512;
-    dent(root, "CPMIDE  CFG", 0x20, 2, 11);
-    sec = ram_image + 19 * 512;
-    memset(sec, ' ', 512);
-    memcpy(sec, "A = \"/SYS\"\n", 11);
-    expect("cfg_remount FAIL", fat_mount() == 0);
-    fat_cwd = 3;
-    zero_drives();
-    rc = yash_read_cfg();
-    expect("cfg_root_fallback FAIL", rc == 0 && cpm_dir_sclust[0] == 3 &&
-           cpm_dir_sclust[1] == 0);
 
     test_adding();
 

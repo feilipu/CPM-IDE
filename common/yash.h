@@ -26,9 +26,8 @@ extern FILE *input;
 extern FILE *output;
 extern FILE *error;
 
-/* 0 compiles the Intel HEX receiver out. -DYASH_HGET=1 puts it back.
- * mkdrv still calls hg_open either way.
- */
+/* 0 leaves the Intel HEX receiver out of the default ROMs.
+   -DYASH_HGET=1 compiles it in. */
 #ifndef YASH_HGET
 #define YASH_HGET 0
 #endif
@@ -40,7 +39,6 @@ void select_console(void);
 void put_rc(uint8_t rc);
 
 int8_t ya_mkcpm(char **args);
-int8_t ya_mkdrv(char **args);
 #if YASH_HGET
 int8_t ya_hget(char **args);
 #endif
@@ -58,7 +56,6 @@ int8_t ya_mv(char **args);
 int8_t ya_mount(char **args);
 int8_t ya_ds(char **args);
 int8_t ya_dd(char **args);
-int8_t ya_frag(char **args);
 int8_t ya_execute(char **args);
 void ya_getline(char *line, uint16_t len);
 void ya_split_line(char **tokens, char *line);
