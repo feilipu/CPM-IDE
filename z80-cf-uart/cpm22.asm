@@ -33,6 +33,9 @@ SECTION rodata_lib           ;read only library (code)
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
+; CCP sits just below the resident stub at $F100. The image is $820
+; bytes, so the run address is $E8E0 and the tail meets the stub.
+; The old page align under the DRI BDOS is not in this image.
 defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE8E0
 
 ;------------------------------------------------------------------------------
@@ -1475,8 +1478,8 @@ IF 0
 ;*
 ;**************************************************************
 ;
-; Page-align FBASE at 0xE300. CCP origin is 0xDAE0 so data_tail
-; lands on 0xE300 after the A: search growth (was 0xE320 at 0xDB00).
+; Unlinked v2.6 layout. FBASE was page-aligned at $E300.
+; The CCP origin was $DAE0.
 
 ALIGN       0x100           ;ALIGN the FBASE to a page
 
@@ -4229,7 +4232,7 @@ GTNXRUN:    DEFB    0       ;nonzero: FINDNXT stops before GTNXPOS.
 USRSTACK:   DEFW    0       ;save users stack pointer here.
 ;
 ;   Disk directory buffer checksum bytes. One for each of the
-;   16 possible drives. Maximum 4 drives configured in BIOS.
+;   16 possible drives. The unlinked Calkins BIOS configured 4.
 ;
 CKSUMTBL:   DEFS    16,0
 ;

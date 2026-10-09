@@ -1,4 +1,4 @@
-/* +test: CP/M BIOS READ/WRITE deblock on ram ide_read/write. */
+/* +test: v2.6 BIOS READ/WRITE deblock. Not this branch's product BIOS. */
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>

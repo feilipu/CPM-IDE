@@ -1,12 +1,10 @@
 # CP/M-IDE Drive Files
 
-This directory contains example CP/M drives stored as compressed zip files. The files can be extracted and stored on a PATA or CF disk formatted with FAT32 (or FAT16 if quite small).
+This directory contains example CP/M disk images stored as compressed zip files. Each image is 8388608 bytes. Read and extract them on the host with cpmtools. The ROM command `cpm` mounts FAT directories named `A` through `P`. It does not mount these files.
 
 The shell follows a file's cluster chain, so a file that occupies more than one run needs no separate fragmentation check.
 
-__`ls`__ lists the CP/M drive files in the current directory. __`cd`__ and __`pwd`__ move through sub-directories.
-
-CP/M-IDE can be started with the __`cpm`__ command with fully qualified paths to up to four (4) files, from any of the thousands of CP/M drives you may have stored.
+__`ls`__ lists these image files when they are stored on the FAT volume. __`cd`__ and __`pwd`__ move through sub-directories. To run the programs inside an image, extract that image into a letter directory and start CP/M with `cpm <directory>`.
 
 
 ```

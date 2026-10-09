@@ -50,7 +50,7 @@ fat_fsi_lba:            defs 4      ;absolute FSInfo LBA, or 0 if none
 _fat_fsi_dirty:
 fat_fsi_dirty:          defs 1      ;1 = free count or next-free needs a write
 
-; CP/M deblock (same names as cpm22bios.asm BSS)
+; v2.6 deblock names. This branch's cpm22bios.asm does not define hstbuf.
 _cpm_dsk0_base:         defs 16     ; 4 x 32-bit LBA bases
 _hstbuf:
 hstbuf:                 defs 512

@@ -2,7 +2,7 @@
 
 Repair guide for the CP/M 2.2-on-FAT BDOS on branch `cpm-ide-msx`. The repairs are in both BDOS files. The tables under "Sequential reads" and "ISA kernels" are the pre-repair yardstick and stay as written. `test/bdos/isa/baseline.txt` is that yardstick and was not overwritten. What shipped, and what the 32 KiB gate forced, is in "Repair results".
 
-z80-cf-acia is the linked image that fits. The latch section below is the current shape. Sizes from the seven-ROM rebuild are in "ROM rebuild".
+The latch section below is the shape that landed. "ROM rebuild", "hget compiled out", and "Image at 676d65b" are earlier links. The HEX files in the tree are the image at the top of `CPM-IDE-MSX.md`. A size or a BIOS origin in this file is that earlier link, not the current HEX, unless the section says otherwise.
 
 Measurements below were repeated on this tree with `z88dk-ticks` (`PATH=/data/z88dk/bin`, `ZCCCFG=/data/z88dk/lib/config`). CPU flag before the binary. TIMER regions use `-x map -start -end -counter 999999999999`. Whole-program `Ticks:` is a different number and is labelled as such. The 8085 binary is always `-m8085`.
 
@@ -57,7 +57,7 @@ Before the latch, `test/bdos/out/disk.txt` was `BDOS_DISK_OK` Ticks 33926426 and
 
 ### 8085-cf-acia does not fit
 
-Source is converted (`8085-cf-acia/cpm22.lst` names `bdos22_85.asm`, old BDOS is `IF 0`, BIOS is the one-drive stub at `$F960`). `rebuild-hex.sh acia85` with `--opt-code-speed=all` produced bin 33703, `__CODE_END` `$8308`, and the linker warning that CODE overlaps DATA by 776 bytes. `finish_hex` did not run. The HEX on disk is still the v2.6 handler at `$E311`.
+Source is converted (`8085-cf-acia/cpm22.lst` names `bdos22_85.asm`, old BDOS is `IF 0`, BIOS is the one-drive stub at `$F960`). `rebuild-hex.sh acia85` with `--opt-code-speed=all` produced bin 33703, `__CODE_END` `$8308`, and the linker warning that CODE overlaps DATA by 776 bytes. `finish_hex` did not run. The HEX then on disk was still the v2.6 handler at `$E311`. That sentence describes this link. The HEX files in the tree now are the image in `CPM-IDE-MSX.md`.
 
 The 8085 image carries a 159-byte trailer, so bin ≤ 32768 needs `__CODE_END` ≤ `$7F61`. The `=all` image is 935 bytes over that.
 
@@ -159,7 +159,9 @@ z80-cf-uart is the nearest miss on that run. Its code ends 45 bytes past `$8000`
 
 ### hget compiled out
 
-`YASH_HGET` is 0. `ya_hget` and the Intel HEX parser are not linked. `hg_open` stays because `ya_mkdrv` calls it. `common/bdos_romvec.asm` is gone. The CRT page zero is the ROM-in vector. `cboot`, `wboot`, `rboot`, and the preambles were not edited. The same `rebuild-hex.sh all` (WORK `/tmp/cpm-ide-hget`) then installed every HEX. `__IO_CF_8_BIT` is `0x01`. 8085 PATA still uses `SPEED_8085_PATA`.
+This table is the link after compiling `hget` out and before the `ya_mkdrv` counters became automatics. The HEX files then in the tree are the next section, the `676d65b` link.
+
+On that link `YASH_HGET` was 0. `ya_hget` and the Intel HEX parser were not linked. `hg_open` stayed because `ya_mkdrv` called it. `common/bdos_romvec.asm` is gone. The CRT page zero is the ROM-in vector. `cboot`, `wboot`, `rboot`, and the preambles were not edited. The same `rebuild-hex.sh all` (WORK `/tmp/cpm-ide-hget`) then installed every HEX. `__IO_CF_8_BIT` is `0x01`. 8085 PATA still uses `SPEED_8085_PATA`.
 
 | Product | Bin | `__CODE_END` | Under 32768 |
 |---|---:|---:|---:|
@@ -173,6 +175,24 @@ z80-cf-uart is the nearest miss on that run. Its code ends 45 bytes past `$8000`
 
 The bin dropped about 1323 bytes on Z80 and 1456 on 8085 from the table above. `0006h` is `$F106` and `fbase` is `$F111` on every map. z80-cf-acia `_main` is `$662A`. Character `BDOS_CHAR_OK`: Z80 403717, 8085 313524. The planted page-zero vector is fired once.
 
+### Image at 676d65b
+
+`676d65b` rebuilt the seven ROMs after the `ya_mkdrv` counters became automatics. `fd57ad9` edited only the parser under `#if YASH_HGET`. On that link `YASH_HGET` was 0, so that edit is absent from the image. `rebuild-hex.sh all` (WORK `/tmp/cpm-ide-hgv`, zcc `v25461-415806f08c-20260813`, 2026-10-08 12:56–13:03) finished `ok=7 fail=0` and left every HEX unchanged against `676d65b`. `__IO_CF_8_BIT` was left at `0x01`. The HEX files in the tree now are a later link. See `CPM-IDE-MSX.md`.
+
+| Product | Bin | `__CODE_END` | Under 32768 | `_main` |
+|---|---:|---:|---:|---:|
+| z80-cf-acia | 31378 | `$79D2` | 1390 | `$6671` |
+| z80-cf-uart | 31801 | `$7B4E` | 967 | `$67BB` |
+| z80-cf-sio | 31964 | `$7BF1` | 804 | `$674F` |
+| z80-pata-sio | 32121 | `$7C8E` | 647 | `$67EA` |
+| 8085-cf-acia | 32231 | `$7D4E` | 537 | `$6881` |
+| 8085-cf-uart | 32483 | `$7E4A` | 285 | `$6951` |
+| 8085-pata-uart | 32533 | `$7E7C` | 235 | `$6981` |
+
+On that `676d65b` link, 8085 PATA `__CODE_END` `$7E7C` is 261 bytes below `$7F81`. High labels matched the hget-cut maps because `bdos22.asm` and `bdos22_85.asm` were not edited: `bdos` `$F100`, `0006h` `$F106`, `fbase` `$F111`, `functns` `$F147`, Z80 `params` `$F54C`, 8085 `params` `$F550`, `srch_on` `$F650`, BIOS `$F960`. Z80 CCP tail `$F100`. 8085 CCP tail `$F0EA`. On z80-cf-acia the page is stored at `$7110`. The bytes there are `00 16 00 00 00 00 C3 11 F1`. Phase `$F136` (file `$7146` in that HEX) is `4B 21 47 F1 5F 16 00 19 19 5E 23 56 2A 4C F5 EB E9`. The 8085-cf-acia HEX stores `2A 50 F5` in the `params` operand.
+
+Character and disk suites on `676d65b`, not re-run after `fd57ad9`: `BDOS_CHAR_OK` at 439263 (Z80) and 337435 (8085); `BDOS_DISK_OK` at 34124468 and 44631847. Logs are `test/bdos/out/char.txt`, `char85.txt`, `disk.txt`, and `disk85.txt`. The open items are in `CPM-IDE-MSX.md`.
+
 ## What must stay
 
 One logical flow in `common/bdos22.asm` and `common/bdos22_85.asm`. The same labels, the same compares, the same taken branches. An ISA difference is a shift, a load, or a block move. `add hl,hl` exists on both CPUs, so unrolling `extent_bc` and the `<< 5` in `fn_tell` does not fork the flow. `sra hl` on the 8085 `clr_bit` forks only that shift.
@@ -181,7 +201,7 @@ Do not put the 8085 file back to an `INCLUDE` of the Z80 file. Do not write an 8
 
 Leave these alone:
 
-- Dispatch opcodes at `$F136`: `4B 21 47 F1 5F 16 00 19 19 5E 23 56` then `2A` and the live address of `params`, then `EB E9`. On the Z80 SIO image that address is `$F54C`, so the bytes are `4B 21 47 F1 5F 16 00 19 19 5E 23 56 2A 4C F5 EB E9`. `functns` is still `$F147`. The earlier snapshot `2A 7D F5` named `params` at `$F57D`, before the compare chain was removed and the stub BSS slid down 49 bytes. Patching `$7D` back would load the wrong word. 8085 `params` is `$F550` on the uninstalled acia map, so that image's operand is `50 F5`. The source instructions are the same. Serial, then `JP fbase`, four error words, then the word list. `DEFC NFUNCTS = 41`. The handler is `ADD HL,DE` twice. The v2.6 listing that shows this shape is inside `IF 0` in `z80-cf-acia/cpm22.asm` (from about line 1474). That listing is the reference. It is not linked.
+- Dispatch opcodes at `$F136`: `4B 21 47 F1 5F 16 00 19 19 5E 23 56` then `2A` and the live address of `params`, then `EB E9`. On the installed Z80 images `params` is `$F54C`, so the bytes are `4B 21 47 F1 5F 16 00 19 19 5E 23 56 2A 4C F5 EB E9`. Those bytes were re-read from the `676d65b` `rc2014-cpm22-z80-cf-acia.hex` at file address `$7146` on 2026-10-08. The later link stores that stub at `$6F72`. `params` is still `$F54C`. `functns` is `$F147`. The earlier snapshot `2A 7D F5` named `params` at `$F57D`, before the compare chain was removed and the stub BSS slid down 49 bytes. Patching `$7D` back would load the wrong word. 8085 `params` is `$F550` on the installed 8085-cf-acia map, and that HEX stores `2A 50 F5`. The source instructions are the same. Serial, then `JP fbase`, four error words, then the word list. `DEFC NFUNCTS = 41`. The handler is `ADD HL,DE` twice. The v2.6 listing that shows this shape is inside `IF 0` in `z80-cf-acia/cpm22.asm` (from about line 1474). That listing is the reference. It is not linked.
 - `0006h` is `_cpm_bdos_fbase` (`$F106`), the `JP fbase` six bytes after `bdos` (`$F100`). Callers enter there. Entering at `bdos` executes the serial (`16h` is `ld d,0`) and drops the high byte of DE.
 - Stack save while HL is 0: `ld hl,0` / `ld (status),hl` / `add hl,sp` / `ld (bdos_usrstack),hl` / `ld sp,bdos_stack`. `ld de,sp` is not that save. On Z80 the synthetic is `ex de,hl` / `ld hl,0` / `add hl,sp` / `ex de,hl` and destroys the parameter. On 8085 it is `ld de,sp+0`. `ld (nn),sp` is Z80-only.
 - `zg_z` (`bdos22.asm` line 2876): `ld a,b` / `or c` / `ld a,0` / `jp nz,zg_z`. `ld a,0` reloads the fill byte and does not change flags. `xor a` would clear Z and the fill would stop after one byte.

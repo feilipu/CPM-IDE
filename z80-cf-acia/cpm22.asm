@@ -4230,7 +4230,7 @@ GTNXRUN:    DEFB    0       ;nonzero: FINDNXT stops before GTNXPOS.
 USRSTACK:   DEFW    0       ;save users stack pointer here.
 ;
 ;   Disk directory buffer checksum bytes. One for each of the
-;   16 possible drives. Maximum 4 drives configured in BIOS.
+;   16 possible drives. The unlinked Calkins BIOS configured 4.
 ;
 CKSUMTBL:   DEFS    16,0
 ;

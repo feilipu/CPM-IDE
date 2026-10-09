@@ -1,6 +1,6 @@
 # bin2hex
 
-`bin2hex.py` turns a normal file into Intel HEX for the CP/M-IDE shell command `hget`. One command is the whole conversion. It runs `objcopy -I binary -O ihex` and writes a `.hex` file the parser can store. The seven HEX files are built without `hget`. `-DYASH_HGET=1` compiles it in.
+`bin2hex.py` turns a normal file into Intel HEX for the CP/M-IDE shell command `hget`. One command is the whole conversion. It runs `objcopy -I binary -O ihex` and writes a `.hex` file the parser can store. The seven HEX files include `hget`. `-DYASH_HGET=0` leaves it out.
 
 GNU binutils is required (`objcopy`).
 

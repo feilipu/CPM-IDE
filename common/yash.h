@@ -26,10 +26,10 @@ extern FILE *input;
 extern FILE *output;
 extern FILE *error;
 
-/* 0 leaves the Intel HEX receiver out of the default ROMs.
-   -DYASH_HGET=1 compiles it in. */
+/* The default ROM build includes the Intel HEX receiver.
+   -DYASH_HGET=0 leaves it out. */
 #ifndef YASH_HGET
-#define YASH_HGET 0
+#define YASH_HGET 1
 #endif
 
 /* Per-tree: pick stdin/tty and set bios_iobyte. */
@@ -42,7 +42,6 @@ int8_t ya_mkcpm(char **args);
 #if YASH_HGET
 int8_t ya_hget(char **args);
 #endif
-int8_t ya_md(char **args);
 int8_t ya_help(char **args);
 int8_t ya_exit(char **args);
 int8_t ya_ls(char **args);
@@ -53,9 +52,7 @@ int8_t ya_rmdir(char **args);
 int8_t ya_mkdir(char **args);
 int8_t ya_cp(char **args);
 int8_t ya_mv(char **args);
-int8_t ya_mount(char **args);
 int8_t ya_ds(char **args);
-int8_t ya_dd(char **args);
 int8_t ya_execute(char **args);
 void ya_getline(char *line, uint16_t len);
 void ya_split_line(char **tokens, char *line);

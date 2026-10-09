@@ -1,5 +1,5 @@
-; +test BIOS disk layer (no PHASE, no ROM paging).
-; CP/M READ/WRITE deblock + readhst/writehst on ram ide_read/write.
+; +test v2.6 BIOS disk layer (no PHASE, no ROM paging).
+; Not this branch's product BIOS. READ/WRITE deblock on ram ide_read/write.
 ; LBA = _cpm_dsk0_base[dsk] + hstsec + (hsttrk << 8)  (v2 / six-port BIOS)
 
 SECTION code_compiler

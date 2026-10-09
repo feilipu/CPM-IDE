@@ -2,51 +2,114 @@
 
 ## Status
 
-Branch `cpm-ide-msx` exists at `1df2f37` (tag `cpm-ide-v2.6`). This file is the implementation guide. The contract sections below were checked against the Digital Research CP/M 2.2 manual (chapters 1, 5, and 6), John Elliott’s BDOS and FCB pages, and the Calkins BDOS in `z80-cf-acia/cpm22.asm`. Where those three disagree, the rule is:
+Current on 2026-10-09. Branch `cpm-ide-msx` tip is `7c0ad9b` ("Boot A-P from one directory and leave hget out of the ROMs"), pushed to `origin/cpm-ide-msx`. The HEX files in the tree are a later link: `hget` is in, and `md`, `dd`, and the shell `mount` command are out. This file is the implementation guide. The contract sections below were checked against the Digital Research CP/M 2.2 manual (chapters 1, 5, and 6), John Elliott’s BDOS and FCB pages, and the Calkins BDOS in `z80-cf-acia/cpm22.asm`. Where those three disagree, the rule is:
 
 - Return codes and control flow follow the Calkins BDOS when Elliott’s CP/M 2.2 note agrees with it.
 - The manual’s programmer-facing description wins when Elliott’s CP/M 2.2 note agrees with the manual.
 - A behaviour that exists only in CP/M 3, MP/M, or DOS Plus stays out. Elliott marks those separately.
 - A FAT limit that CP/M 2.2 cannot express is written here as a FAT rule, with the manual behaviour named beside it.
 
-Do not commit unless asked. Leave `common/yash.c` modified. Leave the two PDFs, the ticks history files, and `tools/md5/MD5I85.COM` / `MD5Z80.COM` untracked.
+Commit only when asked. One subject line, no body, no trailer. Tag `cpm-ide-v2.6` stays at `1df2f37`. Local `master` is `864f590` ("Document the md builtin"), one commit ahead of `origin/master`, and has not been pushed. The `ya_md` Doxygen block is in both `864f590` and this branch. Leave the two PDFs, the ticks history files, and `tools/md5/MD5I85.COM` / `MD5Z80.COM` untracked. The peer RC2014 tree stays untouched.
 
-### Handoff
+## Action report
 
-Read this subsection before the next edit. `common/bdos22.asm` is the Z80 BDOS and `common/bdos22_85.asm` is the 8085 BDOS. Same labels and the same branches. Z80 shifts and block moves use `ldir`, `srl`/`rr`, and `sla`/`rl`. 8085 uses `copy_mem`, `rra` through A, and `rl de`. The disk entry is six shapes (`latch_reg`, `latch_fcb`, `latch_open`, `latch_find`, `latch_read`, `latch_write`) plus `go_line`. `functns` names those shapes. `rom_go` indexes `romfns` after the latch. The review of that choice is `BDOS-ISA-REVIEW.md`, section "Latch and page". A CCP `A>` is not a successful boot. ticks `break _main` on the installed z80-cf-acia image stopped at `_main`. There is no board. ticks does not emulate the CF taskfile.
+### What landed
 
-`rebuild-hex.sh all` (WORK `/tmp/cpm-ide-hget`, zcc `v25461-415806f08c-20260813`) installed all seven HEX files on 2026-10-08. `YASH_HGET` is 0, so `ya_hget` is not in the image. `hg_open` and `ya_mkdrv` stay. `common/bdos_romvec.asm` is deleted. The product boot path was not edited: CRT page zero is the ROM-in vector, and `cboot` / `rboot` still seed RAM after the latch. Z80 and 8085 CRT0 stay different. `__IO_CF_8_BIT` is `0x01`. Do not commit. README still describes `hget`.
+| Commit | Subject | What it holds |
+|---|---|---|
+| `7c392c1` | Run CP/M from one FAT volume and rebuild the seven ROMs | FAT map on all seven products. `common/bdos_romvec.asm` deleted. |
+| `676d65b` | Make yash scratch automatic, test the BDOS entry, and rebuild the seven ROMs | `ya_mkdrv` counters and non-shared yash scratch are automatics. BDOS entry tests. The seven HEX files. |
+| `fd57ad9` | Make the hget byte and size automatic | `hg_v` and `hg_sz` are locals inside `#if YASH_HGET`. Pushed. HEX bytes match `676d65b`. |
+| `075318e` | Mount A: through P: as FAT directories and test adding them | Letter directories on one volume. |
+| `7c0ad9b` | Boot A-P from one directory and leave hget out of the ROMs | One starting directory. `YASH_HGET` was 0 in that image. |
+
+`YASH_HGET` now defaults to 1. The seven HEX files include `hget`. `-DYASH_HGET=0` compiles it out. `md`, `dd`, and `mount` are not shell commands. Each `main.c` calls `fat_mount` before the prompt. `ds` calls it again when `fs_type` is 0, and `cpm` calls it before walking A: through P:. `hg_sum` stays file-scope and is shared by `hg_hexbyte`, `hg_cksum`, and `hg_record`. The seven per-ROM `ffconf.h` copies are gone. ChaN `ff` still uses `ff/source/ffconf.h` in z88dk-libraries.
+
+On `fd57ad9`, `YASH_HGET` was 0 and `ya_mkdrv` still called `hg_open`. A rebuild then, `WORK=/tmp/cpm-ide-hgv`, zcc `v25461-415806f08c-20260813`, 2026-10-08 12:56–13:03, finished `ok=7 fail=0` and printed `UNCHANGED` for every HEX. `__IO_CF_8_BIT` was left at `0x01`. Those blobs are `676d65b`, not the HEX files in the tree now.
+
+The same automatic split was tried on `master`, where `hget` is still compiled in. 8085 PATA grew to 32981 bytes, `__CODE_END` `$8036` (213 bytes over 32768, code overlapping DATA at `$8000`). The committed master 8085 PATA image is 32757 bytes, 11 under the limit. The smallest new frame on that object, `hg_wr`, was +16 bytes, so no partial of those frames fits. The trial was reverted in the working tree. `864f590` is the `ya_md` comment on top of tag `cpm-ide-v2.6`. Master's branched helpers stay static.
+
+The product boot path was left as it was. CRT page zero is the ROM-in vector. `cboot` and `rboot` still seed RAM after the latch. Z80 and 8085 CRT0 stay different. `common/bdos22.asm` and `common/bdos22_85.asm` were not edited to satisfy a test.
+
+### Installed image
+
+Gate lines from `/tmp/cpm-ide-fit-nomount/summary.txt` (`rebuild-hex.sh all`, zcc `v25461-415806f08c-20260813`, `ok=7 fail=0`). `__IO_CF_8_BIT` was left at `0x01`. These are the HEX files in the tree. `YASH_HGET` is 1.
 
 | Product | Bin | `__CODE_END` | Under 32768 |
 |---|---:|---:|---:|
-| z80-cf-acia | 31306 | `$798B` | 1462 |
-| z80-cf-uart | 31730 | `$7B07` | 1038 |
-| z80-cf-sio | 31893 | `$7BAA` | 875 |
-| z80-pata-sio | 32049 | `$7C47` | 719 |
-| 8085-cf-acia | 32151 | `$7CFE` | 617 |
-| 8085-cf-uart | 32403 | `$7DFA` | 365 |
-| 8085-pata-uart | 32453 | `$7E2C` | 315 |
+| z80-cf-acia | 30694 | `$7742` | 2074 |
+| z80-cf-uart | 31118 | `$78BE` | 1650 |
+| z80-cf-sio | 31286 | `$7967` | 1482 |
+| z80-pata-sio | 31443 | `$7A04` | 1325 |
+| 8085-cf-acia | 32033 | `$7CC2` | 735 |
+| 8085-cf-uart | 32285 | `$7DBE` | 483 |
+| 8085-pata-uart | 32342 | `$7DF7` | 426 |
 
-Every map has `bdos` `$F100`, `0006h` `$F106`, `fbase` `$F111`, Z80 CCP tail `$F100`, 8085 CCP tail `$F0EA`, BIOS `$F960`. z80-cf-acia `_main` is `$662A`. 8085-cf-acia `_main` is `$6831`. The old `$6B35` was the pre-hget link. Character harness after the vector-file removal: `BDOS_CHAR_OK`, latch bytes ok, Z80 403717 ticks at `$16D5`, 8085 313524 ticks at `$1748`, `isr_hits == 1`. The pre-hget bins (32631 and the six oversize images) are the run recorded under "ROM rebuild" in the review.
+8085 PATA `__CODE_END` `$7DF7` is 394 bytes below the `$7F81` gate. The 8085 CF lines stay `--opt-code-speed=all`. The 8085 PATA line stays the named list in `SPEED_8085_PATA` (`lshift32,rshift32,add32,sub32,sub16,intcompare,charcompare,longcompare,ucharmult,floatconst`). That list leaves `lib/z80rules.8` off.
 
-The entry is the v2.6 layout. `bdos` / `_cpm_bdos_head` is the page. Six serial bytes (`00 16 00 00 00 00` from `VER`/`REL`/`REV`/`SNH`/`SNL`) come first. `0006h` is `_cpm_bdos_fbase`, the `JP fbase` six bytes later. Four `DEFW` error words follow (`badsctr`, `badslct`, `rodisk`, `rofile`). `fbase` saves DE, clears status, saves the user SP with `add hl,sp` while HL is 0, switches to `bdos_stack`, clears `autoflag`/`auto`, pushes `goback`, and rejects C >= 41. It then indexes `functns` by two, loads the word, and `jp (hl)` with DE restored. Do not put a `JP` slot per function back. `ld de,sp` is not that stack save on both CPUs: on 8085 it is `ld de,sp+0`, and on Z80 the synthetic clobbers the parameter. Callers enter at `_cpm_bdos_fbase`, not at the serial. The host test does. The four error words hold the ROM handler addresses. Disk errors call those labels while ROM is in.
+Every map from that run: `bdos` `$F100`, `0006h` `$F106`, `fbase` `$F111`, `functns` `$F147`, Z80 CCP `$E8E0` tail `$F100`, 8085 CCP `$E880` tail `$F0EA`, BIOS `$F984`. Z80 `params` is `$F54C`. 8085 `params` is `$F550`. On z80-cf-acia, `_rodata_bdos_stub_head` is `$6F72` and `REGISTER_SP` is `$E8E0`. Host `test/bdos` and `test/fatfs` were not re-run for this link.
 
-The chain walker is `ex1_lp`. The old extent walker at `ex_lp` stays. `zg_z` keeps `ld a,0` after `or c`. `shr7` still consumes carry with `jp nc` before `or e`.
+The `676d65b` image, from `/tmp/cpm-ide-hgv`, had no `hget` and BIOS `$F960`: z80-cf-acia 31378 / `$79D2`, through 8085 PATA 32533 / `$7E7C`. On that HEX the stub was stored at `$7110`. `bdos22.asm` was not edited between that link and this one, so the phase bytes of the stub are the same and the file offset moved.
 
-ISA review is `BDOS-ISA-REVIEW.md`. The repair is in both BDOS files and every preamble. z80-cf-acia is relinked: 32726 bytes, `__CODE_END` `$7F11`, `_main` `$6B35`, `0006h` `$F106`, `fbase` `$F111`. ticks `break _main` stopped with PC `$6B35`. The same image prints the shell banner `RC2014 - CP/M-IDE - CF - ACIA` / `feilipu 2026`. Name compare calls `fold` (the fully inlined form was 32894 bytes). `fn_tell` `<<7` is seven `add hl,hl` (the 24-bit unroll was 32782 bytes). The +27 and +53 copy helpers are not in the image: the high gap after the 12-byte cache is 25 bytes (`$F637` to `$F650`). Close, make, and attr also void the name cache. `rebuild-hex.sh acia85` with `--opt-code-speed=all` was bin 33703, `__CODE_END` `$8308`, 935 bytes over 32768. The HEX was not replaced. A `/tmp` flag trial with CCP origin `$E880` (tail `$F0EA`, 22 bytes before `bdos`, length `$86A`) measured: no speed flag and `--opt-code-size` bin 33656; the PATA speed list bin 33606, `__CODE_END` `$82A7`, 838 bytes over. The product `=all` line stays. Uninstalled maps already show `fbase` `$F111` and stub BSS `$F63B`. The other five products are still the v2.6 BDOS. Do not commit. The pre-repair harness is `test/bdos/isa/run_isa.sh` and `test/bdos/isa/baseline.txt`. Post-`fn_tell` sequential TIMER is `/tmp/bdos-isa-seq-post.txt`. `BDOS-ISA-REVIEW.md` records the repair. `test/bdos/out/disk.txt` and `disk85.txt` are the post-repair run (33926426 / 44445384). `char.txt` and `char85.txt` are 404105 / 313787. The word-table figures in the bullets below are the earlier run and are not what those files hold now.
+`BDOS-ISA-REVIEW.md` keeps the earlier links under their own headings. "ROM rebuild" is the pre-hget run (z80-cf-acia 32631 installed, six images over 32768). "hget compiled out" is the 31306-byte table, md counters still static, `_main` `$662A`. "Repair results" and "8085-cf-acia does not fit" (bin 33703, `__CODE_END` `$8308`, `_main` `$6B35`) are the repair history. "Image at 676d65b" in that review is the `$F960` link. The table above is the HEX files in the tree.
 
-- Step 5 disk suite: Z80 ticks 34064167, 8085 ticks 44148001, `BDOS_DISK_OK`, no `FAIL`. Older ticks (7660838 / 9290162, and the gap-fail 34019501) are not this source.
-- Disk suite after the word-table entry: Z80 ticks 37987468, 8085 ticks 49386762, both `BDOS_DISK_OK`, no `FAIL`. Outputs `test/bdos/out/disk.txt` and `disk85.txt`. The JP-table run was 37992057 and 49391339.
-- Character suite after the word-table entry: `BDOS_CHAR_OK` on both CPUs, no `FAIL`. Latch bytes `AF D3 38 CD ?? ?? 3E 01 D3 38`. Z80 latch `$16CC`, ticks 403853. 8085 latch `$173C`, ticks 313463. The host calls `_cpm_bdos_fbase`. Entering at `bdos` executes the serial (`16h` is `ld d,0`) and drops the high byte of DE.
-- `bdos_warm` in `common/bdos22.asm` clears login, the disk R/O word, and `bdos_drive`. The host `wboot` calls it. The product `wboot` calls it as part of step 7.
-- Do not regress: `shr7` saves carry before `or e`; `cursor_after` reloads BC; rename pass 1 advances from `srch_ofs`; sync after `maybe_free`; synth lead `$05` stored as `$E5` skips the bit-7 mask. Resident stack stays `defs 160`. `bdos22.asm` may use Z80 `ldir` / `srl` / `sla`. `bdos22_85.asm` may use `rl de` and `copy_mem`. Neither file uses the other CPU's private opcodes. There is no separate stub file.
-- FAT32 still does not fit in the +test image. Do not poke `fs_type`. `__IO_CF_8_BIT` stays `0x01`. Do not rebuild `rc2014-8085_clib.lib`. Do not run two `zcc` jobs in `/tmp`.
-- Step 7 relink of the repaired BDOS is installed. `bdos` is `$F100`. `0006h` is `$F106`. `fbase` is `$F111`. The stored prefix is `00 16 00 00 00 00 C3 11 F1`. Dispatch at `$F136` on the current Z80 image is `4B 21 47 F1 5F 16 00 19 19 5E 23 56 2A 4C F5 EB E9` (`params` is `$F54C`; the old `2A 7D F5` is the pre-latch address). The pre-hget z80-cf-acia image was 32631 bytes, `__CODE_END` `$7EB1`, `_main` `$6B35`. The hget-cut install replaced it. Stub BSS on the SIO proof link ends at `$F606`. `srch_on` is `$F650`. The same image prints the shell banner. There is no board here. ticks emulates the ACIA and does not emulate the CF taskfile, so a mounted `A>` cannot be shown.
-- POWER.COM is the application named as needing this entry. The entry it needs is the serial, the `JP`, the four error words, and the word table above. No second program was confirmed from source. Turbo Pascal, Toolworks C/80, and Digital Link overwrite the six serial bytes (VCFE "CP/M 2.2 BDOS serial number clobbered"). MOVCPM compares serials. Those are a different use of the entry.
-- Resident map from that link: CCP `$E8E0`–`$F100`, high BDOS `$F100` with `fbase` `$F111`, data through `$F3D4` and BSS through `$F62B`, BDOS BSS `$F650`–`$F6C6`, `fat_bss` `$F6D0`–`$F954`, BIOS `$F960`–`$FBA6` then the stack at `$FBF0`, slot `SERIAL_DISPATCH` / `_acia_interrupt` at `$FBAD`, ISR `cpm_acia_isr` `$FAA2`, rings at `$FEC0` / `$FEE0` / `$FF00`. Storage of the high image is `_rodata_bdos_stub_head` `$74E3`. `LDI_128` `$F3C0`, `LDI_32` `$F3C6`, `LDI_16` `$F3CC`. Latch `bdos_latch_seq` `$F25D`. `REGISTER_SP` is `$E8E0`. The stub BSS ends 37 bytes before `srch_on`. The blocks do not overlap. Origins `$F650` / `$F6D0` / `$F960` were not moved. `gate_fat` checks `0006h == bdos+6` and that the CCP tail does not pass `bdos`. Rebuild this one ROM with `.agents/scripts/rebuild-hex.sh acia` (`BDOS_STUB_ORG` `$F100`, `BDOS_BSS_ORG` `$F650`, `FAT_BSS_ORG` `$F6D0`, BIOS `$F960`; flag stays `0x01`, no library rebuild). `gate_fat` is the live check for every product. `cf` builds the five CF ROMs. `all` builds PATA then those five.
-- `wboot` calls `bdos_warm` then `jp pboot`. `rboot` plants RAM `$0038` and the BIOS slot `SERIAL_DISPATCH` / `_acia_interrupt` with `JP cpm_acia_isr`. The BDOS three-byte slot is emitted only when `BDOS_STUB_ORG` is undefined. CCP copies use `LDI_128`, `LDI_32`, and `LDI_16` in the Z80 high piece. `srch_on` is public so the preamble can zero BDOS BSS. The preamble still copies `_rodata_bdos_stub_head` through `_bdos_stub_data_tail`. Drive A: has one DPH. `read` and `write` return A=1. Character links pass `-DBDOS_ROM_OMIT` and link `bdos_rom_fake.asm`. They do not link `bdos_romvec.asm`. Disk links name one BDOS file per CPU.
-- FBASE is the handler. `0006h` is `_cpm_bdos_fbase`, six bytes after the page. Every installed image from the hget-cut rebuild puts the page at `$F100`, `0006h` at `$F106`, and `fbase` at `$F111`. Do not quote the v2.6 handler (`$E211` / `$E311`) as the current entry.
-- The pre-hget seven-ROM run is in `BDOS-ISA-REVIEW.md` under "ROM rebuild". The hget-cut sizes are in the table above. The tightest image is 8085-pata-uart, 315 bytes under. The CF line stays `--opt-code-speed=all`. Do not put `=all` on 8085 PATA. Do not commit. Leave the pre-existing `common/yash.c` comment above `ya_md`, the two PDFs, the ticks history, and the MD5 COM files otherwise untouched. Maps are under `/tmp/cpm-ide-hget/`.
+### Entry
+
+`common/bdos22.asm` is the Z80 BDOS. `common/bdos22_85.asm` is the 8085 BDOS. Same labels and the same branches. Z80 shifts and block moves use `ldir`, `srl`/`rr`, and `sla`/`rl`. 8085 uses `copy_mem`, `rra` through A, and `rl de`. The disk entry is six shapes (`latch_reg`, `latch_fcb`, `latch_open`, `latch_find`, `latch_read`, `latch_write`) plus `go_line`. `functns` names those shapes. `rom_go` indexes `romfns` after the latch.
+
+`bdos` / `_cpm_bdos_head` is the page. Six serial bytes (`00 16 00 00 00 00`) come first. `0006h` is `_cpm_bdos_fbase`, the `JP fbase` six bytes later. Four `DEFW` error words follow (`badsctr`, `badslct`, `rodisk`, `rofile`). `fbase` starts with `ex de,hl`. It saves the user SP with `add hl,sp` while HL is 0, switches to `bdos_stack`, pushes `goback`, rejects C >= 41, indexes `functns` by two, and `jp (hl)` with DE restored. `ld de,sp` is the wrong save on both CPUs. Callers, including `test/bdos/bdos_host.asm`, enter at `_cpm_bdos_fbase`. Entering at the serial executes `16h` (`ld d,0`) and drops the high byte of DE. GOBACK returns with A = L and B = H. Function 12 stores `0022h`. An open miss stores `00FFh` in both the A/B pair and HL.
+
+Leave `ex1_lp`, `zg_z` (`ld a,0` after `or c`), and `shr7` (`jp nc` before `or e`) alone. `shr7` saves carry before `or e`. `cursor_after` reloads BC. Rename pass 1 advances from `srch_ofs`. Sync follows `maybe_free`. A synthetic lead `$05` stored as `$E5` skips the bit-7 mask. The resident stack stays `defs 160`. There is no 8080 BDOS and no `INCLUDE` of one file from the other. A `jp nz` loop stays a `jp nz` loop.
+
+POWER.COM needs this entry: the serial, the `JP`, the four error words, and the word list. Turbo Pascal, Toolworks C/80, and Digital Link overwrite the six serial bytes. MOVCPM compares serials. Those programs use the same six bytes for a different purpose.
+
+`bdos_warm` clears login, the disk R/O word, and `bdos_drive`. The host `wboot` calls it. The product `wboot` calls `bdos_warm` then `jp pboot`. Character links pass `-DBDOS_ROM_OMIT` and link `bdos_rom_fake.asm`. Under that flag the four error labels alias one `ret`. Disk links name one BDOS file per CPU and the four words are distinct handlers. `gate_fat` checks `0006h == bdos+6` and that the CCP tail does not pass `bdos`. `rebuild-hex.sh all` builds PATA, then the five CF ROMs. The v2.6 handler addresses (`$E211` / `$E311`) belong to tag `cpm-ide-v2.6`.
+
+### Tests recorded with the image
+
+`sh test/bdos/run.sh`, then `sh test/bdos/run_disk.sh`. They share `/tmp` and `zcc_opt.def`, so they run one after the other. Both were green on `676d65b`. They were not re-run after `075318e`, `7c0ad9b`, or the `hget` link in the tree now. Those later edits did not change `bdos22.asm`.
+
+| Suite | Z80 | 8085 | Log |
+|---|---:|---:|---|
+| Character `BDOS_CHAR_OK` | 439263 | 337435 | `test/bdos/out/char.txt`, `char85.txt` |
+| Disk `BDOS_DISK_OK` | 34124468 | 44631847 | `test/bdos/out/disk.txt`, `disk85.txt` |
+
+The character run checks the serial, the `C3` at offset 6, the JP target equal to head+17, `EB` at fbase, function 12 still returning A/B and HL `0022h` after the six serial bytes are overwritten with `A5`, the index encoding `21 ?? ?? 5F 16 00 19 19 5E 23 56`, and words 0, 12, 38, 39, and 40. GOBACK is checked for function 12 (`0022h`), function 11 with an empty console (0) and with a pushed key (`00FFh`), and function 41 (0). The disk run checks that the four error words are pairwise distinct and nonzero, that an open miss returns A/B and HL `00FFh`, that a successful open returns the same directory code 0..3 in A/B and HL, and that function 27 returns the `fatwin` address in both. Select, disk R/O, and file R/O messages are provoked. `badsctr` is not. The character link does not require the four error words to differ.
+
+Earlier tick figures live in `BDOS-ISA-REVIEW.md` (403717 / 313524 after the hget cut, 33926426 / 44445384 and the repair-era numbers). `test/bdos/isa/baseline.txt` was not overwritten. `test/bdos/out/*.bin` and `*.map` stay uncommitted.
+
+## Open issues
+
+Closed items stay here so a later edit does not reopen them. The others are still open.
+
+1. **Closed. `hget` is in the seven HEX files.** `YASH_HGET` defaults to 1. 8085 PATA is 32342 bytes, `__CODE_END` `$7DF7` (426 under 32768, 394 before `$7F81`). `md`, `dd`, and the shell `mount` command are gone. An 8 MB `.CPM` image is a file on the FAT volume. Extract it with cpmtools into a letter directory. `cpm` does not mount the image. `-DYASH_HGET=0` still compiles the receiver out.
+
+2. **The host harness enters at `_cpm_bdos_fbase`.** BIOS cold boot is what plants the jump at RAM `0005`. The suites call the symbol directly.
+   Future run: boot one product image under ticks through `cboot` and check that the planted word at `0005` is `JP` to `$F106`. Leave the fbase instruction sequence as it is.
+
+3. **`badsctr` is not provoked.** The RAM disk never fails a read. Select, disk R/O, and file R/O already print their messages and take the warm-boot hook.
+   Future run: a host hook that makes one `disk_read` fail, then assert the Bad Sector wait for CTRL-C and for retry. The BDOS source stays unchanged. Add the hook in the disk harness, which already requires the four error words to be distinct. The character link aliases those words under `BDOS_ROM_OMIT` and should keep doing so.
+
+4. **The CCP image is not executed.** DIR, ERA, TYPE, SAVE, REN, USER, and EXIT call BDOS functions that the disk and character suites cover one function at a time. CCP `EXTRACT` (`TBUFF + (A & 3) * 32`) is specified below and the search tests check the directory image. The CCP binary itself is not loaded.
+   Future run: after a RAM page-zero plant, load the linked CCP into ticks. Run one command that searches (`DIR`) and one that uses the line editor.
+
+5. **A mounted `A>` has not been shown.** There is no board in this environment. ticks emulates the ACIA. It does not emulate CF taskfile ports `$10`–`$17` or the ROM latch at port `$38`. Flat 64K keeps ROM visible when `cboot` writes `$01`. A ticks banner is the shell, which is a different gate from a CCP prompt.
+   Future run: a board pass in the order already written under Tests (CCP `DIR`, `ERA`, `REN`, `TYPE`, `SAVE`, `USER`, then PIP, STAT, ASM, LOAD, DDT), or a taskfile emulator that can mount. Report a mounted prompt only from that pass.
+
+6. **Master and this branch are different shells.** Master is the container line. Its 8085 PATA image still has `hget` and is 11 bytes under 32768. This branch mounts letter directories and includes `hget` because `md`, `dd`, and `mount` are gone. The automatic-frame trial on master was reverted. `864f590` is unpushed.
+   Future run: leave the branched functions static on `master`. Push `864f590` only when asked. Leave tag `cpm-ide-v2.6` at `1df2f37`.
+
+7. **`hg_sum` stays file-scope.** `hg_hexbyte`, `hg_record`, and `hg_cksum` share it. A pointer parameter would give the frameless helpers their first automatic. The symbol is in the default ROM because `YASH_HGET` is 1.
+   Future run: leave `hg_sum` file-scope.
+
+8. **A few limits are accepted and are not open defects.** Function 0 is specified as warm-boot with no return; the suites count `wboot` hits from the error paths and do not add a separate "function 0 does not return" case. The FAT32 `+test` image still does not fit. `fs_type` stays unpoked. GPT stays out until functions 0–40 pass on an MBR FAT32 image. `test/fatfs` `MINIFAT_OK` and the BDOS suites were last green on `676d65b`. They were not re-run for the directory mount or for the `hget` link.
+   Future run: after the next BDOS or mini-FAT edit, re-run `test/bdos/run.sh`, `test/bdos/run_disk.sh`, and `test/fatfs/run.sh`. A green host suite is the host gate. It is a different result from item 5.
+
+9. **The RC2014 repository.** Its v2.6 release is its own tag. This branch has not been copied there.
+   Future run: sync that tree only when asked.
+
+10. **Size tables in these two files go stale as soon as the next link moves.** The 31306-byte table and the character ticks 403717 / 313524 used to sit in this status block as if they were current.
+    Future run: when a rebuild changes a HEX file, replace the table in this action report and add a dated subsection in `BDOS-ISA-REVIEW.md`. Leave "ROM rebuild", "hget compiled out", "Repair results", the ISA kernel tables, and `test/bdos/isa/baseline.txt` as the record of those runs.
 
 ## Decision
 
@@ -64,7 +127,7 @@ Read these while implementing. Do not vendor them into the tree.
 - John Elliott, CP/M 2.2 call surface: [BDOS system calls](https://www.seasip.info/Cpm/bdos.html), [File Control Block](https://www.seasip.info/Cpm/fcb.html), [last record byte count](https://www.seasip.info/Cpm/bytelen.html), and [DOSPLUS on a DOS filesystem](https://www.seasip.info/Cpm/dosplus_fat.html). Where Elliott describes CP/M 3, MP/M, or DOS Plus, that behaviour is out of the first target. DOS Plus is a prior FCB-on-FAT system: extent `?` must list 16 KB steps, and `EXM` on DOS media is 0. Its directory-bit and label tricks are CP/M-86 v4, not 2.2.
 - Digital Research, *CP/M Operating System Manual*, September 1983, chapters 1, 5, and 6: <http://www.gaby.de/cpm/manuals/archive/cpm22htm/>. Chapter 5 is the function contract. Chapter 6 is the DPB and the allocation-vector size. Chapter 1 is the console editing and the three BDOS error waits. The HTML extract mislabels function 2’s entry as `C = 01H` and Table 1-1’s CTRL-I as line-feed. The function 2 body and Table 5-3 are the authority: function 2 is `C = 02H`, CTRL-I is tab, CTRL-J is line-feed.
 - Microsoft FAT specification 1.03 (`fatgen103`) for the BPB, FSInfo, 8.3 directory entry, `0xE5`/`0x05`, and end-of-chain values.
-- ChaN FatFs R0.16 (`ff.c`) where 1.03 is silent and mini-FAT already says it follows ChaN. The published difference we keep: `nclst == $FFF5` stays FAT16 (ChaN `MAX_FAT16`). Spec 1.03 would call that volume FAT32.
+- ChaN FatFs R0.16 (`ff.c`) where 1.03 is silent and mini-FAT already says it follows ChaN. Two published differences: `nclst <= $0FF5` is rejected as FAT12 (spec 1.03 treats 4085 as FAT16), and `nclst == $FFF5` stays FAT16 (ChaN `MAX_FAT16`; spec 1.03 would call that volume FAT32). The mount suite does not build either count. JumpBoot is not checked. `55AA` is required. `BPB_Media` is never read.
 - Nextor kernel, the MSX-DOS 2.31 sources it was built on: `source/kernel` in [Konamiman/Nextor](https://github.com/Konamiman/Nextor). Useful files are `bdos.mac` (FCB functions), `fat.mac`, `dir.mac`, `find.mac`, `rw.mac`, and `buf.mac`. The published terms do not allow copying that source. Reimplement against mini-FAT.
 
 Nextor layout, from the local note: bank 0 is the `CALL 5` entry (`bdos.mac` and the boot files). Bank 2 is the filesystem. A CP/M program uses a function number and an FCB. The FCB layer builds one directory object (name, start cluster, size, attributes) and then uses the same read and write path as the rest of the kernel. An extent in that layer is a 16 KB file position (128 records), not a row of block numbers. The next cluster is cached beside that position so a sequential read does not restart at the first cluster. Allocation is the FAT free scan.
@@ -93,7 +156,7 @@ The DRI disk BDOS in `cpm22.asm` (allocation vector, extent block map, directory
 
 The latch is port `__IO_ROM_TOGGLE` (`$38`). Data `$00` maps ROM over `$0000`–`$7FFF`. Data `$01` maps RAM there. `$8000`–`$FFFF` is always RAM. Both CPUs already use this port. `cboot` writes `$01`. `wboot` writes `$00` and jumps to `pboot`, which copies the resident image and returns through `qboot`, which writes `$01` again.
 
-A transient program reads the TPA ceiling from the word at `0006h`. That word is the resident BDOS entry. Everything above it is reserved. Everything from `$0100` up to it, including the reloadable CCP, is the TPA. The current ceilings are `$E200` on the two SIO ROMs and `$E300` or `$E400` on the others, because the whole disk BDOS and the disk half of the BIOS sit in that reserved block.
+A transient program reads the TPA ceiling from the word at `0006h`. That word is the resident BDOS entry. Everything above it is reserved. Everything from `$0100` up to it, including the reloadable CCP, is the TPA. On tag `cpm-ide-v2.6` those ceilings are `$E200` on the two SIO ROMs and `$E300` or `$E400` on the others, because the whole disk BDOS and the disk half of the BIOS sit in that reserved block. On this branch the linked word is `$F106`.
 
 This branch reserves only what cannot run from the ROM window:
 
@@ -184,6 +247,8 @@ The first link measures `0006h`. The old origins (`$D9E0` / `$E200` / `$F100` an
 
 ## Files the implementation will add
 
+These paths are in the tree.
+
 | Path | Role |
 | --- | --- |
 | `CPM-IDE-MSX.md` | This plan. Written on approval. |
@@ -193,7 +258,7 @@ The first link measures `0006h`. The old origins (`$D9E0` / `$E200` / `$F100` an
 
 The old disk BDOS in each `cpm22.asm` comes out of the link in the same change that points `0005h` at the stub. The PHASE IDE sequence comes out of each `cpm22bios.asm` in the same change that leaves one ROM copy. Character BIOS stays PHASE’d in that file.
 
-First ROM to link is `z80-cf-acia`. The 8085 PATA image is already 32757 bytes, and that limit is the ROM image, not the TPA. Do not aim the first link at it. If the shell plus ROM BDOS plus the one IDE driver passes 32768 bytes, the MSX ROM boots the CCP from the FAT volume and the shell stays on the v2.6 line. The TPA number to report is the linked `0006h`.
+The first ROM linked was `z80-cf-acia`. The v2.6 8085 PATA image was already 32757 bytes, and that limit is the ROM image, not the TPA. All seven products are now on this map. The shell stayed in every image. `0006h` is `$F106`. Sizes are in the action report.
 
 ## Disk model
 
@@ -407,15 +472,17 @@ Field order and widths are chapter 6 Figure 6-4: SPT, DSM, DRM, CKS, OFF are 16-
 
 Function 27 fills `fatwin` and returns its address. The bitmap is `(DSM/8)+1` bytes. Bit 7 of the first byte is block 0 (Elliott). A set bit means used. The call sets the whole vector, then clears `min(free FAT bytes, 4 MB) / 2048` bits at the high end. The pointer is valid until the next disk call, which reuses `fatwin`. File I/O never reads this vector. It is a free-space count in CP/M’s bit order, not a map of which clusters a file owns. The manual allows the vector to be stale while the disk is read-only; rebuilding it on each call is the fresher of the two legal results.
 
-## Mini-FAT work this BDOS needs
+## Mini-FAT
 
-Keep the current mount checks, both-FAT mirror, `0x05`/`0xE5`, FAT16 root multiple of 16, FAT32 version 0 and root count 0, cluster size at most 32 KB, and the ChaN `$FFF5` rule.
+Keep the mount checks, both-FAT mirror, `0x05`/`0xE5`, FAT16 root multiple of 16, FAT32 version 0 and root count 0, cluster size at most 32 KB, and the two ChaN cluster-count rules (`$0FF5` rejected, `$FFF5` stays FAT16).
 
-Add three behaviours. Each one is specified here so the assembler change stays small and the existing `MINIFAT_OK` suite still passes.
+These three are in both FAT files and in `test/fatfs/test_minifat.c`:
 
-1. Zero the new cluster inside `create_chain` before the FAT link is published. A failed zero leaves the FAT unchanged.
-2. Directory stretch on FAT32 only, ChaN `dir_clear`: when `dir_create` finds no hole and the chain is at end, allocate, zero, and link one cluster. FAT16 root stays a fixed `RootEntCnt` and make returns `0FFh` when it is full.
-3. FSInfo. On a successful sync after a free-count or next-free change, write `FSI_Free_Count` and `FSI_Nxt_Free` from the values mini-FAT already keeps, or clear the FSInfo signature so the host recomputes. One of those two. A single FAT update is not enough; the mirror path stays.
+1. `create_chain` zeros the new cluster before the FAT link is published. A failed zero leaves the FAT unchanged. `alloc_wipe` covers it.
+2. Directory stretch is `dir_create` on FAT32 only, when the chain is at end: allocate, zero, and link one cluster. FAT16 root stays a fixed size. `fat32_stretch` and `fat16_root_full` cover it.
+3. A sync writes `FSI_Free_Count` and `FSI_Nxt_Free` when the free count or `fat_last_clst` changed. `fsinfo_alloc` checks that write. The suite does not check the values read back at mount, and it does not mount a bad FSInfo sector.
+
+Not in the suite: `nclst` of `$0FF5` and of `$FFF5`, a VBR with no JumpBoot, an MBR image, and `BPB_Media`. The code's choices for those are in the `fatfs.asm` header.
 
 GPT and logical partitions stay out of the first milestone. `fat_mount` today reads a VBR at LBA 0 and four MBR primaries. Test images are built that way. A GPT basic-data partition is a later mount change, after functions 0–40 pass on an MBR FAT32 image. Many large cards are GPT; that is why it is recorded, and why it is not allowed to block the call surface.
 
@@ -425,7 +492,7 @@ Not in the first dispatcher. Function 12 keeps returning `0022h`. A later build 
 
 ## Tests
 
-Host tests under `test/bdos/`, driven the same way as `test/fatfs/run.sh` (z88dk-ticks, Z80 and 8085). Each test calls the BDOS entry with C and DE and checks A/HL and the DMA or FCB bytes. The oracle is this document.
+Host tests under `test/bdos/`, driven the same way as `test/fatfs/run.sh` (z88dk-ticks, Z80 and 8085). Each test calls the BDOS entry with C and DE and checks A/HL and the DMA or FCB bytes. The oracle is this document. On `676d65b` both suites printed `BDOS_CHAR_OK` and `BDOS_DISK_OK` on Z80 and 8085. The tick counts and the gaps are in the action report. `fd57ad9` did not change the BDOS or the default ROM, and the suites were not re-run after it.
 
 `test/fatfs/run.sh` still prints `MINIFAT_OK` on Z80 and 8085 after the `create_chain` zero and the stretch change.
 
@@ -458,20 +525,20 @@ Fixtures: a small FAT16 volume, a FAT32 volume, a fragmented file (cluster chain
 
 Fragmented fixture: write a file, force the next `create_chain` to skip a cluster, write more, read the whole file back. The bytes match. This is the case the v3 pack got wrong; the test lives next to the BDOS, not in a pack suite.
 
-Live card runs come after the host suite is green: CCP `DIR`, `ERA`, `REN`, `TYPE`, `SAVE`, `USER`, then PIP, STAT, ASM, LOAD, and DDT from the existing drive images. That pass uses the board and is not part of the first host milestone.
+Live card runs come after the host suite is green: CCP `DIR`, `ERA`, `REN`, `TYPE`, `SAVE`, `USER`, then PIP, STAT, ASM, LOAD, and DDT from the existing drive images. That pass uses the board. It is open issue 5. The host suite being green does not stand in for it.
 
 Add one host test that is about the latch rather than a function result. A disk call (function 15 or 20) writes `$00` to the toggle port before the ROM entry and `$01` before the return. While the toggle is `$00`, a simulated RST 38 (Z80) or INT 6.5 (8085) reaches the resident ISR and does not enter the ROM library ISR. The staged FCB is what the ROM entry sees when the caller’s FCB was below `$8000`. The caller’s stack pointer is unchanged on return.
 
 ## Order of work
 
 1. Branch `cpm-ide-msx` and land this file. Done. The contract sections are the authority for the code that follows.
-2. Mini-FAT: zero-on-allocate, FAT32 directory stretch, FSInfo write. Done in `fatfs.asm` and `fatfs_85.asm`. `MINIFAT_OK` is green on Z80 and 8085 for that suite. `fat_bss` stays in `bss_compiler` until the resident stub in step 3.
-3. Resident stub, `SERIAL_DISPATCH`, and the ROM vector `JP`. Done. `test/bdos/run.sh` prints `BDOS_CHAR_OK` on Z80 and 8085, including the latch test. The function 10 editor is step 4; the stub already stages the line. `fat_bss` stays in `bss_compiler` until the step 7 link.
-4. ROM disk BDOS: directory walker, search image, open, close, make, delete, rename, attributes, and the function 10 editor. Tests 15–19, 22, 23, 30, 32, plus function 10. The PHASE IDE sequence stays in each BIOS until the step 7 link.
-5. Sequential and random I/O on fragmented FAT16 and FAT32. Tests 20, 21, 33–36, 40.
-6. Login, DPB, allocation count in `fatwin`, software read-only. Tests 13, 14, 24–29, 31, 37.
-7. Link `z80-cf-acia` with `0005h` aimed at the stub and the old disk BDOS out of the image. Record `0006h` and the ROM size. Decide whether that ROM still has room for the shell.
-8. The other six trees are converted to the same FAT map. Z80 ACIA is the only product that keeps the 3-byte `SERIAL_DISPATCH` slot. Z80 UART and both 8085 serial paths plant the ISR address directly (`$0038` or `$0034`). SIO keeps IM 2 and does not grow a slot. A product whose `.bin` is over 32768 bytes does not replace its HEX.
+2. Mini-FAT: zero-on-allocate, FAT32 directory stretch, FSInfo write. Done in `fatfs.asm` and `fatfs_85.asm`. `MINIFAT_OK` is green on Z80 and 8085 for that suite. The step 7 link later placed `fat_bss` at `$F6D0`.
+3. Resident stub, `SERIAL_DISPATCH`, and the ROM vector `JP`. Done. `test/bdos/run.sh` prints `BDOS_CHAR_OK` on Z80 and 8085, including the latch test. The function 10 editor is step 4; the stub already stages the line. The step 7 link placed `fat_bss` at `$F6D0`.
+4. ROM disk BDOS: directory walker, search image, open, close, make, delete, rename, attributes, and the function 10 editor. Tests 15–19, 22, 23, 30, 32, plus function 10. Done in the disk suite. The step 7 link took the PHASE IDE sequence out of each BIOS.
+5. Sequential and random I/O on fragmented FAT16 and FAT32. Tests 20, 21, 33–36, 40. Done in the disk suite.
+6. Login, DPB, allocation count in `fatwin`, software read-only. Tests 13, 14, 24–29, 31, 37. Done in the disk suite.
+7. Link `z80-cf-acia` with `0005h` aimed at the stub and the old disk BDOS out of the image. Done. `0006h` is `$F106`. The shell stayed in the image. `fat_bss` is at `$F6D0`. Sizes are in the action report.
+8. The other six trees use the same FAT map. Done. All seven HEX files passed the 32 KiB gate. Z80 ACIA is the only product that keeps the 3-byte `SERIAL_DISPATCH` slot. Z80 UART and both 8085 serial paths plant the ISR address directly (`$0038` or `$0034`). SIO keeps IM 2 and does not grow a slot. A product whose `.bin` is over 32768 bytes does not replace its HEX. The board `A>` is open issue 5.
 
 ## ROM and code rules
 

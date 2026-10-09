@@ -53,14 +53,11 @@ struct Builtin builtins[] = {
     { "mkdir", &ya_mkdir, "<path> - create a directory"},
     { "cp", &ya_cp, "<src> <dst> - copy a file"},
     { "mv", &ya_mv, "<src> <dst> - rename or move a file"},
-    { "mount", &ya_mount, "- mount a FAT file system"},
 
 // disk related functions
     { "ds", &ya_ds, "- disk status"},
-    { "dd", &ya_dd, "[sector] - disk dump, sector in decimal"},
 
 // system related functions
-    { "md", &ya_md, "[origin] - memory dump, origin in hexadecimal"},
     { "help", &ya_help, "- this is it"},
     { "exit", &ya_exit, "- exit and restart"}
 };
@@ -670,39 +667,6 @@ static void hist_down(char *line, uint16_t *pos, uint16_t maxlen)
     }
 }
 
-static void put_hex(uint16_t v, uint8_t digits)
-{
-    uint8_t n;
-    char c;
-
-    n = digits;
-    while (n) {
-        --n;
-        c = (char)((v >> (n << 2)) & 0x0F);
-        c += (c < 10) ? '0' : ('A' - 10);
-        fputc(c, output);
-    }
-}
-
-void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt)
-{
-    uint8_t i;
-
-    put_hex(ofs, 4);
-    fputc(':', output);
-
-    for(i = 0; i < cnt; ++i) {
-        fputc(' ', output);
-        put_hex(buff[i], 2);
-    }
-    fputc(' ', output);
-    for(i = 0; i < cnt; ++i) {
-        fputc((buff[i] >= ' ' && buff[i] <= '~') ? buff[i] : '.', output);
-    }
-    fputc('\n', output);
-}
-
-
 /*
   Builtin function implementations (CLI user functions, ya_*).
 */
@@ -1065,35 +1029,6 @@ int8_t ya_hget(char ** args)   /* receive an Intel HEX file */
     return 1;
 }
 #endif
-
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "md". args[1] is an optional origin in hexadecimal.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_md(char ** args)      /* dump RAM contents from nominated origin. */
-{
-    static uint8_t * origin = 0;   /* next page, remembered across md */
-    uint16_t ofs;
-    uint8_t * ptr;
-
-    if (args[1] != NULL) {
-        origin = (uint8_t *)strtoul(args[1], NULL, 16);
-    }
-
-    fputc('\n', output);
-    fprintf(output, "Origin: ");
-    put_hex((uint16_t)origin, 4);
-    fputc('\n', output);
-
-    for (ptr=origin, ofs = 0; ofs < 0x100; ptr += 16, ofs += 16) {
-        put_dump(ptr, ofs, 16);
-    }
-
-    origin += 0x100;            /* go to next page (next time) */
-    return 1;
-}
-
 
 /**
    @brief Builtin command:
@@ -1541,19 +1476,6 @@ int8_t ya_mv(char ** args)
 }
 
 
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "mount".
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_mount(char ** args)    /* mount a FAT file system */
-{
-    (void *)args;
-    put_rc(fat_mount());
-    return 1;
-}
-
-
 /*
   disk related functions
  */
@@ -1609,32 +1531,6 @@ int8_t ya_ds(char ** args)      /* disk status */
         cpm_fat_vol.fatbase, cpm_fat_vol.dirbase, cpm_fat_vol.database);
     return 1;
 }
-
-
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "dd". args[1] is an optional sector.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_dd(char ** args)      /* disk dump */
-{
-    DRESULT res;
-    static uint32_t sect;          /* next sector, remembered across dd */
-    uint16_t ofs;
-    uint8_t * ptr;
-
-    if (args[1] != NULL) {
-        sect = strtoul(args[1], NULL, 10);
-    }
-
-    res = disk_read(0, buffer, sect, 1);
-    if (res != 0) { fprintf(output, "rc=%u\n", (uint8_t)res); return 1; }
-    fprintf(output, "PD#:0 LBA:%lu\n", sect++);
-    for (ptr=(uint8_t *)buffer, ofs = 0; ofs < 0x200; ptr += 16, ofs += 16)
-        put_dump(ptr, ofs, 16);
-    return 1;
-}
-
 
 
 /*

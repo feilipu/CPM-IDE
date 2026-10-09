@@ -3,6 +3,8 @@
 Host-side `cpmtools` reads and writes the CP/M files inside an 8 MB `.CPM` image
 (see `README.md` → *CP/M TOOLS Usage*). The host operating system copies the `.CPM`
 files themselves on the FAT volume. It does not see the files stored inside an image.
+The ROM command `cpm` does not mount these images. It mounts FAT directories named
+`A` through `P`. Use `cpmcp` to extract an image into such a directory.
 
 This file records the `rc2014-8MB` diskdef, the two bugs found while validating it, and
 the recipes to rebuild the tools. The reusable procedure lives in

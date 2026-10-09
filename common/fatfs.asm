@@ -3,7 +3,7 @@
 ;
 ; Same PUBLIC API, BSS names, and function contracts as fatfs_85.asm /
 ; fatfs.h. ROM-resident, no PHASE. Shell buffers live in fat_bss.asm
-; (RAM). The CP/M deblock buffer stays in the BIOS.
+; (RAM). The sector window is fatwin.
 ;
 ; C: PUBLIC _names. Pointers are __z88dk_fastcall (HL).
 ; DWORD cluster/LBA is BCDE (E LSB); _fat_next/_fat_alloc/_fat_free/
@@ -27,7 +27,9 @@
 ; FatFs cases we honour:
 ;   cluster < 2 invalid; n_fatent = nclst + 2
 ;   FAT16 EOC $FFF8..$FFFF; FAT32 EOC $0FFFFFF8..F (put_fat keeps bits 28-31)
+;   nclst <= $0FF5 is rejected as FAT12 (spec 1.03 treats 4085 as FAT16)
 ;   nclst == $FFF5 stays FAT16 (ChaN MAX_FAT16; spec 1.03 would use FAT32)
+;   Neither boundary is built by test/fatfs. BPB_Media is never read.
 ;   FAT16 root count is a non-zero multiple of 16
 ;   FAT32 requires FSVer == 0 and RootEntCnt == 0 (those sectors are not in sysect)
 ;   csize is 2^n and at most 64 sectors (32 KB)
@@ -42,8 +44,11 @@
 ;   SFD (VBR at LBA 0) then four MBR primary partitions
 ;   1 or 2 FATs; csize power of 2; BytsPerSec == 512
 ;
-; FatFs cases we skip (on purpose):
-;   JumpBoot $EB/$E9/$E8; GPT protective MBR; logical partitions
+; Checks this file does not make:
+;   JumpBoot. 55AA is required. ChaN accepts some VBRs that have no 55AA.
+;   BPB_Media. Partition type. GPT and extended partitions fail the VBR check.
+;
+; Other limits:
 ;   dir_next itself does not stretch (dir_create does, FAT32 only)
 ;   dir_zap is E5 only; the caller frees the chain with _fat_free
 ;
@@ -104,7 +109,7 @@ PUBLIC  dir_sdi             ;seek directory to byte offset
 PUBLIC  dir_next            ;next 32-byte dirent (no stretch)
 PUBLIC  dir_find            ;find 8.3 in current directory
 PUBLIC  _dir_find           ;C: dir_find
-PUBLIC  dir_create          ;alloc/register 8.3 (no stretch)
+PUBLIC  dir_create          ;alloc/register 8.3 (FAT32 may stretch)
 PUBLIC  _dir_create         ;C: dir_create
 PUBLIC  dir_zap             ;mark dirent deleted (E5)
 PUBLIC  _dir_zap            ;C: dir_zap
@@ -388,7 +393,7 @@ fat_move_do:
 ;------------------------------------------------------------------------------
 ; fat_check_vbr — ff.c check_fs (FAT/FAT32 only)
 ; Require 55AA, 512-byte sectors, csize 2^n and <= 64, reserved != 0, 1 or 2 FATs.
-; No JumpBoot $EB/$E9/$E8 (ff accepts early MS-DOS VBRs without 55AA).
+; JumpBoot is not checked. 55AA is required.
 ; C = looks like a FAT16/32 VBR (type decided later from nclst).
 ;------------------------------------------------------------------------------
 fat_check_vbr:
@@ -459,8 +464,8 @@ fat_ide_br1:
 ; fat_mount — ff.c find_volume + mount_volume
 ; LBA 0 as SFD VBR; else four MBR primary PTEs (no GPT, no extended).
 ; nclst from (tsect - reserved - fats - rootsecs) / csize.
-; FAT12 (nclst <= $0FF5) fails; FAT16 <= $FFF5; else FAT32.
-; nclst == $FFF5 stays FAT16 (ChaN; spec 1.03 would call it FAT32).
+; nclst <= $0FF5 fails as FAT12. Spec 1.03 would call 4085 FAT16.
+; nclst == $FFF5 stays FAT16. Spec 1.03 would call it FAT32. Above that, FAT32.
 ; FAT32 dirbase = BPB_RootClus32 (cluster); FAT16 dirbase = root LBA.
 ; OUT: C OK
 ;------------------------------------------------------------------------------

@@ -44,7 +44,7 @@ The shell FatFs path links the z88dk IDE driver. `__IO_CF_8_BIT` in `$Z88DK/libs
 
 After a flag change: `make -C $Z88DK/libsrc/newlib rc2014-clean rc2014`. Remove `rc2014-8085_clib.lib` then `make -C $Z88DK/libsrc rc2014-8085_clib.lib` and copy it to `$Z88DK/lib/clibs/`. Include-only changes do not rebuild with `z80asm -d`.
 
-`rebuild-hex.sh` does that switch itself and leaves the flag at 1. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls` / `mount 1`. Delayed `mount` can still print `FR_OK`. The default run builds the UART ROMs in the same PATA-then-CF order.
+`rebuild-hex.sh` does that switch itself and leaves the flag at 1. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls`. A later `fat_mount` can still print `FR_OK`. The default run builds the UART ROMs in the same PATA-then-CF order.
 
 ## Pitfalls
 

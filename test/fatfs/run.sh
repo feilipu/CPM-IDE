@@ -19,7 +19,7 @@ gcc -D__RC2014 -D__SDCC -I"$HERE/host" -I"$FFSRC" \
 "$HERE/out/oracle" "$HERE/out/fat_small.bin" | tee "$HERE/out/ff-small.txt"
 "$HERE/out/oracle" "$HERE/out/fat16.bin" | tee "$HERE/out/ff-fat16.txt"
 
-echo "=== BIOS deblock ticks (READ/WRITE -> readhst/writehst -> ram IDE) ==="
+echo "=== v2.6 BIOS deblock ticks (not this branch BIOS) ==="
 ( cd /tmp && zcc +test -vn -m \
     -I"$HERE" \
     "$HERE/test_bios_disk.c" "$HERE/bios_disk.asm" "$HERE/ide_ram.asm" \
@@ -29,7 +29,7 @@ z88dk-ticks "$HERE/out/biosdisk.bin" -x "$HERE/out/biosdisk.map" \
     -counter 999999999 | tee "$HERE/out/biosdisk.txt"
 grep -q 'bios_fails 0' "$HERE/out/biosdisk.txt"
 
-echo "=== BIOS deblock 8085 ticks ==="
+echo "=== v2.6 BIOS deblock 8085 ticks (not this branch BIOS) ==="
 ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
     -I"$HERE" \
     "$HERE/test_bios_disk.c" "$HERE/bios_disk_85.asm" "$HERE/ide_ram_8085.asm" \
@@ -39,7 +39,7 @@ z88dk-ticks -m8085 "$HERE/out/biosdisk85.bin" -x "$HERE/out/biosdisk85.map" \
     -counter 999999999 | tee "$HERE/out/biosdisk85.txt"
 grep -q 'bios_fails 0' "$HERE/out/biosdisk85.txt"
 
-echo "=== master tree BIOS deblock (setLBAaddr -> ram IDE) ==="
+echo "=== master tree BIOS deblock (git show master: when setLBAaddr is absent) ==="
 run_master_disk() {
     tree="$1"
     cpu="$2"
