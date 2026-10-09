@@ -420,6 +420,8 @@ past 32 KiB (closest is CF ACIA, 33086 bytes, `__CODE_END` `$809A`).
 | Z80 CF UART | 31426 | `$79F3` | 1342 | |
 | Z80 CF ACIA | 31004 | `$7877` | 1764 | |
 
+That table is the 80cc link before `CPMIDE.CFG`. The HEX files in the tree now also read that file. The later link is in `CPM-IDE-MSX.md`: 8085 PATA 32421 / `$7E46` (315 bytes before `$7F81`), Z80 PATA 32395 / `$7DBC`. `__IO_CF_8_BIT` stayed `0x01`. `0006h` is still `$F106` and BIOS is still `$F984`.
+
 Host suites after that switch. 8085 lines that fit use `-compiler=80cc`. The Z80
 host lines stay on the `+test` default (sccz80).
 

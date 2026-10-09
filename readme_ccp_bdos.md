@@ -64,6 +64,6 @@ A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entri
 
 `mkdir` and `cp` free a new cluster chain when the directory update does not finish. `cp` also releases that chain when the source has walked as many clusters as the volume has. It does this before the new name is written. A file read walks the FAT chain, including a chain that is more than one run.
 
-`cpm <directory>` records the start cluster of each letter directory `A` through `P` inside that directory. A missing letter stays empty. `A` has to be present or CP/M does not start.
+`cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the root. A line is a letter `A`–`P` and a directory path, separated by a space or `=`. A `#` or `[` line is skipped. `cpm <directory>` records the start cluster of each letter directory `A` through `P` inside that directory. A missing letter stays empty. `A` has to be present or CP/M does not start.
 
 Two cluster counts follow ChaN rather than Microsoft FAT specification 1.03. `nclst <= $0FF5` is rejected as FAT12. The specification treats a count of 4085 as FAT16. `nclst == $FFF5` stays FAT16. The specification would use FAT32. The mount suite does not build either boundary. A third limit is local: `BPB_SecPerClus >= 65` (a 64 KiB cluster) is refused with `L = 19`, because that cluster is 0 bytes in the 16-bit sector math. `BPB_Media` is not read. JumpBoot is not required. The VBR check does require the `55AA` signature.

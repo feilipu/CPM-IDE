@@ -39,7 +39,7 @@ struct Builtin {
 
 struct Builtin builtins[] = {
   // CP/M related functions
-    { "cpm", &ya_mkcpm, "- boot CP/M from A-P in one directory"},
+    { "cpm", &ya_mkcpm, "- boot CP/M from CPMIDE.CFG or A-P"},
 #if YASH_HGET
     { "hget", &ya_hget, "<file> - ascii-xfr -s"},
 #endif
@@ -705,12 +705,87 @@ static uint8_t mount_dir(const char *path, uint32_t *out)
     return rc;
 }
 
+/* One sector of CPMIDE.CFG in the working directory, or in the root.
+   A line is "A path" or "A=path". '#' and '[' lines are skipped.
+   Returns 0 when A: was set. */
+static uint8_t read_cfg(void)
+{
+    uint8_t n[11];
+    uint32_t clst, lba;
+    char *p, *start, saved;
+    uint8_t drv;
+
+    name83(n, "CPMIDE.CFG");
+    clst = fat_cwd;
+    if (fat_dir_open(&clst) || dir_find_try(n)) {
+        clst = root_clst();
+        if (fat_dir_open(&clst) || dir_find_try(n))
+            return 1;
+    }
+    if (fat_found_sclust < 2)
+        return 1;
+    lba = fat_found_sclust;
+    if (fat_clst2sect(&lba))
+        return 1;
+    if (disk_read(0, buffer, lba, 1) != 0)
+        return 1;
+    if (fat_found_size < 511)
+        ((uint8_t *)buffer)[fat_found_size] = 0;
+    else
+        ((uint8_t *)buffer)[511] = 0;
+    p = (char *)buffer;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == '\r')
+            ++p;
+        if (*p == 0)
+            break;
+        if (*p == '#' || *p == '[') {
+            while (*p && *p != '\n')
+                ++p;
+            if (*p == '\n')
+                ++p;
+            continue;
+        }
+        drv = (uint8_t)*p;
+        if (drv >= 'a' && drv <= 'p')
+            drv = (uint8_t)(drv - 32);
+        if (drv < 'A' || drv > 'P') {
+            while (*p && *p != '\n')
+                ++p;
+            if (*p == '\n')
+                ++p;
+            continue;
+        }
+        ++p;
+        while (*p == ' ' || *p == '\t' || *p == '=')
+            ++p;
+        if (*p == '"')
+            ++p;
+        start = p;
+        while (*p && *p != '"' && *p != '\n' && *p != '\r')
+            ++p;
+        saved = *p;
+        *p = 0;
+        if (mount_dir(start, &clst) == 0) {
+            cpm_dir_sclust[drv - 'A'] = clst;
+            fprintf(output, "%c: \"%s\" cluster %lu\n", drv, start, clst);
+        }
+        *p = saved;
+        while (*p && *p != '\n')
+            ++p;
+        if (*p == '\n')
+            ++p;
+    }
+    return (cpm_dir_sclust[0] == 0) ? 1 : 0;
+}
+
 /**
    @brief Builtin command:
-   @param args args[0] is "cpm". args[1] is the directory that holds A through P.
+   @param args args[0] is "cpm". No arguments read CPMIDE.CFG.
+          args[1] is the directory that holds A through P.
    @return Always returns 1, to continue executing.
  */
-int8_t ya_mkcpm(char ** args)   /* boot CP/M from letter directories */
+int8_t ya_mkcpm(char ** args)   /* boot CP/M from a config file or letter directories */
 {
     uint8_t i;
     uint32_t clst, cwd;
@@ -726,25 +801,30 @@ int8_t ya_mkcpm(char ** args)   /* boot CP/M from letter directories */
     for (i = 0; i < CPM_DRIVES; ++i)
         cpm_dir_sclust[i] = 0;
 
-    if (args[1] == NULL || args[2] != NULL) {
+    if (args[1] == NULL) {
+        if (read_cfg()) {
+            fprintf(output, "cpm <directory>\n");
+            return 1;
+        }
+    } else if (args[2] != NULL) {
         fprintf(output, "cpm <directory>\n");
         return 1;
-    }
-
-    path = (char *)buffer;
-    for (i = 0; i < CPM_DRIVES; ++i) {
-        if (parent_letter(args[1], (char)('A' + i), path))
-            break;
-        if (mount_dir(path, &clst) == 0) {
-            cpm_dir_sclust[i] = clst;
-            fprintf(output, "%c: \"%s\" cluster %lu\n",
-                (char)('A' + i), path, clst);
+    } else {
+        path = (char *)buffer;
+        for (i = 0; i < CPM_DRIVES; ++i) {
+            if (parent_letter(args[1], (char)('A' + i), path))
+                break;
+            if (mount_dir(path, &clst) == 0) {
+                cpm_dir_sclust[i] = clst;
+                fprintf(output, "%c: \"%s\" cluster %lu\n",
+                    (char)('A' + i), path, clst);
+            }
         }
-    }
 
-    if (cpm_dir_sclust[0] == 0) {
-        fprintf(output, "A: not mounted\n");
-        return 1;
+        if (cpm_dir_sclust[0] == 0) {
+            fprintf(output, "A: not mounted\n");
+            return 1;
+        }
     }
 
     fprintf(output, "Initialised CP/M\n");

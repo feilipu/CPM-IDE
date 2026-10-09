@@ -1,5 +1,6 @@
 /*
- * Adding drives. `cpm <directory>` mounts subdirectories A through P.
+ * Adding drives. `cpm` with no arguments reads CPMIDE.CFG.
+ * `cpm <directory>` mounts subdirectories A through P.
  * A missing letter stays an empty slot. cpm_boot is counted and does
  * not enter CP/M.
  */
@@ -26,6 +27,8 @@ extern FILE *error;
 static uint8_t store[512];
 static int fails;
 static unsigned boot_n;
+
+static void test_cfg_file(void);
 
 static void expect(const char *name, int ok)
 {
@@ -254,6 +257,33 @@ static void test_adding(void)
     expect("cli_missing FAIL", boot_n == before && cpm_dir_sclust[0] == 0);
 
     test_tokens();
+    test_cfg_file();
+}
+
+/* Cluster 2 is the CPMIDE.CFG file planted by nest_vol. Sector 19. */
+static void test_cfg_file(void)
+{
+    unsigned before;
+    char *none[2];
+    uint8_t *sec;
+
+    nest_vol();
+    expect("cfg_mount FAIL", fat_mount() == 0);
+    sec = ram_image + 19 * 512;
+    memset(sec, 0, 512);
+    memcpy(sec, "B SYS/B\n", 8);
+    none[0] = "cpm";
+    none[1] = 0;
+    before = boot_n;
+    run_cpm(none);
+    expect("cfg_no_a FAIL", boot_n == before && cpm_dir_sclust[0] == 0);
+
+    memset(sec, 0, 512);
+    memcpy(sec, "# note\nA=USER\nB SYS/B\n", 22);
+    before = boot_n;
+    run_cpm(none);
+    expect("cfg_boot FAIL", booted(before) && drives_are(4, 5) &&
+           cpm_dir_sclust[2] == 0);
 }
 
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)

@@ -2,14 +2,14 @@
 
 ## Status
 
-Current on 2026-10-09. Branch `cpm-ide-msx` tip is `7c0ad9b` ("Boot A-P from one directory and leave hget out of the ROMs"), pushed to `origin/cpm-ide-msx`. The HEX files in the tree are a later link: `hget` is in, and `md`, `dd`, and the shell `mount` command are out. This file is the implementation guide. The contract sections below were checked against the Digital Research CP/M 2.2 manual (chapters 1, 5, and 6), John Elliott’s BDOS and FCB pages, and the Calkins BDOS in `z80-cf-acia/cpm22.asm`. Where those three disagree, the rule is:
+Current on 2026-10-09. Branch `cpm-ide-msx`. The parent of this update is `16b61ad` ("Build the 8085 ROMs with 80cc"), which is on `origin/cpm-ide-msx`. The shell starts CP/M in two ways. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the volume root. `cpm <directory>` mounts the letter directories `A` through `P` inside that directory. Drive A has to be present or CP/M does not start. `hget` is in the seven HEX files. `md`, `dd`, and the shell `mount` command are not. 8085 ROMs are built with 80cc, stack locals, and no `-fframe-pointer`. Z80 ROMs stay on sdcc (`-SO3`). This file is the implementation guide. The contract sections below were checked against the Digital Research CP/M 2.2 manual (chapters 1, 5, and 6), John Elliott’s BDOS and FCB pages, and the Calkins BDOS in `z80-cf-acia/cpm22.asm`. Where those three disagree, the rule is:
 
 - Return codes and control flow follow the Calkins BDOS when Elliott’s CP/M 2.2 note agrees with it.
 - The manual’s programmer-facing description wins when Elliott’s CP/M 2.2 note agrees with the manual.
 - A behaviour that exists only in CP/M 3, MP/M, or DOS Plus stays out. Elliott marks those separately.
 - A FAT limit that CP/M 2.2 cannot express is written here as a FAT rule, with the manual behaviour named beside it.
 
-Commit only when asked. One subject line, no body, no trailer. Tag `cpm-ide-v2.6` stays at `1df2f37`. Local `master` is `864f590` ("Document the md builtin"), one commit ahead of `origin/master`, and has not been pushed. The `ya_md` Doxygen block is in both `864f590` and this branch. Leave the two PDFs, the ticks history files, and `tools/md5/MD5I85.COM` / `MD5Z80.COM` untracked. The peer RC2014 tree stays untouched.
+Commit only when asked. One subject line, no body, no trailer. Tag `cpm-ide-v2.6` stays at `1df2f37`. Local and `origin/master` are `864f590` ("Document the md builtin"). Do not push `master` from this branch. The `ya_md` Doxygen block is in both `864f590` and this branch. Leave the two PDFs, the ticks history files, and `tools/md5/MD5I85.COM` / `MD5Z80.COM` untracked. The peer RC2014 tree stays untouched.
 
 ## Action report
 
@@ -22,8 +22,20 @@ Commit only when asked. One subject line, no body, no trailer. Tag `cpm-ide-v2.6
 | `fd57ad9` | Make the hget byte and size automatic | `hg_v` and `hg_sz` are locals inside `#if YASH_HGET`. Pushed. HEX bytes match `676d65b`. |
 | `075318e` | Mount A: through P: as FAT directories and test adding them | Letter directories on one volume. |
 | `7c0ad9b` | Boot A-P from one directory and leave hget out of the ROMs | One starting directory. `YASH_HGET` was 0 in that image. |
+| `2d6c144` | Include hget in the seven ROMs and correct the drive notes | `YASH_HGET` defaults to 1. Shell `md`, `dd`, and `mount` are gone. |
+| `adeaa63` | Replace the BDOS ISA review with the FAT and BDOS adversarial review | `FAT-BDOS-REVIEW.md` replaces `BDOS-ISA-REVIEW.md`. |
+| `ad12965` | Close the reviewed FAT and BDOS defects | Review resolutions. That HEX set is the sccz80 8085 link. |
+| `16b61ad` | Build the 8085 ROMs with 80cc | 8085 product lines use `-compiler=80cc`. Z80 stays sdcc. |
 
-`YASH_HGET` now defaults to 1. The seven HEX files include `hget`. `-DYASH_HGET=0` compiles it out. `md`, `dd`, and `mount` are not shell commands. Each `main.c` calls `fat_mount` before the prompt. `ds` calls it again when `fs_type` is 0, and `cpm` calls it before walking A: through P:. `hg_sum` stays file-scope and is shared by `hg_hexbyte`, `hg_cksum`, and `hg_record`. The seven per-ROM `ffconf.h` copies are gone. ChaN `ff` still uses `ff/source/ffconf.h` in z88dk-libraries.
+`YASH_HGET` defaults to 1. The seven HEX files include `hget`. `-DYASH_HGET=0` compiles it out. `md`, `dd`, and `mount` are not shell commands. Each `main.c` calls `fat_mount` before the prompt. `ds` calls it again when `fs_type` is 0. `cpm` calls `fat_mount`, clears `cpm_dir_sclust`, then reads `CPMIDE.CFG` or walks `A` through `P`. `hg_sum` stays file-scope and is shared by `hg_hexbyte`, `hg_cksum`, and `hg_record`. The seven per-ROM `ffconf.h` copies are gone. ChaN `ff` still uses `ff/source/ffconf.h` in z88dk-libraries.
+
+### How `cpm` fills the drive table
+
+`read_cfg` in `common/yash.c` looks up `CPMIDE.CFG` in the working directory. A miss looks in the root. The file has to start at cluster 2 or above, so a FAT16 root is not itself a drive and is not a valid config file cluster. One sector is read. Bytes after the file length, or byte 511 of a longer file, become a terminator. A line may start with spaces. `#` and `[` skip the rest of the line. The first character is the drive letter, `A`–`P` or `a`–`p`. Spaces, tabs, and `=` are skipped, then an optional quote. The path runs to the next quote, CR, or LF. `mount_dir` stores the directory cluster. A path that is not a directory is skipped. `cpm_dir_sclust[0]` still zero means the file did not name A:, `cpm` prints `cpm <directory>`, and CP/M does not start.
+
+`cpm <directory>` builds `directory/A` through `directory/P` in the 512-byte sector buffer and mounts each one that exists. The directory itself is not mounted as A:. A second argument prints `cpm <directory>` and does not boot. There is no list of named directories on the command line, and a missing letter directory is not replaced by mounting the parent as A:.
+
+`test/fatfs/test_cfg.c` covers both. A bare `cpm` with an empty `CPMIDE.CFG` does not boot. A file whose only line is `B` does not boot. `# note`, `A=USER`, and `B SYS/B` boot with A: at cluster 4 and B: at cluster 5. `cpm DRIVES` still requires the letter children, and an extra argument does not boot.
 
 On `fd57ad9`, `YASH_HGET` was 0 and `ya_mkdrv` still called `hg_open`. A rebuild then, `WORK=/tmp/cpm-ide-hgv`, zcc `v25461-415806f08c-20260813`, 2026-10-08 12:56–13:03, finished `ok=7 fail=0` and printed `UNCHANGED` for every HEX. `__IO_CF_8_BIT` was left at `0x01`. Those blobs are `676d65b`, not the HEX files in the tree now.
 
@@ -33,21 +45,23 @@ The product boot path was left as it was. CRT page zero is the ROM-in vector. `c
 
 ### Installed image
 
-Gate lines from `/tmp/cpm-ide-fit-nomount/summary.txt` (`rebuild-hex.sh all`, zcc `v25461-415806f08c-20260813`, `ok=7 fail=0`). `__IO_CF_8_BIT` was left at `0x01`. These are the HEX files in the tree. `YASH_HGET` is 1.
+Gate lines from `/tmp/cpm-ide-cfg-hex/summary.txt` (`rebuild-hex.sh all`, zcc `v25461-415806f08c-20260813`, 2026-10-09 23:07–23:15, `ok=7 fail=0`). `__IO_CF_8_BIT` was left at `0x01`. These are the HEX files in the tree. `YASH_HGET` is 1. `read_cfg` is linked. 8085 is 80cc. Z80 is sdcc.
 
-| Product | Bin | `__CODE_END` | Under 32768 |
-|---|---:|---:|---:|
-| z80-cf-acia | 30694 | `$7742` | 2074 |
-| z80-cf-uart | 31118 | `$78BE` | 1650 |
-| z80-cf-sio | 31286 | `$7967` | 1482 |
-| z80-pata-sio | 31443 | `$7A04` | 1325 |
-| 8085-cf-acia | 32033 | `$7CC2` | 735 |
-| 8085-cf-uart | 32285 | `$7DBE` | 483 |
-| 8085-pata-uart | 32342 | `$7DF7` | 426 |
+| Product | Bin | `__CODE_END` | Under 32768 | Before `$7F81` |
+|---|---:|---:|---:|---:|
+| z80-cf-acia | 31645 | `$7AFA` | 1123 | |
+| z80-cf-uart | 32070 | `$7C76` | 698 | |
+| z80-cf-sio | 32238 | `$7D1F` | 530 | |
+| z80-pata-sio | 32395 | `$7DBC` | 373 | |
+| 8085-cf-acia | 32064 | `$7CE1` | 704 | 672 |
+| 8085-cf-uart | 32274 | `$7DB3` | 494 | 462 |
+| 8085-pata-uart | 32421 | `$7E46` | 347 | 315 |
 
-8085 PATA `__CODE_END` `$7DF7` is 394 bytes below the `$7F81` gate. The 8085 CF lines stay `--opt-code-speed=all`. The 8085 PATA line stays the named list in `SPEED_8085_PATA` (`lshift32,rshift32,add32,sub32,sub16,intcompare,charcompare,longcompare,ucharmult,floatconst`). That list leaves `lib/z80rules.8` off.
+8085 PATA `__CODE_END` `$7E46` is 315 bytes below the `$7F81` gate. The 8085 CF lines stay `--opt-code-speed=all`. The 8085 PATA line stays the named list in `SPEED_8085_PATA` (`lshift32,rshift32,add32,sub32,sub16,intcompare,charcompare,longcompare,ucharmult,floatconst`). That list leaves `lib/z80rules.8` off. 80cc ignores `--opt-code-speed`, so the name list does not change the 8085 80cc image. It stays so a sccz80 rebuild of that line does not pull `lib/z80rules.8` back in.
 
-Every map from that run: `bdos` `$F100`, `0006h` `$F106`, `fbase` `$F111`, `functns` `$F147`, Z80 CCP `$E8E0` tail `$F100`, 8085 CCP `$E880` tail `$F0EA`, BIOS `$F984`. Z80 `params` is `$F54C`. 8085 `params` is `$F550`. On z80-cf-acia, `_rodata_bdos_stub_head` is `$6F72` and `REGISTER_SP` is `$E8E0`. Host `test/bdos` and `test/fatfs` were not re-run for this link.
+The `/tmp/cpm-ide-fit-nomount` table (8085 PATA 32342 / `$7DF7`) is the sccz80 link before 80cc and before `CPMIDE.CFG`. The 80cc link before this config file is in `FAT-BDOS-REVIEW.md` (8085 PATA 31742 / `$7B9F`). Adding `read_cfg` grew that 80cc image by 679 bytes.
+
+Every gate line from that run: `0006h` `$F106`, Z80 CCP tail `$F100`, 8085 CCP tail `$F0EA`, BIOS `$F984`. `bdos` stays `$F100` and `fbase` stays `$F111` because `bdos22.asm` and `bdos22_85.asm` were not edited. The config-file cases in `test/fatfs/test_cfg.c` were run for this shell. The rest of `test/fatfs/run.sh` and `test/bdos` were not re-run for this link.
 
 The `676d65b` image, from `/tmp/cpm-ide-hgv`, had no `hget` and BIOS `$F960`: z80-cf-acia 31378 / `$79D2`, through 8085 PATA 32533 / `$7E7C`. On that HEX the stub was stored at `$7110`. `bdos22.asm` was not edited between that link and this one, so the phase bytes of the stub are the same and the file offset moved.
 
@@ -82,7 +96,7 @@ Earlier tick figures live in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026
 
 Closed items stay here so a later edit does not reopen them. The others are still open.
 
-1. **Closed. `hget` is in the seven HEX files.** `YASH_HGET` defaults to 1. 8085 PATA is 32342 bytes, `__CODE_END` `$7DF7` (426 under 32768, 394 before `$7F81`). `md`, `dd`, and the shell `mount` command are gone. An 8 MB `.CPM` image is a file on the FAT volume. Extract it with cpmtools into a letter directory. `cpm` does not mount the image. `-DYASH_HGET=0` still compiles the receiver out.
+1. **Closed. `hget` is in the seven HEX files.** `YASH_HGET` defaults to 1. The installed image is 8085 PATA 32421 bytes, `__CODE_END` `$7E46` (347 under 32768, 315 before `$7F81`). `md`, `dd`, and the shell `mount` command are gone. `cpm` reads `CPMIDE.CFG` or mounts letter directories. An 8 MB `.CPM` image is a file on the FAT volume. Extract it with cpmtools into a letter directory. `cpm` does not mount the image. `-DYASH_HGET=0` still compiles the receiver out.
 
 2. **The host harness enters at `_cpm_bdos_fbase`.** BIOS cold boot is what plants the jump at RAM `0005`. The suites call the symbol directly.
    Future run: boot one product image under ticks through `cboot` and check that the planted word at `0005` is `JP` to `$F106`. Leave the fbase instruction sequence as it is.
@@ -96,13 +110,13 @@ Closed items stay here so a later edit does not reopen them. The others are stil
 5. **A mounted `A>` has not been shown.** There is no board in this environment. ticks emulates the ACIA. It does not emulate CF taskfile ports `$10`–`$17` or the ROM latch at port `$38`. Flat 64K keeps ROM visible when `cboot` writes `$01`. A ticks banner is the shell, which is a different gate from a CCP prompt.
    Future run: a board pass in the order already written under Tests (CCP `DIR`, `ERA`, `REN`, `TYPE`, `SAVE`, `USER`, then PIP, STAT, ASM, LOAD, DDT), or a taskfile emulator that can mount. Report a mounted prompt only from that pass.
 
-6. **Master and this branch are different shells.** Master is the container line. Its 8085 PATA image still has `hget` and is 11 bytes under 32768. This branch mounts letter directories and includes `hget` because `md`, `dd`, and `mount` are gone. The automatic-frame trial on master was reverted. `864f590` is unpushed.
-   Future run: leave the branched functions static on `master`. Push `864f590` only when asked. Leave tag `cpm-ide-v2.6` at `1df2f37`.
+6. **Master and this branch are different shells.** Master is the container line. Its 8085 PATA image still has `hget` and is 11 bytes under 32768. This branch mounts letter directories, reads `CPMIDE.CFG` when `cpm` has no arguments, and includes `hget` because `md`, `dd`, and `mount` are gone. The automatic-frame trial on master was reverted. `864f590` is `origin/master`.
+   Future run: leave the branched functions static on `master`. Do not push `master` from this branch. Leave tag `cpm-ide-v2.6` at `1df2f37`.
 
 7. **`hg_sum` stays file-scope.** `hg_hexbyte`, `hg_record`, and `hg_cksum` share it. A pointer parameter would give the frameless helpers their first automatic. The symbol is in the default ROM because `YASH_HGET` is 1.
    Future run: leave `hg_sum` file-scope.
 
-8. **A few limits are accepted and are not open defects.** Function 0 is specified as warm-boot with no return; the suites count `wboot` hits from the error paths and do not add a separate "function 0 does not return" case. The FAT32 `+test` image still does not fit. `fs_type` stays unpoked. GPT stays out until functions 0–40 pass on an MBR FAT32 image. `test/fatfs` `MINIFAT_OK` and the BDOS suites were last green on `676d65b`. They were not re-run for the directory mount or for the `hget` link.
+8. **A few limits are accepted and are not open defects.** Function 0 is specified as warm-boot with no return; the suites count `wboot` hits from the error paths and do not add a separate "function 0 does not return" case. The FAT32 `+test` image still does not fit. `fs_type` stays unpoked. GPT stays out until functions 0–40 pass on an MBR FAT32 image. The 80cc host run is in `FAT-BDOS-REVIEW.md`: mini-FAT, yash config, BDOS character, BDOS disk, and ISA kern were green. The 8085 disk harness in that run stayed on sccz80 because the 80cc image is over 65536 bytes. `test/bdos/isa/run_isa.sh seq` still prints `SEQ_BAD 5` because that harness leaves `cpm_dir_sclust` at 0. The config-file cases in `test/fatfs/test_cfg.c` were run after `read_cfg` landed: Z80 `YASH_CFG_OK` at 11193879 ticks, 8085 80cc `YASH_CFG_OK` at 12627960 ticks.
    Future run: after the next BDOS or mini-FAT edit, re-run `test/bdos/run.sh`, `test/bdos/run_disk.sh`, and `test/fatfs/run.sh`. A green host suite is the host gate. It is a different result from item 5.
 
 9. **The RC2014 repository.** Its v2.6 release is its own tag. This branch has not been copied there.
@@ -229,7 +243,7 @@ ROM, one latch per call:
 
 `bdos_rom` is called with the resident stack already selected and the latch at `$00`. C is the function. DE is `bdos_fcb` (36 bytes), `bdos_line` (function 10), or the original DE when the argument is a register value (functions 13, 14, 24, 27–29, 31, 37). HL on return is the result the stub stores. The stub then writes `$01` to port `$38` and copies back. FCB fields copied back are EX, S2, RC, CR, R0, R1, and R2. A successful open (function 15, A not `0FFh`) also copies bytes 0..31. A successful search (function 17 or 18, A not `0FFh`) copies the 128-byte `bdos_rec` out to `bdos_dma`. A successful read (function 20 or 33, A = 0) does the same. Functions 21, 34, and 40 copy those 128 bytes in before the call.
 
-One FAT volume holds drives A: through P:. Each letter is a directory cluster in `cpm_dir_sclust`, and 0 means that letter is not mounted. `fat_mount` already accepts a VBR at LBA 0 and an MBR with a primary FAT partition, and it runs once for the volume. Function 14 returns 0 for a mounted letter and `A = 0FFh` for any other, without changing the current drive. An FCB whose drive is not mounted takes the fatal BDOS Select path.
+One FAT volume holds drives A: through P:. Each letter is a directory cluster in `cpm_dir_sclust`, and 0 means that letter is not mounted. The shell fills that table from `CPMIDE.CFG` or from the letter directories inside the one directory named on the command line, as written under How `cpm` fills the drive table. `fat_mount` already accepts a VBR at LBA 0 and an MBR with a primary FAT partition, and it runs once for the volume. Function 14 returns 0 for a mounted letter and `A = 0FFh` for any other, without changing the current drive. An FCB whose drive is not mounted takes the fatal BDOS Select path.
 
 The CP/M BIOS jump table stays in the resident page, because programs call it with ROM out. Character entries are the real drivers. `home`, `settrk`, `setsec`, `read`, `write`, and `sectran` are short stubs that return an error: there is no CP/M sector disk. `seldsk` returns one shared DPH for every mounted letter and zero when that letter's cluster is 0. The sector sequence those entries used to call is the ROM driver, used by mini-FAT, not by the jump table.
 
