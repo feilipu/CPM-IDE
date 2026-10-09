@@ -9,6 +9,7 @@
 ; DWORD cluster/LBA is BCDE (E LSB); _fat_next/_fat_alloc/_fat_free/
 ; _fat_clst2sect/_fat_dir_open load that little-endian dword from (HL).
 ; Success: L=0 and carry set. Fail: L=1 and carry clear.
+; A 64 KiB cluster is the exception: L=19 and carry clear.
 ; sccz80 treats a char return as an int, so these exits also clear H.
 ;
 ; FatFs R0.16 map (z88dk-libraries/ff/source/ff.c):
@@ -30,9 +31,14 @@
 ;   nclst <= $0FF5 is rejected as FAT12 (spec 1.03 treats 4085 as FAT16)
 ;   nclst == $FFF5 stays FAT16 (ChaN MAX_FAT16; spec 1.03 would use FAT32)
 ;   Neither boundary is built by test/fatfs. BPB_Media is never read.
-;   FAT16 root count is a non-zero multiple of 16
-;   FAT32 requires FSVer == 0 and RootEntCnt == 0 (those sectors are not in sysect)
-;   csize is 2^n and at most 64 sectors (32 KB)
+;   FAT16 root count is a non-zero multiple of 16. A FAT32-shaped VBR
+;   whose cluster count falls in the FAT16 band is rejected.
+;   FAT32 requires FATSz16 == 0, FSVer == 0 and RootEntCnt == 0
+;   csize is 2^n. SecPerClus >= 65 (64 KiB clusters) is refused with
+;   L = 19. A 64 KiB cluster is 0 in the 16-bit sector math.
+;   FAT32 with mirroring off uses the active FAT in BPB_ExtFlags and
+;   does not write the other copy. A bad cluster ($FFF7 / $0FFFFFF7)
+;   is an error, not a link. fs_type is stored only after every check.
 ;   DIR_Name[0] == $05 compares as $E5; dir_create stores $E5 as $05
 ;   FAT16 root of 2048 entries is the whole 16-bit offset (65536 bytes)
 ;   dirent 0x00 = end of directory; 0xE5 = deleted (reusable)
@@ -136,6 +142,7 @@ DEFC    BPB_TotSec16    = 19
 DEFC    BPB_FATSz16     = 22
 DEFC    BPB_TotSec32    = 32
 DEFC    BPB_FATSz32     = 36
+DEFC    BPB_ExtFlags    = 40
 DEFC    BPB_FSVer       = 42
 DEFC    BPB_RootClus32  = 44
 DEFC    BPB_FSInfo      = 48
@@ -417,8 +424,12 @@ fat_check_vbr:
     and     b
     jr      NZ,fat_check_fail       ;not 2^n
     ld      a,b
-    cp      65                      ;at most 64 sectors (32 KB)
-    jr      NC,fat_check_fail
+    cp      65                      ;64 KiB clusters do not fit the 16-bit math
+    jr      C,fat_check_rsvd
+    ld      a,19                    ;FR_INVALID_PARAMETER
+    ld      (_cpm_fat_vol+27),a
+    jr      fat_check_fail
+fat_check_rsvd:
     ld      a,(fatwin+BPB_RsvdSecCnt)
     ld      hl,fatwin+BPB_RsvdSecCnt+1
     or      (hl)
@@ -471,6 +482,10 @@ fat_ide_br1:
 ;------------------------------------------------------------------------------
 _fat_mount:
 fat_mount:
+    xor     a
+    ld      (_cpm_fat_vol),a        ;type stays 0 until every check passes
+    ld      (_cpm_fat_vol+26),a
+    ld      (_cpm_fat_vol+27),a
     ld      b,8
 fat_mount_cold:
     push    bc
@@ -514,9 +529,7 @@ fat_mount_cold1:
     pop     bc
 fat_mount_cold2:
     djnz    fat_mount_cold
-    ld      hl,1
-    or      a
-    ret
+    jp      fat_mount_fail
 
 fat_mount_mbr:
     ld      hl,fatwin+MBR_PTE+PTE_StLba
@@ -554,9 +567,7 @@ fat_mount_nextpt:
     add     hl,bc
     pop     bc
     djnz    fat_mount_trypt
-    ld      hl,1
-    or      a
-    ret
+    jp      fat_mount_fail
 fat_mount_gotpt:
     pop     hl
     pop     bc
@@ -708,12 +719,20 @@ fat_mount_ncl:
     jr      Z,fat_mount_fat16
     jr      NC,fat_mount_fat32
 fat_mount_fat16:
+    ld      hl,(_cpm_fat_vol+2)     ;FAT32 shape, count in the FAT16 band
+    ld      a,h
+    or      l
+    jp      Z,fat_mount_fail
     ld      a,FS_FAT16
     jr      fat_mount_type
 fat_mount_fat32:
+    ld      hl,(fatwin+BPB_FATSz16) ;FAT16 shape, count in the FAT32 band
+    ld      a,h
+    or      l
+    jp      NZ,fat_mount_fail
     ld      a,FS_FAT32
 fat_mount_type:
-    ld      (_cpm_fat_vol),a
+    ld      (_cpm_fat_vol+26),a     ;publish to +0 only at fat_mount_ok
     ld      hl,(fat_work+12)
     ld      de,(fat_work+14)
     ld      bc,2
@@ -728,7 +747,7 @@ fat_mount_nfe:
     ld      (_cpm_fat_vol+6),de
     ; fatsz must cover n_fatent (Windows/Linux volumes do; undersize
     ; would let get_fat/put_fat index into dir/data).
-    ld      a,(_cpm_fat_vol)
+    ld      a,(_cpm_fat_vol+26)     ;pending type
     cp      FS_FAT32
     jr      Z,fat_mount_need32
     ld      bc,255                  ;FAT16: (n_fatent+255)>>8
@@ -782,7 +801,7 @@ fat_mount_needc:
     ld      bc,(fat_work+10)
     adc     hl,bc
     ld      (_cpm_fat_vol+18),hl
-    ld      a,(_cpm_fat_vol)
+    ld      a,(_cpm_fat_vol+26)     ;pending type
     cp      FS_FAT32
     jr      Z,fat_mount_r32
     ld      hl,(_cpm_fat_vol+16)    ;dirbase = database - rootsecs
@@ -822,7 +841,36 @@ fat_mount_r32:
     xor     a
     ld      (_cpm_fat_vol+2),a
     ld      (_cpm_fat_vol+3),a
+    ld      a,(fatwin+BPB_ExtFlags+1)
+    and     $80                     ;mirroring disabled: one active FAT
+    jr      Z,fat_mount_ok
+    ld      a,(fatwin+BPB_ExtFlags)
+    and     $0F
+    ld      b,a
+    ld      a,(_cpm_fat_vol+24)     ;n_fats
+    cp      b
+    jp      C,fat_mount_fail        ;active index >= n_fats
+    jp      Z,fat_mount_fail
+    ld      a,b
+    or      a
+    jr      Z,fat_mount_act0        ;active FAT is already fatbase
+    ld      hl,(_cpm_fat_vol+8)
+    ld      de,(_cpm_fat_vol+20)
+    add     hl,de
+    ld      (_cpm_fat_vol+8),hl
+    ld      hl,(_cpm_fat_vol+10)
+    ld      de,(_cpm_fat_vol+22)
+    adc     hl,de
+    ld      (_cpm_fat_vol+10),hl
+fat_mount_act0:
+    ld      a,1
+    ld      (_cpm_fat_vol+24),a     ;do not mirror onto the inactive FAT
 fat_mount_ok:
+    ld      a,(_cpm_fat_vol+26)
+    ld      (_cpm_fat_vol),a
+    xor     a
+    ld      (_cpm_fat_vol+26),a
+    ld      (_cpm_fat_vol+27),a
     ld      a,(_cpm_fat_vol)
     cp      FS_FAT32
     jr      Z,fat_mount_cwd32
@@ -844,7 +892,18 @@ fat_mount_cwd32:
     scf
     ret
 fat_mount_fail:
-    ld      hl,1
+    ld      a,(_cpm_fat_vol+27)     ;19 when the cluster size was refused
+    ld      l,a
+    xor     a
+    ld      (_cpm_fat_vol),a
+    ld      (_cpm_fat_vol+26),a
+    ld      (_cpm_fat_vol+27),a
+    ld      a,l
+    or      a
+    jr      NZ,fat_mount_code
+    ld      l,1
+fat_mount_code:
+    ld      h,0
     or      a
     ret
 
@@ -1092,6 +1151,8 @@ get_fat:
     cp      $FF
     jr      NZ,get_fat16ok
     ld      a,e
+    cp      $F7                     ;FAT16 bad cluster
+    jr      Z,get_fat_bad
     cp      $F8                     ;FAT16 EOC $FFF8..$FFFF
     jr      C,get_fat16ok
     ld      de,$FFFF
@@ -1118,12 +1179,17 @@ get_fat32:
     inc     a
     jr      NZ,get_fat32ok
     ld      a,e
+    cp      $F7                     ;FAT32 bad cluster $0FFFFFF7
+    jr      Z,get_fat_bad
     cp      $F8
     jr      C,get_fat32ok
     ld      de,$FFFF
     ld      bc,$0FFF
 get_fat32ok:
     scf
+    ret
+get_fat_bad:
+    or      a
     ret
 
 ; ff.c put_fat. FAT16 stores 16 bits; FAT32 stores 28 bits and keeps
@@ -1504,7 +1570,7 @@ cc_scan:
     jp      Z,cc_fail
 cc_look:
     call    get_fat
-    ret     NC
+    ret     NC                      ;bad cluster, or the entry cannot be read
     ld      a,b
     or      c
     or      d
@@ -2018,9 +2084,18 @@ dir_next_end:
     or      a
     ret
 
+; A is folded to A-Z. Other bytes stay as they are.
+fat_fold:
+    cp      'a'
+    ret     c
+    cp      'z'+1
+    ret     nc
+    sub     32
+    ret
+
 ; ff.c dir_find (no LFN). 0x00 ends the table; 0xE5 is deleted.
 ; Skip the volume bit. A long name is attribute $0F, so that test
-; covers it. Disk $05 compares as $E5.
+; covers it. Disk $05 compares as $E5. Both sides are folded A-Z.
 ; IN: HL -> 11-byte 8.3
 ; OUT C and L=0, H=0: found, fat_found_* and dir_ptr filled. L=1: miss.
 _dir_find:
@@ -2051,15 +2126,25 @@ df_loop:
     jr      NZ,df_cmp1
     ld      a,$E5
 df_cmp1:
-    cp      (hl)
+    call    fat_fold
+    ld      c,a
+    ld      a,(hl)
+    call    fat_fold
+    cp      c
     jr      NZ,df_next
     inc     de
     inc     hl
     ld      b,10
 df_cmp:
-    ld      a,(de+)
-    cp      (hl+)
+    ld      a,(de)
+    call    fat_fold
+    ld      c,a
+    ld      a,(hl)
+    call    fat_fold
+    cp      c
     jr      NZ,df_next
+    inc     de
+    inc     hl
     djnz    df_cmp
     ld      hl,(dir_ptr)
     push    hl
@@ -2092,7 +2177,7 @@ df_hi:
     ret
 df_next:
     call    dir_next
-    jr      C,df_loop
+    jp      C,df_loop
 df_miss:
     ld      hl,1
     or      a

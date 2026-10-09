@@ -425,7 +425,7 @@ int main(void)
         expect("nroot32_overlap_read", saw == 0);
     }
 
-    /* FAT16 links $F800 and $FFF7 are clusters. $FFF8 and $FFFF are EOC. */
+    /* FAT16 $F800 is a cluster. $FFF7 is a bad-cluster error. $FFF8 and $FFFF are EOC. */
     rt_invalidate();
     memset(ram_image, 0, sizeof ram_image);
     memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
@@ -453,7 +453,7 @@ int main(void)
     expect("fat16_f800", rc == 0 && clst == 0xF800ul);
     clst = 3;
     rc = fat_next(&clst);
-    expect("fat16_fff7", rc == 0 && clst == 0xFFF7ul);
+    expect("fat16_fff7", rc != 0);
     clst = 4;
     rc = fat_next(&clst);
     expect("fat16_fff8", rc == 0 && clst == 0x0FFFFFFFul);
@@ -517,6 +517,18 @@ int main(void)
     rc = dir_find(n);
     expect("find_05_raw", rc == 1);
 
+    /* Directory bytes in lower case match an upper-case search. */
+    rt_invalidate();
+    memset(ram_image + 1024, 0, 512);
+    memcpy(ram_image + 1024, "hello   txt", 11);
+    ram_image[1024 + 11] = 0x20;
+    memset(n, ' ', 11);
+    memcpy(n, "HELLO   TXT", 11);
+    parent = 0;
+    rc = fat_dir_open(&parent);
+    rc |= dir_find(n);
+    expect("find_fold", rc == 0);
+
     /* Mount: partial FAT16 root, 64 KB clusters, FAT32 root count and FSVer. */
     memset(ram_image, 0, sizeof ram_image);
     memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
@@ -546,7 +558,7 @@ int main(void)
     memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
     put_vbr(ram_image, 128, 16, 1, 4089);
     rc = fat_mount();
-    expect("mount_csize128", rc == 1);
+    expect("mount_csize128", rc == 19 && cpm_fat_vol.fs_type == 0);
 
     memset(ram_image, 0, sizeof ram_image);
     memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
@@ -570,7 +582,56 @@ int main(void)
     memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
     put_fat32(ram_image, 128, 0, 0);
     rc = fat_mount();
-    expect("mount_fat32_csize", rc == 1);
+    expect("mount_fat32_csize", rc == 19 && cpm_fat_vol.fs_type == 0);
+
+    /* FAT32 markers, cluster count in the FAT16 band. Must not mount as FAT16. */
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 2;
+    {
+        uint8_t *s0 = ram_image;
+
+        memset(s0, 0, 512);
+        s0[0] = 0xEB; s0[1] = 0x58; s0[2] = 0x90;
+        memcpy(s0 + 3, "MSDOS5.0", 8);
+        put_le16(s0 + 11, 512);
+        s0[13] = 1;
+        put_le16(s0 + 14, 1);
+        s0[16] = 1;
+        s0[21] = 0xF8;
+        put_le32(s0 + 32, 8258);
+        put_le32(s0 + 36, 65);
+        put_le32(s0 + 44, 2);
+        s0[510] = 0x55;
+        s0[511] = 0xAA;
+    }
+    rc = fat_mount();
+    expect("mount_hole", rc != 0 && cpm_fat_vol.fs_type == 0 && cpm_fat_vol.n_rootent == 0);
+
+    /* FAT16 layout with a FAT32 cluster count, and a plausible RootClus in the boot area. */
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    cpm_fat_vol.fs_type = 3;
+    {
+        uint8_t *s0 = ram_image;
+
+        memset(s0, 0, 512);
+        s0[0] = 0xEB; s0[1] = 0x3C; s0[2] = 0x90;
+        memcpy(s0 + 3, "MSDOS5.0", 8);
+        put_le16(s0 + 11, 512);
+        s0[13] = 1;
+        put_le16(s0 + 14, 1);
+        s0[16] = 1;
+        put_le16(s0 + 17, 16);
+        s0[21] = 0xF8;
+        put_le16(s0 + 22, 512);
+        put_le32(s0 + 32, 66040);
+        put_le32(s0 + 44, 2);
+        s0[510] = 0x55;
+        s0[511] = 0xAA;
+    }
+    rc = fat_mount();
+    expect("mount_fat16_as_32", rc != 0 && cpm_fat_vol.fs_type == 0);
 
     /* 2048 FAT16 root entries: 65536 bytes must not wrap to an empty root. */
     rt_invalidate();

@@ -1126,7 +1126,10 @@ int8_t ya_ls(char ** args)      /* print directory contents */
         fputc('\n', output);
         return 1;
     }
-    /* bytes = clusters * sectors/cluster * 512 */
+    /* bytes = clusters * sectors/cluster * 512.
+     * A product past 4 GiB wraps this 32-bit multiply and prints 0.
+     * The MiB fallback needs a 32-bit divide, and that does not fit
+     * the 8085 PATA image. */
     fprintf(output, ", %lu bytes free\n",
             (p1 * (uint32_t)cpm_fat_vol.csize) << 9);
     return 1;

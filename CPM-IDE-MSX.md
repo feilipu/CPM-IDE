@@ -127,7 +127,7 @@ Read these while implementing. Do not vendor them into the tree.
 - John Elliott, CP/M 2.2 call surface: [BDOS system calls](https://www.seasip.info/Cpm/bdos.html), [File Control Block](https://www.seasip.info/Cpm/fcb.html), [last record byte count](https://www.seasip.info/Cpm/bytelen.html), and [DOSPLUS on a DOS filesystem](https://www.seasip.info/Cpm/dosplus_fat.html). Where Elliott describes CP/M 3, MP/M, or DOS Plus, that behaviour is out of the first target. DOS Plus is a prior FCB-on-FAT system: extent `?` must list 16 KB steps, and `EXM` on DOS media is 0. Its directory-bit and label tricks are CP/M-86 v4, not 2.2.
 - Digital Research, *CP/M Operating System Manual*, September 1983, chapters 1, 5, and 6: <http://www.gaby.de/cpm/manuals/archive/cpm22htm/>. Chapter 5 is the function contract. Chapter 6 is the DPB and the allocation-vector size. Chapter 1 is the console editing and the three BDOS error waits. The HTML extract mislabels function 2’s entry as `C = 01H` and Table 1-1’s CTRL-I as line-feed. The function 2 body and Table 5-3 are the authority: function 2 is `C = 02H`, CTRL-I is tab, CTRL-J is line-feed.
 - Microsoft FAT specification 1.03 (`fatgen103`) for the BPB, FSInfo, 8.3 directory entry, `0xE5`/`0x05`, and end-of-chain values.
-- ChaN FatFs R0.16 (`ff.c`) where 1.03 is silent and mini-FAT already says it follows ChaN. Two published differences: `nclst <= $0FF5` is rejected as FAT12 (spec 1.03 treats 4085 as FAT16), and `nclst == $FFF5` stays FAT16 (ChaN `MAX_FAT16`; spec 1.03 would call that volume FAT32). The mount suite does not build either count. JumpBoot is not checked. `55AA` is required. `BPB_Media` is never read.
+- ChaN FatFs R0.16 (`ff.c`) where 1.03 is silent and mini-FAT already says it follows ChaN. Three published differences: `nclst <= $0FF5` is rejected as FAT12 (spec 1.03 treats 4085 as FAT16), `nclst == $FFF5` stays FAT16 (ChaN `MAX_FAT16`; spec 1.03 would call that volume FAT32), and `BPB_SecPerClus >= 65` (a 64 KiB cluster) is refused with `L = 19`. A 64 KiB cluster is 0 in the 16-bit `csize * 512` math, so the cap stays. The mount suite does not build either cluster-count boundary. It does build the 64 KiB refusal. JumpBoot is not checked. `55AA` is required. `BPB_Media` is never read.
 - Nextor kernel, the MSX-DOS 2.31 sources it was built on: `source/kernel` in [Konamiman/Nextor](https://github.com/Konamiman/Nextor). Useful files are `bdos.mac` (FCB functions), `fat.mac`, `dir.mac`, `find.mac`, `rw.mac`, and `buf.mac`. The published terms do not allow copying that source. Reimplement against mini-FAT.
 
 Nextor layout, from the local note: bank 0 is the `CALL 5` entry (`bdos.mac` and the boot files). Bank 2 is the filesystem. A CP/M program uses a function number and an FCB. The FCB layer builds one directory object (name, start cluster, size, attributes) and then uses the same read and write path as the rest of the kernel. An extent in that layer is a 16 KB file position (128 records), not a row of block numbers. The next cluster is cached beside that position so a sequential read does not restart at the first cluster. Allocation is the FAT free scan.
@@ -241,7 +241,7 @@ Buffers:
 - Staged 128-byte record, also the search image. Search and read do not nest.
 - No `hstbuf`, and nothing aliased with `fatwin`.
 
-Function 27’s allocation vector is rebuilt into `fatwin` and is valid until the next disk call. The DPB is the 2 KB / EXM 0 / DSM 2047 disk in the contracts section (4 MB reported, 257 bitmap bytes). The 8 MB record-number cap is separate and does not grow this vector. A permanent bitmap would lower `0006h` on every program, including ones that never ask for free space.
+Function 27’s allocation vector is rebuilt into `fatwin` and is valid until the next disk call. The call then invalidates the sector window, so the bitmap is not served as the next sector. The DPB is the 2 KB / EXM 0 / DSM 2047 disk in the contracts section (4 MB reported, 256 bitmap bytes). Function 31 returns that block from the resident stub, which is still readable after the latch restores. The 8 MB record-number cap is separate and does not grow this vector. A permanent bitmap would lower `0006h` on every program, including ones that never ask for free space.
 
 The first link measures `0006h`. The old origins (`$D9E0` / `$E200` / `$F100` and the two higher sets) are the size of the disk BDOS plus the PHASE disk BIOS. They are not a target to preserve. BIOS code still has to leave the serial rings on their current alignment. `_cpm_dsk0_base` at `$F800` was the four container LBA bases; this branch has one volume and does not keep that table. The `SERIAL_DISPATCH` `defc` may use a hole that table leaves, once the map shows the hole is outside the rings.
 
@@ -288,7 +288,7 @@ S2 bit 7 is the CP/M 2 file-write flag (Elliott, and `SETS2B7` / `CLOSEIT` / `WT
 
 ## Directory walker
 
-One walker over `dir_sdi` / `dir_next`. It does not use `dir_find`, because search has wildcards and `dir_find` is case-sensitive.
+One walker over `dir_sdi` / `dir_next`. It does not use `dir_find`, because search has wildcards. `dir_find` folds `a-z` the same way this walker does, which is what the shell name match uses.
 
 Name compare, for a drive byte other than `?`:
 
@@ -356,7 +356,8 @@ The FAT directory is user 0. Search, open, delete, and rename with any other use
 Make (22) clears S2, as `FCREATE` does, then:
 
 - Missing name: `dir_create`, size 0, set S2 bit 7, return 0. The FCB is activated. A following open is unnecessary. The caller still zeros CR to read from the start.
-- Name already there: truncate to size 0, free the old chain, set S2 bit 7, return 0. The manual requires the caller to delete first and does not define this case. Calkins `GETEMPTY` would write a second extent-0 slot. Elliott’s note says the usual result is a return to the command prompt. FAT has one slot per 8.3 name, so the second slot cannot be created, and a warm boot would punish the sample copy program’s order only when the delete was skipped. Truncate keeps one name and returns a directory code in 0..3.
+- Name already there: truncate to size 0, free the old chain, set S2 bit 7, return 0. The manual requires the caller to delete first and does not define this case. Calkins `GETEMPTY` would write a second extent-0 slot. Elliott’s note says the usual result is a return to the command prompt. FAT has one slot per 8.3 name, so the second slot cannot be created, and a warm boot would punish the sample copy program’s order only when the delete was skipped. Truncate keeps one name and returns a directory code in 0..3. A read-only file takes the fatal File R/O path and is not truncated.
+- A name byte outside the 8.3 set, including `?`, returns `0FFh` and writes nothing. Delete and rename still accept `?`.
 - No free directory slot: `A = 0FFh`.
 - FAT16 root does not grow. FAT32 root grows by directory stretch (below).
 
@@ -379,7 +380,7 @@ These are the CP/M 2.2 codes from the manual and from Elliott’s CP/M 2.2 colum
 | 2 | not returned | `create_chain` failed (disk full) |
 | 3 | close of the current extent failed inside a random read | same, inside a random write |
 | 4 | not returned. A hole is not representable; past EOF is 1 | not returned |
-| 5 | not returned | directory full while creating the extent a random write needs |
+| 5 | not returned | not returned. One FAT entry is the whole file, so a random write does not allocate another directory slot |
 | 6 | random record with R2 nonzero | same |
 
 Function 33 and 34 leave CR, EX, and S2 on the record just transferred, and they do not advance R0..R2. The next sequential call rereads or rewrites that same record. Reading or writing the last record of an extent in random mode does not open the next extent. Sequential mode does, and the new extent’s CR is 0.
@@ -420,8 +421,8 @@ Character functions follow the current `cpm22.asm` routines, including APN 02 (D
 | 10 | Buffered line. See the control list under this table. |
 | 11 | `A = 00h` empty, `A = 0FFh` when a character is waiting. Elliott says nonzero; the manual and `GETCSTS` return `0FFh`. |
 | 12 | `A = L = 22h`, `B = H = 0`. Stay on 2.2 so callers do not take the CP/M 3 path. |
-| 13 | All drives read/write, login vector cleared, DMA back to `0080h`, select and log in A:, mount. Return `0FFh` when a live file in the current user has a name starting with `$`, else 0. The manual omits the `$` return. Calkins `BITMAP` and Elliott both have it. |
-| 14 | `E = 0` logs in A: and returns 0. `E = 1..15` returns `0FFh` and leaves A: selected. The drive stays logged in until cold start, warm start, function 13, or function 37. |
+| 13 | All drives read/write, login vector cleared, DMA back to `0080h`, select and log in A:, mount. Return `0FFh` when a live file in the current user has a name starting with `$`, else 0. A mount that does not come up returns `FFFFh`. The manual omits the `$` return. Calkins `BITMAP` and Elliott both have it. |
+| 14 | `E = 0..15` returns 0 when that letter's directory cluster is set, and selects it. An unmounted letter returns `0FFh` and leaves the current drive selected. The drive stays logged in until cold start, warm start, function 13, or function 37. |
 | 24 | `HL = 0001h` after A: is logged in, else 0. Bit 0 of L is A:. |
 | 25 | `A = 0` while A: is current. |
 | 26 | Save DE as the DMA for file I/O and for the 128-byte search image. Cold start, warm start, and function 13 restore `0080h`. |
@@ -460,7 +461,7 @@ SPT  = 128           ; unused by file I/O
 BSH  = 4             ; 2 KB blocks
 BLM  = 15
 EXM  = 0             ; 16 KB logical extent, one directory step
-DSM  = 2047          ; 4 MB. (DSM/8)+1 = 257 bitmap bytes
+DSM  = 2047          ; 4 MB. (DSM/8)+1 = 256 bitmap bytes
 DRM  = 511           ; reported directory width; the FAT directory is the real limit
 AL0  = 0             ; the FAT root is not a reserved data block
 AL1  = 0

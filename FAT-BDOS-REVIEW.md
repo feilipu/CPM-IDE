@@ -248,3 +248,145 @@ function 13 a distinguishable failure return.
   verification covers the application and its own test harness rather than a linked 8085
   image.
 - Reviewers did not change product code, and nothing in this review was committed by them.
+
+## Resolutions
+
+Work followed the order above. The same branch decision is in `common/fatfs.asm` and
+`common/fatfs_85.asm`, and in `common/bdos22.asm` and `common/bdos22_85.asm`. Host
+suites were run once after the last code change (`/tmp/cpm-ide-review-tests.log`,
+`REVIEW_TESTS_DONE 06:32:13`):
+
+| Suite | Z80 | 8085 |
+|---|---|---|
+| mini-FAT | `MINIFAT_OK`, 21330837 ticks | `MINIFAT_OK`, 27050893 ticks |
+| BDOS disk | `BDOS_DISK_OK`, 43768358 ticks | `BDOS_DISK_OK`, 56552175 ticks |
+| BDOS char | `BDOS_CHAR_OK`, 439284 ticks | `BDOS_CHAR_OK`, 337462 ticks |
+
+`expect` prints a name only on failure. A clean disk run is `BDOS_DISK_OK`. An earlier
+disk run, before the `mk_legal` return fix, printed `make_wild FAIL`, `make_qmark FAIL`,
+and `log_use FAIL` (`BDOS_DISK_BAD 3`) and stopped before the 8085 disk and char suites.
+
+### 1. Function 27 window — GREEN
+
+`vec_done` stores `$FFFF` in both words of `fat_winsect` and clears `fat_wflag` after the
+bitmap fill. The fill is 256 bytes: Z80 stores one `$FF` then `ldir` of 255; 8085 is
+`ld b,0` / `dec b` / `jp nz` (256 iterations). The old nested `dec bc` / `inc b` / `inc c`
+count writes 512 if the constant is 256, so that idiom is not used here.
+`vec_cnt`, `vec_stale`, and `vec_poison` are in the passing disk suite on both CPUs.
+
+### 2. Mount shape — GREEN
+
+FAT16 is rejected when the root-entry count is 0. FAT32 is rejected when `FATSz16 != 0`.
+The type is held at `_cpm_fat_vol+26` and copied to `+0` only in `fat_mount_ok`.
+`mount_hole` and `mount_fat16_as_32` passed on both CPUs (`rc != 0`, `fs_type == 0`).
+The two recorded cluster-count boundaries (`nclst <= $0FF5` rejected as FAT12;
+`nclst == $FFF5` stays FAT16) are unchanged and still have no suite image.
+
+### 3. Make — GREEN
+
+A read-only attribute (`dir_ptr+11` bit 0) takes `fatal_ro` before truncate.
+`mk_legal` returns carry set only when all 11 name bytes are in the 8.3 set after the
+`$7F` attribute mask. `fn_make` does `call mk_legal` / `jp nc,ret_ff`. A `jp ret_ff`
+from inside `mk_legal` returned into `fn_make` and truncated the file; that is why
+`make_wild` and `make_qmark` were red on the first run. Z80 scans the 15 forbidden bytes
+with `cpir` and pops before `mk_legno`. 8085 early rejects go to `mk_legbad` (no pop);
+a table match goes to `mk_legno`, which pops `bc` and `hl`. `make_ro_boot`, `make_wild`,
+and `make_qmark` passed on both CPUs after that return fix.
+
+### 4. Function 31 — GREEN
+
+The 15-byte `bdos_dpb` (SPT 128, BSH 4, BLM 15, EXM 0, DSM 2047, DRM 511, AL0/AL1 0,
+CKS 0, OFF 0) is initialized stub data beside `bdos_dma`. `fn_dpb` is `ld hl,bdos_dpb`.
+The old ROM-section table is gone. Host `dpb` did not fail on the flat link. The ROM
+maps place the block in the resident stub: Z80 `$F3A4`, 8085 `$F3A8`. Stub BSS stays
+below `$F650` and BIOS stays at `$F984`, as recorded in the ROM table below.
+
+### 5. 64 KiB cluster cap — GREEN (kept)
+
+`SecPerClus >= 65` still fails the VBR check. `fat_check_vbr` stores 19 at `+27`;
+`fat_mount_fail` returns L=19 and clears `+0`, `+26`, and `+27`. Other failures stay L=1.
+Recorded in both FAT headers, `readme_ccp_bdos.md`, and `CPM-IDE-MSX.md`.
+`mount_csize128` and `mount_fat32_csize` expect `rc == 19` and `fs_type == 0` and passed
+on both CPUs.
+
+### 6. Bad-cluster marker — GREEN
+
+`$FFF7` (FAT16, high byte already `$FF`) and `$0FFFFFF7` (FAT32, the other bytes already
+`$FF`) return from `get_fat_bad` with carry clear, before the `$F8` end-of-chain test.
+`fat16_fff7` expects `rc != 0` and passed. `fat16_f800` still expects cluster `$F800` and
+passed. The allocator uses the same carry-clear return. There is no separate allocator test.
+
+### 7. Directory wrap guards — code in; NOT EXECUTED
+
+`nx_adv`, `col_next`, `dol_adv`, and `sf_adv` test carry after `add hl,de` of 32 and
+leave on carry, in both BDOS files. No 2048-entry BDOS walk reaches `dir_ofs == 65504`.
+Do not read this as a passing test.
+
+### 8. Fail closed — GREEN
+
+`fn_reset` jumps to `dol_fail` (`ld hl,$FFFF`) when `fat_mount` returns carry clear.
+`fs_type` is cleared at `fat_mount` entry. `rst_bad` expects function 13 to return
+`$FFFF` and `fs_type == 0`, and passed. That failure leaves the image unmounted, so the
+following `log_use` rebuilt a good volume in the test (`rebuild(); base_files();`) before
+logging in. The product stays fail-closed. `log_use` then passed on both CPUs.
+
+### 9. Remaining items
+
+- **256-byte vector.** Covered by item 1. `vec_cnt` counts 256 bytes. GREEN.
+- **FAT32 mirroring.** After the FAT32 root cluster is accepted, bit 7 of `BPB_ExtFlags`
+  selects one FAT: an active index at or above `n_fats` fails the mount; index 1 adds
+  `fatsz` to `fatbase` (Z80 `adc hl,de`, 8085 `adc` through A); `n_fats` becomes 1 so the
+  sync does not mirror. FAT16 skips this block. Code reviewed on both CPUs.
+  NOT EXECUTED: the suite has no ExtFlags image.
+- **FSInfo hint.** Already enforced. Z80 `fat_seed_fsinfo` ignores `$FFFFFFFF`, a next-free
+  below 2 or at or above `n_fatent`, and a free count above `nclst`. 8085 uses
+  `fat_clst_ok` (carry set when the cluster is below 2 or at or above `n_fatent`) and the
+  same free-count compare. No code change. `fsinfo_alloc`, `fsinfo_free`, `fsinfo_nxt`,
+  and `fsinfo_sig` passed on both CPUs. Those expects are the happy path. The rejection
+  branches were not executed by a separate test.
+- **Name case.** `fat_fold` folds `a`–`z` on both compare sides after the `$05` to `$E5`
+  translation. `find_fold` passed on both CPUs. The directory walker still does not call
+  `dir_find`, because of wildcards. GREEN.
+- **Return code 5.** Documentation only. One FAT file is one directory entry, so a random
+  write does not allocate a second slot. `CPM-IDE-MSX.md` says code 5 is not returned.
+  GREEN as documentation. No `ld a,5` was added.
+- **Cyclic chain.** `extend_one` counts steps in `fat_work` and returns carry clear from
+  `ex_bad` when the step reaches `n_fatent`. `get_fat` does not use `fat_work`.
+  `cycle_two` and `fat_self_loop` passed; those are FAT-layer walks. NOT EXECUTED: no
+  BDOS test drives the step limit.
+- **Quadratic gap fill.** Comment only, above `zero_gap`: each sector steps
+  `clst_from_off`'s cache. No rewrite. GREEN as a recorded bound, not as a new test.
+- **Shell free space.** RED. The MiB fallback in `ya_ls` pulls in `l_long_div_u` and
+  `l_long_mod_u` (99 bytes) plus 188 bytes of shell code on the 8085 PATA speed list.
+  The first seven-ROM link (`/tmp/cpm-ide-review-hex`, zcc `v25461-415806f08c-20260813`)
+  then failed two images: 8085 PATA UART 32967 bytes, `__CODE_END` `$8068` (199 over
+  32768, 231 past `$7F81`); 8085 CF UART 32910 bytes, `__CODE_END` `$802F` (142 over,
+  174 past `$7F81`). The other five passed that link. The fallback was removed. `ya_ls`
+  again prints `(clusters * csize) << 9`, so a product past 4 GiB prints 0. A shift-only
+  and a byte-wise form were measured with the PATA `zcc` line and were still larger than
+  the spare. `_fat_clusters` is unchanged; `cl_over` still expects 0 and passed.
+- **Functions 13 and 14.** The manual table matches the code: 13 names `FFFFh` on mount
+  failure; 14 returns 0 for a mounted letter `E` = 0..15 and `0FFh` for an unmounted
+  letter. GREEN as documentation.
+
+### ROM link — GREEN
+
+Second link, after the MiB print was removed (`/tmp/cpm-ide-review-hex2`, same zcc,
+`ALL OK  ok=7 fail=0`). `__IO_CF_8_BIT` left at `0x01`. Every image: `0006h` `$F106`,
+BIOS `$F984`. The resident `bdos_dpb` is 15 bytes. On Z80 it is `$F3A4`, stub data ends
+at `$F3B3`, and stub BSS ends at `$F616` (58 bytes before BDOS BSS `$F650`). On 8085 it
+is `$F3A8`, stub data ends at `$F3B7`, and stub BSS ends at `$F61A` (54 bytes before
+`$F650`).
+
+| Product | Bytes | `__CODE_END` | Spare to 32768 | Spare to `$7F81` |
+|---|---:|---:|---:|---:|
+| 8085 PATA UART | 32664 | `$7F39` | 104 | 72 |
+| 8085 CF UART | 32607 | `$7F00` | 161 | 129 |
+| 8085 CF ACIA | 32355 | `$7E04` | 413 | 381 |
+| Z80 PATA SIO | 31752 | `$7B39` | 1016 | |
+| Z80 CF SIO | 31595 | `$7A9C` | 1173 | |
+| Z80 CF UART | 31426 | `$79F3` | 1342 | |
+| Z80 CF ACIA | 31004 | `$7877` | 1764 | |
+
+The `$7F81` column is the 8085 code gate. The first link's two failures are the sizes
+in the shell-free-space paragraph above.

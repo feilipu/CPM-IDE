@@ -585,6 +585,22 @@ ENDIF
 _bdos_dma:
 bdos_dma:   defw    $0080
 
+;
+; Chapter 6 Figure 6-4, copied with the stub into the resident page.
+; EXM 0 and DSM 2047 is the 2 KB / 4 MB disk. (DSM/8)+1 is 256 bytes.
+;
+bdos_dpb:
+    defw    128
+    defb    4
+    defb    15
+    defb    0
+    defw    2047
+    defw    511
+    defb    0
+    defb    0
+    defw    0
+    defw    0
+
 IFDEF BDOS_STUB_ORG
 PUBLIC  _bdos_stub_data_tail
 _bdos_stub_data_tail:
@@ -674,6 +690,8 @@ EXTERN  clst_cache_sclust
 EXTERN  dir_ptr
 EXTERN  dir_ofs
 EXTERN  fat_wflag
+EXTERN  fat_winsect
+EXTERN  fat_work
 EXTERN  _cpm_fat_vol
 EXTERN  fat_mount
 EXTERN  _cpm_dir_sclust
@@ -1072,6 +1090,7 @@ nx_adv:
     ld      hl,(dir_ofs)
     ld      de,32
     add     hl,de
+    jp      c,nx_no
     jp      nx_lp
 nx_no:
     or      a
@@ -1547,6 +1566,7 @@ sf_adv:
     ld      hl,(srch_ofs)
     ld      de,32
     add     hl,de
+    jp      c,srch_done
     ld      (srch_ofs),hl
     ld      hl,0
     ld      (srch_ext),hl
@@ -1915,16 +1935,26 @@ del_done:
 ;
 ; Make. An existing name is truncated to size 0. A missing name is created.
 ; User 1 and a full FAT16 root return FF. S2 bit 7 is set on success.
+; A read-only file takes the File R/O path. A name outside the 8.3 set
+; returns FF and is not written.
 ;
 fn_make:
     call    gate
     jp      nc,ret_ff
     call    open_void
     call    disk_ro
+    call    mk_legal
+    jp      nc,ret_ff
     xor     a
     ld      (bdos_fcb+14),a
     call    find_name
     jp      nc,mk_new
+    ld      hl,(dir_ptr)
+    ld      de,11
+    add     hl,de
+    ld      a,(hl)
+    and     1
+    jp      nz,fatal_ro
     call    slot_index
     ld      (srch_idx),a
     call    load_clst
@@ -1980,6 +2010,40 @@ mk_nm:
     ld      a,$80
     ld      (bdos_fcb+14),a
     jp      ret_index
+
+;
+; Bit 7 is a CP/M attribute. The rest must be a FAT 8.3 byte: $20..$7E
+; except " * + , / : ; < = > ? [ \ ] |
+;
+; Carry set when all 11 bytes are legal. Carry clear: the caller returns FF.
+mk_legal:
+    ld      hl,bdos_fcb+1
+    ld      b,11
+mk_leg1:
+    ld      a,(hl)
+    inc     hl
+    and     $7F
+    cp      $20
+    jp      c,mk_legno
+    cp      $7F
+    jp      nc,mk_legno
+    push    hl
+    push    bc
+    ld      hl,mk_bad
+    ld      bc,15
+    cpir
+    pop     bc
+    pop     hl
+    jp      z,mk_legno
+    djnz    mk_leg1
+    scf
+    ret
+mk_legno:
+    or      a
+    ret
+
+mk_bad:
+    defb    $22,$2A,$2B,$2C,$2F,$3A,$3B,$3C,$3D,$3E,$3F,$5B,$5C,$5D,$7C
 
 ;
 ; Rename. Pass 1 refuses when the expanded name is already another entry.
@@ -2136,7 +2200,11 @@ col_next:
     ld      hl,(dir_ofs)
     ld      de,32
     add     hl,de
+    jp      c,col_none
     jp      col_lp
+col_none:
+    or      a
+    ret
 
 fn_attr:
     call    gate
@@ -2855,13 +2923,40 @@ fptr_plus_bc:
 ;
 ; One new cluster linked from the current end of the chain.
 ; Carry set when create_chain published it. The caller retries the walk.
+; A cycle never reaches end-of-chain. The walk stops at n_fatent.
 ;
 extend_one:
+    ld      hl,0
+    ld      (fat_work),hl
+    ld      (fat_work+2),hl
     ld      hl,io_sclust
     call    io_ld
 ex1_lp:
     push    bc
     push    de
+    ld      hl,(fat_work)
+    inc     hl
+    ld      (fat_work),hl
+    ld      a,h
+    or      l
+    jr      nz,ex1_cmp
+    ld      hl,(fat_work+2)
+    inc     hl
+    ld      (fat_work+2),hl
+ex1_cmp:
+    ld      hl,_cpm_fat_vol+4
+    ld      a,(fat_work)
+    sub     (hl)
+    inc     hl
+    ld      a,(fat_work+1)
+    sbc     a,(hl)
+    inc     hl
+    ld      a,(fat_work+2)
+    sbc     a,(hl)
+    inc     hl
+    ld      a,(fat_work+3)
+    sbc     a,(hl)
+    jp      nc,ex_bad            ;step >= n_fatent
     call    get_fat
     jp      nc,ex_bad
     ld      a,b
@@ -3009,7 +3104,8 @@ msg_bad:
 ;
 ; Bytes from the old size up to the record. A new cluster is already
 ; zero from create_chain; zeroing it again is the same result.
-; Carry clear returns A from map_sector (disk full is 2).
+; Each sector steps clst_from_off's cache, so the gap is linear in its
+; length. Carry clear returns A from map_sector (disk full is 2).
 ;
 zero_gap:
     ld      hl,io_size
@@ -3524,14 +3620,15 @@ fn_tell:
 ;
 ; Function 13. Drives go read/write, login is cleared, DMA is 0080h,
 ; then A: is logged in when its cluster is set. A live '$' name for
-; this user returns 00FFh. Any other user returns 0.
+; this user returns 00FFh. Any other user returns 0. A mount that does
+; not come up returns FFFFh. 0 and 00FFh stay the success results.
 ;
 fn_reset:
     call    bdos_warm
     ld      hl,$0080
     ld      (bdos_dma),hl
     call    fat_mount
-    jp      nc,dol_none
+    jp      nc,dol_fail
     xor     a
     call    drv_mounted
     jp      nc,dol_none
@@ -3567,12 +3664,16 @@ dol_adv:
     ld      hl,(dir_ofs)
     ld      de,32
     add     hl,de
+    jp      c,dol_none
     jp      dol_lp
 dol_yes:
     ld      hl,$00FF
     ret
 dol_none:
     ld      hl,0
+    ret
+dol_fail:
+    ld      hl,$FFFF
     ret
 
 ;
@@ -3662,25 +3763,10 @@ fn_dpb:
     ret
 
 ;
-; Chapter 6 Figure 6-4. EXM 0 and DSM 2047 is the 2 KB / 4 MB disk.
-; (DSM/8)+1 is 257 bytes in this plan.
-;
-bdos_dpb:
-    defw    128
-    defb    4
-    defb    15
-    defb    0
-    defw    2047
-    defw    511
-    defb    0
-    defb    0
-    defw    0
-    defw    0
-
-;
-; Function 27. fatwin becomes 257 bytes, all used, then the free 2 KB
+; Function 27. fatwin becomes 256 bytes, all used, then the free 2 KB
 ; blocks (capped at 2048) are cleared from block 2047 downward.
-; Bit 7 of byte 0 is block 0. The pointer dies on the next disk call.
+; Bit 7 of byte 0 is block 0. The window is invalidated before return:
+; the bitmap is not a sector, and the pointer dies on the next disk call.
 ;
 fn_vec:
     ld      hl,fatwin
@@ -3730,7 +3816,7 @@ vec_have:
     ld      d,h
     ld      e,l
     inc     de
-    ld      bc,256
+    ld      bc,255              ;(DSM/8)+1 = 256, including the byte just stored
     ldir
     pop     bc
     ld      hl,2047
@@ -3743,6 +3829,11 @@ vec_bit:
     dec     bc
     jp      vec_bit
 vec_done:
+    ld      hl,$FFFF
+    ld      (fat_winsect),hl
+    ld      (fat_winsect+2),hl
+    xor     a
+    ld      (fat_wflag),a
     pop     hl
     ret
 

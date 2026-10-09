@@ -510,6 +510,28 @@ static void test_make(void)
     set_name("NOPE    TXT");
     expect("make_user FAIL", call(22) == 0xFF);
     bdos(32, 0);
+
+    rebuild();
+    plant_name(slot(0), "KEEP    TXT", 100, 0x21, 2);
+    ram_image[516] = 0xFF;
+    ram_image[517] = 0xFF;
+    bios_reset();
+    i = (int)wboot_hits;
+    clear_fcb();
+    set_name("KEEP    TXT");
+    call(22);
+    expect("make_ro_boot FAIL", wboot_hits == (unsigned)i + 1 && slot(0)[28] != 0);
+
+    rebuild();
+    plant_name(slot(0), "A1      TXT", 100, 0x20, 2);
+    ram_image[516] = 0xFF;
+    ram_image[517] = 0xFF;
+    clear_fcb();
+    set_name("A?      TXT");
+    expect("make_wild FAIL", call(22) == 0xFF && slot(0)[0] == 'A' && slot(0)[28] != 0);
+    clear_fcb();
+    set_name("Q?      TXT");
+    expect("make_qmark FAIL", call(22) == 0xFF && slot(1)[0] == 0);
 }
 
 static void test_rename(void)
@@ -968,6 +990,11 @@ static void test_login(void)
     bdos(32, 0);
     rebuild_io();
     expect("rst_empty FAIL", bdos(13, 0) == 0 && bdos(24, 0) == 1);
+    ram_image[510] = 0;
+    expect("rst_bad FAIL", bdos(13, 0) == 0xFFFF && cpm_fat_vol.fs_type == 0);
+    /* The failed reset leaves the volume unmounted. Log-in via open needs a live disk. */
+    rebuild();
+    base_files();
     bdos(37, 1);
     expect("log_clr FAIL", bdos(24, 0) == 0 && (bdos(29, 0) & 1) == 0);
     clear_fcb();
@@ -988,7 +1015,7 @@ static void test_login(void)
     expect("vec_ptr FAIL", vec == (unsigned)fatwin &&
            cpm_fat_vol.free_clst > 4000 && cpm_fat_vol.free_clst < 4090);
     expect("vec_ab FAIL", ab == bdos_hl && ab == (unsigned)fatwin);
-    expect("vec_cnt FAIL", zero_bits(bits, 257) == (unsigned)blocks && bits[256] == 0xFF);
+    expect("vec_cnt FAIL", zero_bits(bits, 256) == (unsigned)blocks);
     expect("vec_b0 FAIL", bit_used(bits, 0) && blocks > 0 && blocks < 2048 &&
            !bit_used(bits, 2048 - (unsigned)blocks) &&
            bit_used(bits, 2047 - (unsigned)blocks) && !bit_used(bits, 2047));
@@ -1001,6 +1028,18 @@ static void test_login(void)
     set_name("README  TXT");
     call(15);
     expect("vec_stale FAIL", bits[0] != 0xFF);
+
+    rebuild();
+    memset(ram_image + 19 * 512, 0x41, 100);
+    plant_name(slot(0), "SHORT   TXT", 100, 0x20, 2);
+    clear_fcb();
+    set_name("SHORT   TXT");
+    bdos(26, (unsigned)dma);
+    expect("vec_op FAIL", call(15) != 0xFF);
+    expect("vec_rd FAIL", call(20) == 0 && dma[0] == 0x41);
+    fcb[32] = 0;
+    bdos(27, 0);
+    expect("vec_poison FAIL", call(20) == 0 && dma[0] == 0x41);
 
     rebuild_io();
     clear_fcb();
