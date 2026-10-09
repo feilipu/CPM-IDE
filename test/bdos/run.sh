@@ -36,7 +36,7 @@ run_cpu() {
     stub="$2"
     out="$HERE/out/char${3}"
     if [ "$cpu" = "8085" ]; then
-        ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
+        ( cd /tmp && zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m \
             -Ca-DBDOS_ROM_OMIT \
             "$HERE/test_char.c" "$HERE/bdos_host.asm" \
             "$HERE/bdos_rom_fake.asm" \

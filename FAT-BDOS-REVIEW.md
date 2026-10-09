@@ -389,4 +389,55 @@ is `$F3A8`, stub data ends at `$F3B7`, and stub BSS ends at `$F61A` (54 bytes be
 | Z80 CF ACIA | 31004 | `$7877` | 1764 | |
 
 The `$7F81` column is the 8085 code gate. The first link's two failures are the sizes
-in the shell-free-space paragraph above.
+in the shell-free-space paragraph above. That table is the sccz80 link. The HEX files
+in the tree now are the 80cc link below. The four Z80 images are the same bytes.
+
+### 8085 compiler — 80cc
+
+80cc was rebuilt from z88dk `26427ca` (`80cc_opts_4`, compiler commit `f027451`).
+`rebuild-hex.sh all` then printed `zcc=v25461-415806f08c-20260813` and
+`ALL OK  ok=7 fail=0` (`/tmp/cpm-ide-80cc-default/summary.txt`). `__IO_CF_8_BIT`
+was left at `0x01`. Gate lines still show `0006h` `$F106` and BIOS `$F984`.
+8085 CCP tail `$F0EA`. Z80 CCP tail `$F100`.
+
+The 8085 lines are `zcc -compiler=80cc -O2` with stack locals and no
+`-fframe-pointer`. `--opt-code-speed` is accepted by 80cc and ignored: `yash.c`
+for `acia85` is byte-identical with no speed flag, with `=all`, and with
+`=inlineints`. `lib/z80rules.8` is not on the 80cc rule list. The PATA line still
+names the sccz80 speed options and still omits `all` and `inlineints`, so a
+sccz80 rebuild of that line does not pull `z80rules.8` back in. The Z80 ROMs stay
+on sdcc (`-SO3`). An 80cc Z80 link needs `-clib=new` and `-Cc-fframe-pointer`;
+those four images are smaller than sccz80 on the same library and all four are
+past 32 KiB (closest is CF ACIA, 33086 bytes, `__CODE_END` `$809A`).
+
+| Product | Bytes | `__CODE_END` | Spare to 32768 | Spare to `$7F81` |
+|---|---:|---:|---:|---:|
+| 8085 PATA UART | 31742 | `$7B9F` | 1026 | 994 |
+| 8085 CF UART | 31595 | `$7B0C` | 1173 | 1141 |
+| 8085 CF ACIA | 31385 | `$7A3A` | 1383 | 1351 |
+| Z80 PATA SIO | 31752 | `$7B39` | 1016 | |
+| Z80 CF SIO | 31595 | `$7A9C` | 1173 | |
+| Z80 CF UART | 31426 | `$79F3` | 1342 | |
+| Z80 CF ACIA | 31004 | `$7877` | 1764 | |
+
+Host suites after that switch. 8085 lines that fit use `-compiler=80cc`. The Z80
+host lines stay on the `+test` default (sccz80).
+
+| Suite | Z80 | 8085 |
+|---|---|---|
+| mini-FAT | `MINIFAT_OK`, 21330837 ticks | `MINIFAT_OK`, 27020080 ticks |
+| yash config | `YASH_CFG_OK` | `YASH_CFG_OK` |
+| BDOS char | `BDOS_CHAR_OK`, 439284 ticks | `BDOS_CHAR_OK`, 266996 ticks |
+| BDOS disk | `BDOS_DISK_OK`, 43768358 ticks | `BDOS_DISK_OK`, 56552175 ticks |
+| ISA kern | `KERN_OK`, 11023744 ticks | `KERN_OK`, 12583981 ticks |
+
+The 8085 disk row is the sccz80 harness (64043 bytes). The same harness compiled
+with 80cc is 68496 bytes, and `z88dk-ticks` rejects it (`Incorrect length: 68496`,
+limit 65536), so `test/bdos/run_disk.sh` leaves that line on sccz80. The 8085
+character tick count is the 80cc harness; the BDOS itself is the asm file.
+
+`test/bdos/isa/run_isa.sh seq` prints `SEQ_BAD 5` on the Z80 build (`r16`, `r64`,
+`r128`, `e16`, `l16`). That harness plants the FAT root and leaves
+`cpm_dir_sclust` at 0, so the first file call takes Select. The disk suite
+publishes the drive cluster and is the green row above. The 8085 sequential
+binary was not built. These are ticks runs, not a boot on the RC2014.

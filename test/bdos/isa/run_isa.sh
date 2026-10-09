@@ -92,7 +92,7 @@ run_kern() {
         cd "$d"
         export TMPDIR="$d/tmp"
         if [ "$cpu" = "8085" ]; then
-            zcc +test -clib=8085 -m8085 -vn -m \
+            zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m \
                 "$HERE/kern.c" "$asm" -o kern.bin -lndos
         else
             zcc +test -vn -m \
@@ -139,7 +139,7 @@ run_seq() {
         cd "$d"
         export TMPDIR="$d/tmp"
         if [ "$cpu" = "8085" ]; then
-            zcc +test -clib=8085 -m8085 -vn -m -DTIMER \
+            zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m -DTIMER \
                 -I"$ROOT/common" -I"$ROOT/test/fatfs" \
                 "$HERE/seq.c" "$ROOT/test/bdos/bdos_host.asm" \
                 "$bdos" "$fat" "$ide" "$ROOT/test/fatfs/bss_ram.asm" \

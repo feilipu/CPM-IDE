@@ -30,7 +30,7 @@ z88dk-ticks "$HERE/out/biosdisk.bin" -x "$HERE/out/biosdisk.map" \
 grep -q 'bios_fails 0' "$HERE/out/biosdisk.txt"
 
 echo "=== v2.6 BIOS deblock 8085 ticks (not this branch BIOS) ==="
-( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
+( cd /tmp && zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m \
     -I"$HERE" \
     "$HERE/test_bios_disk.c" "$HERE/bios_disk_85.asm" "$HERE/ide_ram_8085.asm" \
     "$HERE/bss_ram.asm" \
@@ -46,7 +46,7 @@ run_master_disk() {
     out="$HERE/out/master_${tree}"
     ( cd "$ROOT" && python3 "$HERE/extract_master_disk.py" "$tree" ) > "${out}.asm"
     if [ "$cpu" = "8085" ]; then
-        ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
+        ( cd /tmp && zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m \
             -I"$HERE" \
             "$HERE/test_bios_disk.c" "$HERE/wrap_master.asm" "${out}.asm" \
             "$HERE/ide_ram_8085.asm" "$HERE/bss_ram.asm" \
@@ -86,7 +86,7 @@ echo "=== mini-FAT ticks (FAT12-sized mount must fail) ==="
             -counter 999999999 | tee "$HERE/out/minifat.txt"
     grep -q 'MINIFAT_OK' "$HERE/out/minifat.txt"
     echo "=== mini-FAT 8085 ticks ==="
-    ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
+    ( cd /tmp && zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m \
         -I"$ROOT/common" \
         "$HERE/test_minifat.c" "$HERE/ide_ram_8085.asm" "$HERE/bss_ram.asm" \
         "$HERE/bios_disk_85.asm" "$HERE/redteam_wipe.asm" \
@@ -113,7 +113,7 @@ run_cfg() {
     mkdir -p "$cfg_inc/arch/rc2014"
     cp "$HERE/host/arch/rc2014/diskio.h" "$cfg_inc/arch/rc2014/diskio.h"
     if [ "$cpu" = "8085" ]; then
-        ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
+        ( cd /tmp && zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m \
             -I"$ROOT/common" -I"$cfg_inc" \
             "$HERE/test_cfg.c" "$ROOT/common/yash.c" \
             "$ROOT/common/fatfs_85.asm" "$HERE/ide_ram_8085.asm" \

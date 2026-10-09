@@ -421,13 +421,13 @@ First though, refer to the library, disk and buffer configuration notes below.
 
 The z88dk command lines to build the CP/M-IDE for the 8085 CPU Module are below. The `rc2014` target and relevant subtype should be selected, from within the relevant directory. Set `Z88DK` to your z88dk install root. The `-I${Z88DK}/include` path must precede the `_DEVELOPMENT/common` include path so classic `<stdio.h>` is used (required for `stdin`/`stdout` on the hybrid 8085 CRT).
 
-The 8085 PATA image names the sccz80 speed options and leaves `lib/z80rules.8` off. `--opt-code-speed=all` runs that inline-int rules file, and with it this image is larger than 32 KiB. The two 8085 CF images still fit with `=all`.
+The 8085 images use 80cc (`-compiler=80cc`), with locals on the stack and no `-fframe-pointer`. 80cc accepts `--opt-code-speed` and ignores it. `lib/z80rules.8` is the sccz80 inline-int peephole file, and 80cc does not run it. The integer helpers that file inlines are lowered in the 80cc back end. The PATA line still names those sccz80 speed options and leaves `all` and `inlineints` out, so building that line with sccz80 does not pull `z80rules.8` back in. The Z80 images stay on sdcc.
 
-`zcc +rc2014 -subtype=uart85 -O2 --opt-code-speed=lshift32,rshift32,add32,sub32,sub16,intcompare,charcompare,longcompare,ucharmult,floatconst -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
+`zcc +rc2014 -subtype=uart85 -compiler=80cc -O2 --opt-code-speed=lshift32,rshift32,add32,sub32,sub16,intcompare,charcompare,longcompare,ucharmult,floatconst -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
 
-`zcc +rc2014 -subtype=uart85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-uart -create-app`
+`zcc +rc2014 -subtype=uart85 -compiler=80cc -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-uart -create-app`
 
-`zcc +rc2014 -subtype=acia85 -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
+`zcc +rc2014 -subtype=acia85 -compiler=80cc -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
 
 The ROM shell no longer links ChaN `ff_ro`. `common/yash.c` calls the mini-FAT in `common/fatfs.asm`. Volume rules and the drive map are in [Modifications to the CCP and BDOS](readme_ccp_bdos.md). A [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) is still what a CP/M application links when it wants ChaN `f_*` on the IDE volume.
 

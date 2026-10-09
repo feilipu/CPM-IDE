@@ -14,6 +14,8 @@ run_cpu() {
     fat="$3"
     ide="$4"
     out="$HERE/out/disk${5}"
+    # 80cc builds test_disk.c to 68496 bytes. z88dk-ticks rejects a file
+    # over 65536 bytes, so this harness stays on sccz80. The 8085 ROMs use 80cc.
     if [ "$cpu" = "8085" ]; then
         ( cd /tmp && zcc +test -clib=8085 -m8085 -vn -m \
             -I"$ROOT/common" -I"$ROOT/test/fatfs" \

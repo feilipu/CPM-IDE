@@ -36,10 +36,12 @@ export ZCCCFG="${ZCCCFG:-${Z88DK}/lib/config}"
 
 LOG="${WORK:-/tmp/cpm-ide-rebuild-hex}"
 MAXJOBS="${MAXJOBS:-2}"
-# 8085 PATA only. Same list as the README uart85 PATA line.
-# zcc runs lib/z80rules.8 when this argument contains "all" or "inlineints".
-# This list contains neither, which keeps that image within 32768 bytes.
-# The two 8085 CF images stay on --opt-code-speed=all.
+# 8085 ROMs use -compiler=80cc (stack locals, no -fframe-pointer).
+# 80cc accepts --opt-code-speed and ignores it. lib/z80rules.8 is an sccz80
+# peephole and is not on the 80cc rule list. The PATA name list still excludes
+# "all" and "inlineints", so a sccz80 rebuild of that line does not run
+# z80rules.8. The two 8085 CF lines stay on --opt-code-speed=all for that
+# same sccz80 fallback. Z80 ROMs stay on sdcc.
 SPEED_8085_PATA=lshift32,rshift32,add32,sub32,sub16,intcompare,charcompare,longcompare,ucharmult,floatconst
 M4="${Z88DK}/libsrc/target/rc2014/config/config_target.m4"
 INC_Z80="${Z88DK}/libsrc/target/rc2014/config_rc2014_private.inc"
@@ -347,7 +349,7 @@ build_fat() {
     (
       export TMPDIR="$tmp"
       cd "$ROOT/$dir"
-      zcc +rc2014 -subtype="$sub" -O2 --opt-code-speed="$speed" -m \
+      zcc +rc2014 -subtype="$sub" -compiler=80cc -O2 --opt-code-speed="$speed" -m \
         -D__CLASSIC -DAMALLOC \
         -I"${Z88DK}/include" \
         -I"${Z88DK}/include/_DEVELOPMENT/common" \
@@ -400,7 +402,7 @@ build_acia85() {
   (
     export TMPDIR="$tmp"
     cd "$ROOT/8085-cf-acia"
-    zcc +rc2014 -subtype=acia85 -O2 --opt-code-speed=all -m \
+    zcc +rc2014 -subtype=acia85 -compiler=80cc -O2 --opt-code-speed=all -m \
       -D__CLASSIC -DAMALLOC \
       -I"${Z88DK}/include" \
       -I"${Z88DK}/include/_DEVELOPMENT/common" \
