@@ -1,4 +1,4 @@
-# Pre-repair TIMER totals from BDOS-ISA-REVIEW.md (2026-10-07).
+# Pre-repair TIMER totals from the BDOS ISA review (2026-10-07), removed from the tree 2026-10-09; see git history.
 # cpu key ticks
 # A later repair should stay correct (SEQ_OK / KERN_OK) and beat these.
 # Whole-program Ticks, not regions: z80 kern 11023744, 8085 kern 12584724,

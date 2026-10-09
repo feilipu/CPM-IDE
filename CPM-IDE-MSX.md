@@ -51,7 +51,7 @@ Every map from that run: `bdos` `$F100`, `0006h` `$F106`, `fbase` `$F111`, `func
 
 The `676d65b` image, from `/tmp/cpm-ide-hgv`, had no `hget` and BIOS `$F960`: z80-cf-acia 31378 / `$79D2`, through 8085 PATA 32533 / `$7E7C`. On that HEX the stub was stored at `$7110`. `bdos22.asm` was not edited between that link and this one, so the phase bytes of the stub are the same and the file offset moved.
 
-`BDOS-ISA-REVIEW.md` keeps the earlier links under their own headings. "ROM rebuild" is the pre-hget run (z80-cf-acia 32631 installed, six images over 32768). "hget compiled out" is the 31306-byte table, md counters still static, `_main` `$662A`. "Repair results" and "8085-cf-acia does not fit" (bin 33703, `__CODE_END` `$8308`, `_main` `$6B35`) are the repair history. "Image at 676d65b" in that review is the `$F960` link. The table above is the HEX files in the tree.
+The earlier links are kept in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026-10-09 (see git history). "ROM rebuild" is the pre-hget run (z80-cf-acia 32631 installed, six images over 32768). "hget compiled out" is the 31306-byte table, md counters still static, `_main` `$662A`. "Repair results" and "8085-cf-acia does not fit" (bin 33703, `__CODE_END` `$8308`, `_main` `$6B35`) are the repair history. "Image at 676d65b" in that review is the `$F960` link. The table above is the HEX files in the tree.
 
 ### Entry
 
@@ -76,7 +76,7 @@ POWER.COM needs this entry: the serial, the `JP`, the four error words, and the 
 
 The character run checks the serial, the `C3` at offset 6, the JP target equal to head+17, `EB` at fbase, function 12 still returning A/B and HL `0022h` after the six serial bytes are overwritten with `A5`, the index encoding `21 ?? ?? 5F 16 00 19 19 5E 23 56`, and words 0, 12, 38, 39, and 40. GOBACK is checked for function 12 (`0022h`), function 11 with an empty console (0) and with a pushed key (`00FFh`), and function 41 (0). The disk run checks that the four error words are pairwise distinct and nonzero, that an open miss returns A/B and HL `00FFh`, that a successful open returns the same directory code 0..3 in A/B and HL, and that function 27 returns the `fatwin` address in both. Select, disk R/O, and file R/O messages are provoked. `badsctr` is not. The character link does not require the four error words to differ.
 
-Earlier tick figures live in `BDOS-ISA-REVIEW.md` (403717 / 313524 after the hget cut, 33926426 / 44445384 and the repair-era numbers). `test/bdos/isa/baseline.txt` was not overwritten. `test/bdos/out/*.bin` and `*.map` stay uncommitted.
+Earlier tick figures live in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026-10-09 (see git history): 403717 / 313524 after the hget cut, 33926426 / 44445384 and the repair-era numbers. `test/bdos/isa/baseline.txt` was not overwritten. `test/bdos/out/*.bin` and `*.map` stay uncommitted.
 
 ## Open issues
 
@@ -109,7 +109,7 @@ Closed items stay here so a later edit does not reopen them. The others are stil
    Future run: sync that tree only when asked.
 
 10. **Size tables in these two files go stale as soon as the next link moves.** The 31306-byte table and the character ticks 403717 / 313524 used to sit in this status block as if they were current.
-    Future run: when a rebuild changes a HEX file, replace the table in this action report and add a dated subsection in `BDOS-ISA-REVIEW.md`. Leave "ROM rebuild", "hget compiled out", "Repair results", the ISA kernel tables, and `test/bdos/isa/baseline.txt` as the record of those runs.
+    Future run: when a rebuild changes a HEX file, replace the table in this action report and add a dated subsection in the run record (the former `BDOS-ISA-REVIEW.md` was removed from the tree on 2026-10-09; see git history). Leave "ROM rebuild", "hget compiled out", "Repair results", the ISA kernel tables, and `test/bdos/isa/baseline.txt` as the record of those runs.
 
 ## Decision
 

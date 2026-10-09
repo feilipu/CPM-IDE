@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pre-repair ISA and sequential harness. See BDOS-ISA-REVIEW.md.
+# Pre-repair ISA and sequential harness. The BDOS ISA review that describes these runs was removed from the tree 2026-10-09; see git history.
 # Proves a later repair: SEQ_OK and KERN_OK are required. TIMER is printed
 # against test/bdos/isa/baseline.txt and is not a pass/fail gate, because
 # the repairs are supposed to change the counts.
