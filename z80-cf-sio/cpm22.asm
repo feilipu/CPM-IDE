@@ -794,14 +794,6 @@ CMDADR:
     DEFW    DIRECT,ERASE,TYPE,SAVE
     DEFW    RENAME,USER,EXIT,UNKNOWN
 ;
-;   Halt the system. Reason for this is unknown at present.
-;
-HALT:
-    LD    HL,76F3H    ;'DI HLT' instructions.
-    LD    (CBASE),HL
-    LD    HL,CBASE
-    JP    (HL)
-;
 ;   Read error while TYPEing a file.
 ;
 RDERROR:

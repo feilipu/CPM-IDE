@@ -211,8 +211,9 @@ fcbclr:
     ld      a,$DD           ;set SOD high, mask int 7.5 and int 5.5
     sim
 
+    ld      a,(_cpm_cdisk)  ;uuuudddd. Cold boot stored 0. RST 0 keeps it.
+    ld      c,a             ;CCP user is C>>4. setdma left C = $80 (user 8).
     ei
-    ld      c,0             ;CCP user is C>>4. setdma left C = $80 (user 8).
     jp      _cpm_ccp_head
 
 ;=============================================================================

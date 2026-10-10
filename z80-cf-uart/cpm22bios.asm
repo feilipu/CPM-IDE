@@ -207,6 +207,8 @@ rboot:
 
     call    _uarta_reset    ;reset UART A and empty the Rx buffer
     call    _uartb_reset    ;reset UART B and empty the Rx buffer
+    ld      a,(_cpm_cdisk)  ;uuuudddd. Cold boot stored 0. RST 0 keeps it.
+    ld      c,a             ;ldir left C = 0. CCP user is C>>4.
     ei
     jp      _cpm_ccp_head
 

@@ -199,6 +199,8 @@ rboot:
 
     call    _acia_reset     ;reset and empty the ACIA Tx & Rx buffers
     call    plant_cpm_isr   ;RAM $0038 and the ROM-in slot
+    ld      a,(_cpm_cdisk)  ;uuuudddd. Cold boot stored 0. RST 0 keeps it.
+    ld      c,a             ;ldir left C = 0. CCP user is C>>4.
     ei
     jp      _cpm_ccp_head
 

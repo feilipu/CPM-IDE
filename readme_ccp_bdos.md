@@ -30,11 +30,11 @@ The published v2.6 ROMs used a different triple on each board (`$D9E0` / `$E200`
 
 ## CCP
 
-The Calkins command table has six commands (`NUMCMDS = 6`): `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`. This tree adds `EXIT` (`NUMCMDS = 7`) ahead of the unknown-command path. `EXIT` prints `Exiting CP/M`, flips `_cpm_bios_canary` from `$AA55` to `$5555` (`$AA` becomes `$55`, not `$00` or `$FF`), toggles the ROM with `out ($38),a`, and jumps to `__Exit`, which restarts the shell and stays there. A large program may have overwritten the shell heap, so the restart initialises from the beginning. A whole `$AA55` still takes RST 0 back to the CCP.
+The Calkins command table has six commands (`NUMCMDS = 6`): `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`. This tree adds `EXIT` (`NUMCMDS = 7`) ahead of the unknown-command path. `EXIT` prints `Exiting CP/M`, flips `_cpm_bios_canary` from `$AA55` to `$5555` (`$AA` becomes `$55`, not `$00` or `$FF`), toggles the ROM with `out ($38),a`, and jumps to `__Exit`, which restarts the shell and stays there. A large program may have overwritten the shell heap, so the restart initialises from the beginning. A whole `$AA55` still takes RST 0 back to the CCP on the same user and drive. `rboot` passes the byte at `$0004` to the CCP in C.
 
 A nameless command whose `.COM` is missing on the current drive is retried on `A:`. `UNKWN2` opens the file once. On a miss, `CHGDRV` is still zero when the user did not type a drive letter. The code sets `CHGDRV` to 1 and calls `DSELECT`, which selects drive A, then opens the file again. An explicit `d:` leaves `CHGDRV` nonzero, so that second open is skipped.
 
-The six serial-number bytes (`PATTRN1` / `PATTRN2`) are commented out, and `UNKNOWN` no longer calls `VERIFY`. The Calkins CCP halts when those two copies disagree. The `HALT` routine is still in the file.
+The six serial-number bytes (`PATTRN1` / `PATTRN2`) are commented out, and `UNKNOWN` no longer calls `VERIFY`. The Calkins CCP halts when those two copies disagree.
 
 The `.COM` extension is three `LDI` instructions on Z80 and `LDI_3` on 8085.
 

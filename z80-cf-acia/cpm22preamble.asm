@@ -63,7 +63,22 @@ pboot:                      ; preamble code also used by wboot
     ld bc,_bdos22_bss_tail-srch_on-1
     ldir
 
-    INCLUDE "../common/canary_boot.asm"
+    ; $55 $AA: jp qboot. $55 $55: A = $55 for EXIT. Other: A = 0.
+    ld hl,_cpm_bios_canary
+    ld a,(hl)
+    cp $55
+    jp nz,canary_cold
+    inc hl
+    ld a,(hl)
+    cp $AA
+    jp z,qboot              ; warm boot: keep the volume, enter CCP
+    cp $55
+    jp nz,canary_cold
+    ld a,$55
+    jp canary_mark
+canary_cold:
+    xor a
+canary_mark:
     push af                 ; $55 = EXIT, 0 = cold. qboot did not push.
 
 zero_fat:
@@ -91,7 +106,12 @@ copy_bios:
 
     call plant_dispatch     ; returns to the CRT xor a / _acia_init / _main
     pop af
-    INCLUDE "../common/canary_restore.asm"
+    ; A = $55 rewrites both canary bytes. Zero leaves the copied word.
+    or a
+    jp z,canary_restored
+    ld (_cpm_bios_canary),a
+    ld (_cpm_bios_canary+1),a
+canary_restored:
 
 SECTION code_lib
 

@@ -201,6 +201,8 @@ rboot:
 
     call    _sioa_reset     ;reset and empty the SIOA Tx & Rx buffers
     call    _siob_reset     ;reset and empty the SIOB Tx & Rx buffers
+    ld      a,(_cpm_cdisk)  ;uuuudddd. Cold boot stored 0. RST 0 keeps it.
+    ld      c,a             ;ldir left C = 0. CCP user is C>>4.
     ei
     jp      _cpm_ccp_head
 

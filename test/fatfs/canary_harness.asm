@@ -1,7 +1,5 @@
-; Same snippets the preamble includes.
 ; qboot: whole canary, word left as it was (back to CP/M).
-; Fall-through wipes the word, then canary_restore puts $5555 back
-; only for EXIT.
+; Fall-through wipes the word, then $5555 is written back only for EXIT.
 
 SECTION data_compiler
 
@@ -19,13 +17,32 @@ PUBLIC _canary_preamble
 _canary_preamble:
     ld a,1
     ld (_canary_result),a
-    INCLUDE "../../common/canary_boot.asm"
+    ; Same classification pboot runs.
+    ld hl,_cpm_bios_canary
+    ld a,(hl)
+    cp $55
+    jp nz,canary_cold
+    inc hl
+    ld a,(hl)
+    cp $AA
+    jp z,qboot
+    cp $55
+    jp nz,canary_cold
+    ld a,$55
+    jp canary_mark
+canary_cold:
+    xor a
+canary_mark:
     push af
     xor a
     ld (_cpm_bios_canary),a
     ld (_cpm_bios_canary+1),a
     pop af
-    INCLUDE "../../common/canary_restore.asm"
+    or a
+    jp z,canary_restored
+    ld (_cpm_bios_canary),a
+    ld (_cpm_bios_canary+1),a
+canary_restored:
     ld a,2
     ld (_canary_result),a
     ret
