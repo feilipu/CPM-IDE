@@ -5,7 +5,8 @@
 
 /*
  * Mini-FAT C API (common/fatfs.asm Z80, common/fatfs_85.asm 8085).
- * Success is 0 in L. sccz80 treats that char as an int, so H is 0.
+ * Success is 0 in L. 80cc and sccz80 return that byte in L, and
+ * sccz80 widens it to an int, so H is 0.
  * Pointer arguments are __z88dk_fastcall (HL).
  * DWORD cluster/LBA marshals load little-endian *(uint32_t *) into BCDE.
  * fat_getfree writes the free-cluster count through that pointer.

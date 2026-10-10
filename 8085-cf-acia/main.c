@@ -20,14 +20,12 @@
 #include "../common/yash.h"
 #include "../common/fatfs.h"
 
-#pragma output REGISTER_SP = 0xE880
+#pragma output REGISTER_SP = 0xE980
 #pragma printf = "%c %s %d %u %lu %X"
 
 extern uint8_t bios_iobyte;
 
 extern uint8_t acia_reset(void);
-extern uint8_t acia_pollc(void);
-extern uint8_t acia_getc(void);
 
 extern void cpm_boot(void);
 

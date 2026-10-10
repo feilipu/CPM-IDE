@@ -18,6 +18,7 @@ typedef uint32_t DWORD;
 
 extern uint8_t bios_iobyte;
 extern void cpm_boot(void);
+extern uint16_t cpm_bios_canary;
 
 void *buffer;
 FILE *input;
@@ -39,10 +40,8 @@ struct Builtin {
 
 struct Builtin builtins[] = {
   // CP/M related functions
-    { "cpm", &ya_mkcpm, "- boot CP/M from CPMIDE.CFG or A-P"},
-#if YASH_HGET
+    { "cpm", &ya_mkcpm, "[path] - CPMIDE.CFG, or A-P in a directory"},
     { "hget", &ya_hget, "<file> - ascii-xfr -s"},
-#endif
 
 // fat related functions
     { "ls", &ya_ls, "[path] - directory listing"},
@@ -673,22 +672,13 @@ static void hist_down(char *line, uint16_t *pos, uint16_t maxlen)
 
 #define CPM_DRIVES 16
 
-/* parent + '/' + letter, in the 512-byte sector buffer. */
-static uint8_t parent_letter(const char *parent, char letter, char *dst)
+/* 16 little-endian clusters. */
+static void clear_drives(void)
 {
-    uint16_t n;
+    uint8_t i;
 
-    n = 0;
-    while (parent[n] && n < BUFFER_SIZE - 3) {
-        dst[n] = parent[n];
-        ++n;
-    }
-    if (parent[n])
-        return 1;
-    dst[n++] = '/';
-    dst[n++] = letter;
-    dst[n] = 0;
-    return 0;
+    for (i = 0; i < CPM_DRIVES; ++i)
+        cpm_dir_sclust[i] = 0;
 }
 
 /* Cluster 0 is the FAT16 root. A drive is a subdirectory cluster. */
@@ -705,26 +695,77 @@ static uint8_t mount_dir(const char *path, uint32_t *out)
     return rc;
 }
 
-/* One sector of CPMIDE.CFG in the working directory, or in the root.
-   A line is "A path" or "A=path". '#' and '[' lines are skipped.
-   Returns 0 when A: was set. */
-static uint8_t read_cfg(void)
+/* Mount parent/A through parent/P. A missing letter stays empty.
+   Returns 0 when A: was set. The parent is opened once, then each
+   letter is looked up there. The sector buffer is not the path. */
+static uint8_t mount_letters(const char *parent)
+{
+    uint32_t dir, clst;
+    uint8_t i;
+    char one[2];
+
+    clear_drives();
+    if (path_to_dir(parent, &dir))
+        return 1;
+    for (i = 0; i < CPM_DRIVES; ++i) {
+        one[0] = (char)('A' + i);
+        one[1] = 0;
+        clst = dir;
+        if (dir_walk(&clst, one))
+            continue;
+        if (clst < 2)
+            continue;
+        cpm_dir_sclust[i] = clst;
+        fprintf(output, "%c: \"%s/%c\" cluster %lu\n",
+            (char)('A' + i), parent, (char)('A' + i), clst);
+    }
+    return (cpm_dir_sclust[0] == 0) ? 1 : 0;
+}
+
+/* 1 when name is the working directory ("." or its own name).
+   The 11-byte name is built in the sector buffer. */
+static uint8_t here_named(const char *name)
+{
+    uint32_t up;
+
+    if (name[0] == '.' && name[1] == 0)
+        return 1;
+    if (is_root_clst(fat_cwd))
+        return 0;
+    up = fat_cwd;
+    if (dir_walk(&up, ".."))
+        return 0;
+    if (fat_dir_open(&up))
+        return 0;
+    name83((uint8_t *)buffer, name);
+    if (dir_find_try((uint8_t *)buffer))
+        return 0;
+    return memcmp(&fat_found_sclust, &fat_cwd, 4) == 0;
+}
+
+/* 0 when dir holds a CPMIDE.CFG entry. *file may be below 2. */
+static uint8_t find_cfg(uint32_t dir, uint32_t *file)
 {
     uint8_t n[11];
-    uint32_t clst, lba;
+
+    name83(n, "CPMIDE.CFG");
+    if (fat_dir_open(&dir) || dir_find_try(n))
+        return 1;
+    *file = fat_found_sclust;
+    return 0;
+}
+
+/* One sector of the file cluster. A line is "A path" or "A=path".
+   '#' and '[' lines are skipped. Returns 0 when A: was set. */
+static uint8_t load_cfg(uint32_t file)
+{
+    uint32_t lba, got;
     char *p, *start, saved;
     uint8_t drv;
 
-    name83(n, "CPMIDE.CFG");
-    clst = fat_cwd;
-    if (fat_dir_open(&clst) || dir_find_try(n)) {
-        clst = root_clst();
-        if (fat_dir_open(&clst) || dir_find_try(n))
-            return 1;
-    }
-    if (fat_found_sclust < 2)
+    if (file < 2)
         return 1;
-    lba = fat_found_sclust;
+    lba = file;
     if (fat_clst2sect(&lba))
         return 1;
     if (disk_read(0, buffer, lba, 1) != 0)
@@ -766,9 +807,9 @@ static uint8_t read_cfg(void)
             ++p;
         saved = *p;
         *p = 0;
-        if (mount_dir(start, &clst) == 0) {
-            cpm_dir_sclust[drv - 'A'] = clst;
-            fprintf(output, "%c: \"%s\" cluster %lu\n", drv, start, clst);
+        if (mount_dir(start, &got) == 0) {
+            cpm_dir_sclust[drv - 'A'] = got;
+            fprintf(output, "%c: \"%s\" cluster %lu\n", drv, start, got);
         }
         *p = saved;
         while (*p && *p != '\n')
@@ -779,49 +820,75 @@ static uint8_t read_cfg(void)
     return (cpm_dir_sclust[0] == 0) ? 1 : 0;
 }
 
+/* Working directory, then the root when that directory has no file.
+   A file that does not name A: is the result. Returns 0 when A: was set. */
+static uint8_t read_cfg(void)
+{
+    uint32_t file;
+
+    if (find_cfg(fat_cwd, &file) == 0)
+        return load_cfg(file);
+    if (is_root_clst(fat_cwd))
+        return 1;
+    if (find_cfg(root_clst(), &file))
+        return 1;
+    return load_cfg(file);
+}
+
+/* Root CPMIDE.CFG only. A missing file, or a file that does not
+   name A:, leaves the drive table empty and stays in the shell. */
+uint8_t ya_boot_root(void)
+{
+    uint32_t file;
+
+    if (cpm_fat_vol.fs_type == 0)
+        return 1;
+    clear_drives();
+    if (find_cfg(root_clst(), &file) || load_cfg(file)) {
+        clear_drives();
+        return 1;
+    }
+    fprintf(output, "Initialised CP/M\n");
+    cpu_delay_ms(1);
+    cpm_boot();
+    return 1;
+}
+
 /**
    @brief Builtin command:
    @param args args[0] is "cpm". No arguments read CPMIDE.CFG.
+          A missing file uses letter directories in the working directory.
           args[1] is the directory that holds A through P.
+          If that name is the working directory, its letters are used.
    @return Always returns 1, to continue executing.
  */
 int8_t ya_mkcpm(char ** args)   /* boot CP/M from a config file or letter directories */
 {
-    uint8_t i;
-    uint32_t clst, cwd;
-    char *path;
-
-    cwd = fat_cwd;
-    if (fat_mount()) {
-        put_rc(1);
-        return 1;
+    /* The shell mounted the card before the prompt. fat_mount runs
+       ide_init again, and the directory walk after that misses every
+       name until a later read. Mount only when nothing is mounted. */
+    if (cpm_fat_vol.fs_type == 0) {
+        if (fat_mount()) {
+            put_rc(1);
+            return 1;
+        }
     }
-    fat_cwd = cwd;
 
-    for (i = 0; i < CPM_DRIVES; ++i)
-        cpm_dir_sclust[i] = 0;
+    clear_drives();
 
     if (args[1] == NULL) {
-        if (read_cfg()) {
+        if (read_cfg() && mount_letters(".")) {
             fprintf(output, "cpm <directory>\n");
             return 1;
         }
     } else if (args[2] != NULL) {
         fprintf(output, "cpm <directory>\n");
         return 1;
-    } else {
-        path = (char *)buffer;
-        for (i = 0; i < CPM_DRIVES; ++i) {
-            if (parent_letter(args[1], (char)('A' + i), path))
-                break;
-            if (mount_dir(path, &clst) == 0) {
-                cpm_dir_sclust[i] = clst;
-                fprintf(output, "%c: \"%s\" cluster %lu\n",
-                    (char)('A' + i), path, clst);
-            }
-        }
-
-        if (cpm_dir_sclust[0] == 0) {
+    } else if (mount_letters(args[1])) {
+        /* "." already searched the working directory. A different
+           name searches again only when it is this directory. */
+        if ((args[1][0] == '.' && args[1][1] == 0) ||
+            !here_named(args[1]) || mount_letters(".")) {
             fprintf(output, "A: not mounted\n");
             return 1;
         }
@@ -834,11 +901,10 @@ int8_t ya_mkcpm(char ** args)   /* boot CP/M from a config file or letter direct
 }
 
 
-#if YASH_HGET
 /*
- * hg_open creates or replaces the file hget receives. -DYASH_HGET=0
- * leaves this receiver out. A value read or written by one function
- * is an automatic of that function. The names below are the receive
+ * hg_open creates or replaces the file hget receives. A value read
+ * or written by one function is an automatic of that function. The
+ * names below are the receive
  * session: hg_open clears them and more than one function uses each.
  *
  * ascii-xfr -s sends CRLF lines and -e may send Ctrl-Z. A type 04
@@ -1108,7 +1174,6 @@ int8_t ya_hget(char ** args)   /* receive an Intel HEX file */
         fprintf(output, "%lu bytes\n", sz);
     return 1;
 }
-#endif
 
 /**
    @brief Builtin command:
@@ -1120,7 +1185,7 @@ int8_t ya_help(char ** args)    /* print some help. */
     uint8_t i;
     (void *)args;
 
-    fprintf(output,"RC2014 - CP/M IDE Shell v2.5\n");
+    fprintf(output,"RC2014 - CP/M IDE Shell v3.0\n");
     fprintf(output,"The following functions are built in:\n");
 
     for (i = 0; i < ya_num_builtins(); ++i) {
@@ -1771,6 +1836,13 @@ void ya_split_line(char ** tokens, char * line)
 }
 
 
+/* EXIT flipped $AA to $55. A whole $AA55 never gets here: the
+   preamble returns to the CCP. */
+uint8_t ya_shell_stays(void)
+{
+    return cpm_bios_canary == 0x5555;
+}
+
 /**
    @brief Allocate buffers, then loop getting input and executing it.
  */
@@ -1794,6 +1866,9 @@ void ya_loop(void)
     hist_i = 0;
 
     select_console();
+    /* Root CPMIDE.CFG starts CP/M. EXIT left $5555, so stay here. */
+    if (!ya_shell_stays())
+        ya_boot_root();
 
     do {
         fflush(input);

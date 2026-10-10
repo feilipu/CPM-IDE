@@ -426,7 +426,7 @@ static void test_close(void)
     rc = call(16);
     expect("shrink_rc FAIL", rc != 0xFF);
     expect("shrink_dir FAIL", slot(0)[26] == 0 && slot(0)[27] == 0 &&
-           slot(0)[28] == 0 && slot(0)[11] == 0x21 && slot(0)[13] == 0x01);
+           slot(0)[28] == 0 && slot(0)[11] == 0x21 && slot(0)[13] == 0);
     expect("shrink_fat FAIL", ram_image[516] == 0 && ram_image[517] == 0);
 }
 
@@ -583,15 +583,15 @@ static void test_attr(void)
     fcb[10] |= 0x80;
     fcb[11] |= 0x80;
     rc = call(30);
-    expect("attr_rc FAIL", rc != 0xFF && (slot(0)[11] & 0x03) == 0x03 && slot(0)[13] == 0x11);
+    expect("attr_rc FAIL", rc != 0xFF && (slot(0)[11] & 0x03) == 0x03 && slot(0)[13] == 0);
     expect("attr_arc FAIL", (slot(0)[11] & 0x20) == 0x20);
 
     clear_fcb();
     set_name("README  TXT");
     rc = bdos(17, (unsigned)fcb);
-    expect("attr_see FAIL", (rc & 0xFF) != 0xFF && (dma[1] & 0x80) != 0 &&
+    expect("attr_see FAIL", (rc & 0xFF) != 0xFF && (dma[1] & 0x80) == 0 &&
            (dma[5] & 0x80) == 0 && (dma[9] & 0x80) != 0 && (dma[10] & 0x80) != 0 &&
-           (dma[11] & 0x80) != 0);
+           (dma[11] & 0x80) == 0);
 }
 
 static int dma_is(unsigned char v)
@@ -991,6 +991,8 @@ static void test_login(void)
     rebuild_io();
     expect("rst_empty FAIL", bdos(13, 0) == 0 && bdos(24, 0) == 1);
     ram_image[510] = 0;
+    expect("rst_keep FAIL", bdos(13, 0) == 0 && cpm_fat_vol.fs_type != 0);
+    cpm_fat_vol.fs_type = 0;
     expect("rst_bad FAIL", bdos(13, 0) == 0xFFFF && cpm_fat_vol.fs_type == 0);
     /* The failed reset leaves the volume unmounted. Log-in via open needs a live disk. */
     rebuild();
@@ -1010,19 +1012,19 @@ static void test_login(void)
     ab = bdos_ab(27, 0);
     bits = (unsigned char *)vec;
     blocks = (unsigned long)cpm_fat_vol.free_clst * cpm_fat_vol.csize / 4;
-    if (blocks > 2048)
-        blocks = 2048;
+    if (blocks > 4096)
+        blocks = 4096;
     expect("vec_ptr FAIL", vec == (unsigned)fatwin &&
            cpm_fat_vol.free_clst > 4000 && cpm_fat_vol.free_clst < 4090);
     expect("vec_ab FAIL", ab == bdos_hl && ab == (unsigned)fatwin);
-    expect("vec_cnt FAIL", zero_bits(bits, 256) == (unsigned)blocks);
-    expect("vec_b0 FAIL", bit_used(bits, 0) && blocks > 0 && blocks < 2048 &&
-           !bit_used(bits, 2048 - (unsigned)blocks) &&
-           bit_used(bits, 2047 - (unsigned)blocks) && !bit_used(bits, 2047));
+    expect("vec_cnt FAIL", zero_bits(bits, 512) == (unsigned)blocks);
+    expect("vec_b0 FAIL", bit_used(bits, 0) && blocks > 0 && blocks < 4096 &&
+           !bit_used(bits, 4096 - (unsigned)blocks) &&
+           bit_used(bits, 4095 - (unsigned)blocks) && !bit_used(bits, 4095));
     dpb = bdos(31, 0);
     parm = (unsigned char *)dpb;
     expect("dpb FAIL", parm[2] == 4 && parm[3] == 15 && parm[4] == 0 &&
-           parm[5] == 0xFF && parm[6] == 7 && parm[0] == 128 && parm[1] == 0 &&
+           parm[5] == 0xFF && parm[6] == 15 && parm[0] == 128 && parm[1] == 0 &&
            parm[7] == 0xFF && parm[8] == 1 && parm[9] == 0 && parm[10] == 0);
     clear_fcb();
     set_name("README  TXT");

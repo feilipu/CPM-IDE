@@ -26,22 +26,21 @@ extern FILE *input;
 extern FILE *output;
 extern FILE *error;
 
-/* The default ROM build includes the Intel HEX receiver.
-   -DYASH_HGET=0 leaves it out. */
-#ifndef YASH_HGET
-#define YASH_HGET 1
-#endif
-
-/* Per-tree: pick stdin/tty and set bios_iobyte. */
+/* Per-tree: pick stdin/tty and set bios_iobyte.
+   SIO and UART return after ':' selects the port. */
 void select_console(void);
+
+/* 1 when EXIT flipped the canary to $5555. The shell stays. */
+uint8_t ya_shell_stays(void);
+
+/* Root CPMIDE.CFG only. Returns 1 to stay in the shell. */
+uint8_t ya_boot_root(void);
 
 /* Named FatFs FRESULT (ChaN). rc=0 is silent. */
 void put_rc(uint8_t rc);
 
 int8_t ya_mkcpm(char **args);
-#if YASH_HGET
 int8_t ya_hget(char **args);
-#endif
 int8_t ya_help(char **args);
 int8_t ya_exit(char **args);
 int8_t ya_ls(char **args);

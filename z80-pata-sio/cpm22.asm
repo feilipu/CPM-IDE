@@ -33,10 +33,10 @@ SECTION rodata_lib           ;read only library (code)
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
-; CCP sits just below the resident stub at $F100. The image is $820
-; bytes, so the run address is $E8E0 and the tail meets the stub.
+; CCP sits just below the resident stub at $F200. The image is $820
+; bytes, so the run address is $E9E0 and the tail meets the stub.
 ; The old page align under the DRI BDOS is not in this image.
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE8E0
+defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE9E0
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -1247,8 +1247,10 @@ EXTERN __Exit
 EXIT:
     LD      BC,EXIT_MSG ;notify exit to bios monitor
     CALL    PLINE
+    LD      A,$55
+    LD      (_cpm_bios_canary),A    ;$AA55 flipped to $5555. Not $00 or $FF.
+    LD      (_cpm_bios_canary+1),A
     XOR     A
-    LD      (_cpm_bios_canary),A    ;kill the bios canary
     OUT     ($38),A                 ;toggle ROM
     JP      __Exit                  ;reset back to ROM monitor
                                     ;initialise from beginning

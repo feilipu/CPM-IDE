@@ -419,7 +419,6 @@ fat_fsi_mark:
     ld      (fat_fsi_dirty),a
     ret
 
-
 ; ff.c move_window: flush if dirty, then read LBA into fatwin.
 ; IN:  BCDE = LBA (B MSB … E LSB)
 ; OUT: C: fatwin holds that sector

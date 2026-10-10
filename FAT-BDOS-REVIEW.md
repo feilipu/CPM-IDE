@@ -422,7 +422,7 @@ past 32 KiB (closest is CF ACIA, 33086 bytes, `__CODE_END` `$809A`).
 
 That table is the 80cc link before `CPMIDE.CFG`. The HEX files in the tree now also read that file. The later link is in `CPM-IDE-MSX.md`: 8085 PATA 32421 / `$7E46` (315 bytes before `$7F81`), Z80 PATA 32395 / `$7DBC`. `__IO_CF_8_BIT` stayed `0x01`. `0006h` is still `$F106` and BIOS is still `$F984`.
 
-Host suites after that switch. 8085 lines that fit use `-compiler=80cc`. The Z80
+Host suites after that switch. 8085 host lines use `-compiler=80cc`. The Z80
 host lines stay on the `+test` default (sccz80).
 
 | Suite | Z80 | 8085 |
@@ -433,9 +433,10 @@ host lines stay on the `+test` default (sccz80).
 | BDOS disk | `BDOS_DISK_OK`, 43768358 ticks | `BDOS_DISK_OK`, 56552175 ticks |
 | ISA kern | `KERN_OK`, 11023744 ticks | `KERN_OK`, 12583981 ticks |
 
-The 8085 disk row is the sccz80 harness (64043 bytes). The same harness compiled
-with 80cc is 68496 bytes, and `z88dk-ticks` rejects it (`Incorrect length: 68496`,
-limit 65536), so `test/bdos/run_disk.sh` leaves that line on sccz80. The 8085
+The 8085 disk row in that table is the sccz80 harness from the switch (64043
+bytes, 56552175 ticks). `test/bdos/run_disk.sh` builds the 8085 line with
+`-compiler=80cc`, stack locals, and no `-fframe-pointer`. The image is 62929
+bytes. `z88dk-ticks -m8085` prints `BDOS_DISK_OK` at 56635198 ticks. The 8085
 character tick count is the 80cc harness; the BDOS itself is the asm file.
 
 `test/bdos/isa/run_isa.sh seq` prints `SEQ_BAD 5` on the Z80 build (`r16`, `r64`,

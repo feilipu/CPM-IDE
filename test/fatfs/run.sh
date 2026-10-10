@@ -116,6 +116,7 @@ run_cfg() {
         ( cd /tmp && zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m \
             -I"$ROOT/common" -I"$cfg_inc" \
             "$HERE/test_cfg.c" "$ROOT/common/yash.c" \
+            "$HERE/canary_harness.asm" \
             "$ROOT/common/fatfs_85.asm" "$HERE/ide_ram_8085.asm" \
             "$HERE/bss_ram.asm" \
             -o "$out.bin" -lndos )
@@ -125,6 +126,7 @@ run_cfg() {
         ( cd /tmp && zcc +test -vn -m \
             -I"$ROOT/common" -I"$cfg_inc" \
             "$HERE/test_cfg.c" "$ROOT/common/yash.c" \
+            "$HERE/canary_harness.asm" \
             "$ROOT/common/fatfs.asm" "$HERE/ide_ram.asm" \
             "$HERE/bss_ram.asm" \
             -o "$out.bin" -lndos )

@@ -1,8 +1,12 @@
 /*
- * Adding drives. `cpm` with no arguments reads CPMIDE.CFG.
- * `cpm <directory>` mounts subdirectories A through P.
- * A missing letter stays an empty slot. cpm_boot is counted and does
- * not enter CP/M.
+ * Adding drives. `cpm` with no arguments reads CPMIDE.CFG. A missing
+ * file uses letter directories in the working directory.
+ * `cpm <directory>` mounts subdirectories A through P. If that
+ * directory is the working directory, its letters are used.
+ * ya_boot_root reads only the root file. A missing letter stays
+ * an empty slot. A whole canary ($AA55) takes qboot. EXIT's
+ * $5555 stays in the shell. cpm_boot is counted and does not
+ * enter CP/M.
  */
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +33,11 @@ static int fails;
 static unsigned boot_n;
 
 static void test_cfg_file(void);
+static void test_canary(void);
+
+extern uint16_t cpm_bios_canary;
+extern uint8_t canary_result;
+extern void canary_preamble(void);
 
 static void expect(const char *name, int ok)
 {
@@ -110,7 +119,9 @@ static void nest_vol(void)
     dent(root + 64, "USER       ", 0x10, 4, 0);
     dent(root + 96, "TOOLONGN   ", 0x10, 6, 0);
     sys = ram_image + 20 * 512;
-    dent(sys, "B          ", 0x10, 5, 0);
+    dent(sys, ".          ", 0x10, 3, 0);
+    dent(sys + 32, "..         ", 0x10, 0, 0);
+    dent(sys + 64, "B          ", 0x10, 5, 0);
     /* TOOLONGN holds A, so a long starting-directory name can mount. */
     dent(ram_image + 23 * 512, "A          ", 0x10, 4, 0);
 }
@@ -206,7 +217,7 @@ static void test_adding(void)
     run_cpm(one);
     expect("cli_fold FAIL", boot_n == before && drives_are(0, 5));
 
-    dent(ram_image + 20 * 512 + 32, "A          ", 0x10, 6, 0);
+    dent(ram_image + 20 * 512 + 96, "A          ", 0x10, 6, 0);
     expect("nest_remount FAIL", fat_mount() == 0);
     one[1] = "SYS";
     before = boot_n;
@@ -256,8 +267,77 @@ static void test_adding(void)
     run_cpm(missing);
     expect("cli_missing FAIL", boot_n == before && cpm_dir_sclust[0] == 0);
 
+    /* Letter children are folded. "a" matches the A: the shell appends. */
+    dent(ram_image + 20 * 512 + 96, "a          ", 0x10, 6, 0);
+    expect("lower_mount FAIL", fat_mount() == 0);
+    one[1] = "SYS";
+    before = boot_n;
+    run_cpm(one);
+    expect("cli_lower_a FAIL", booted(before) && cpm_dir_sclust[0] == 6 &&
+           cpm_dir_sclust[1] == 5);
+
+    /* Already inside SYS: the name, ".", and a bare cpm use ./A. */
+    fat_cwd = 3;
+    one[1] = "sys";
+    before = boot_n;
+    ya_mkcpm(one);
+    expect("cli_here FAIL", booted(before) && cpm_dir_sclust[0] == 6 &&
+           cpm_dir_sclust[1] == 5);
+
+    fat_cwd = 3;
+    one[1] = ".";
+    before = boot_n;
+    ya_mkcpm(one);
+    expect("cli_dot FAIL", booted(before) && drives_are(6, 5));
+
+    fat_cwd = 3;
+    none[1] = 0;
+    before = boot_n;
+    ya_mkcpm(none);
+    expect("cli_here_bare FAIL", booted(before) && drives_are(6, 5));
+
+    /* A different name does not mount this directory's letters. */
+    fat_cwd = 3;
+    one[1] = "NOWHERE";
+    before = boot_n;
+    ya_mkcpm(one);
+    expect("cli_here_typo FAIL", boot_n == before && cpm_dir_sclust[0] == 0);
+
     test_tokens();
     test_cfg_file();
+    test_canary();
+}
+
+/* Whole $AA55 is qboot and the word is left alone.
+   EXIT $5555 is restored after the BIOS wipe.
+   $00 and $FF are cold, not a signal. */
+static void expect_pre(const char *name, uint16_t word, uint8_t how, uint16_t after)
+{
+    cpm_bios_canary = word;
+    canary_result = 0;
+    canary_preamble();
+    expect(name, canary_result == how && cpm_bios_canary == after);
+}
+
+static void test_canary(void)
+{
+    unsigned before;
+
+    expect_pre("canary_whole FAIL", 0xAA55, 1, 0xAA55);
+    expect_pre("canary_exit FAIL", 0x5555, 2, 0x5555);
+    expect_pre("canary_cold FAIL", 0x0000, 2, 0x0000);
+    expect_pre("canary_ff FAIL", 0xFFFF, 2, 0x0000);
+    expect_pre("canary_oldkill FAIL", 0xAA00, 2, 0x0000);
+
+    cpm_bios_canary = 0x5555;
+    before = boot_n;
+    if (!ya_shell_stays())
+        ya_boot_root();
+    expect("exit_noboot FAIL", boot_n == before && ya_shell_stays() == 1);
+
+    cpm_bios_canary = 0xAA55;
+    expect("whole_not_stay FAIL", ya_shell_stays() == 0);
+    cpm_bios_canary = 0;
 }
 
 /* Cluster 2 is the CPMIDE.CFG file planted by nest_vol. Sector 19. */
@@ -271,6 +351,11 @@ static void test_cfg_file(void)
     expect("cfg_mount FAIL", fat_mount() == 0);
     sec = ram_image + 19 * 512;
     memset(sec, 0, 512);
+    before = boot_n;
+    ya_boot_root();
+    expect("boot_empty FAIL", boot_n == before && cpm_dir_sclust[0] == 0);
+
+    memset(sec, 0, 512);
     memcpy(sec, "B SYS/B\n", 8);
     none[0] = "cpm";
     none[1] = 0;
@@ -283,6 +368,11 @@ static void test_cfg_file(void)
     before = boot_n;
     run_cpm(none);
     expect("cfg_boot FAIL", booted(before) && drives_are(4, 5) &&
+           cpm_dir_sclust[2] == 0);
+
+    before = boot_n;
+    ya_boot_root();
+    expect("boot_root FAIL", booted(before) && drives_are(4, 5) &&
            cpm_dir_sclust[2] == 0);
 }
 

@@ -21,7 +21,7 @@
 #include "../common/fatfs.h"
 
 #pragma output CRT_ORG_VECTOR_TABLE = 0
-#pragma output REGISTER_SP = 0xE8E0
+#pragma output REGISTER_SP = 0xE9E0
 #pragma output CRT_ITERM_TERMINAL_FLAGS = 0
 #pragma output TTY_ITERM_TERMINAL_FLAGS = 0
 #pragma printf = "%c %s %d %u %lu %X"
@@ -35,18 +35,6 @@ extern uint8_t uartb_getc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 
 extern void cpm_boot(void) __preserves_regs(a,b,c,d,e,h,iyl,iyh);
 
-static void uarta_flush_rx_di(void)
-{
-    while (uarta_pollc())
-        (void)uarta_getc();
-}
-
-static void uartb_flush_rx_di(void)
-{
-    while (uartb_pollc())
-        (void)uartb_getc();
-}
-
 void select_console(void)
 {
     for (;;) {
@@ -59,7 +47,6 @@ void select_console(void)
                 fprintf(output, "\b-)");
                 return;
             }
-            uarta_flush_rx_di();
         }
         if (uartb_pollc() != 0) {
             if (uartb_getc() == ':') {
@@ -70,7 +57,6 @@ void select_console(void)
                 fprintf(output, "\b-)");
                 return;
             }
-            uartb_flush_rx_di();
         }
     }
 }

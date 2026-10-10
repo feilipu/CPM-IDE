@@ -35,8 +35,8 @@ SECTION rodata_lib           ;read only library (code)
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
 ; Live image length is $86A when this origin is 32-byte aligned.
 ; ALIGN 0x20 above CCPSTACK changes the pad if the origin is not.
-; $E880 + $86A = $F0EA, 22 bytes before bdos at $F100.
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE880
+; $E980 + $86A = $F1EA, 22 bytes before bdos at $F200.
+defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE980
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -1244,8 +1244,10 @@ EXTERN __Exit
 EXIT:
     LD      BC,EXIT_MSG ;notify exit to bios monitor
     CALL    PLINE
+    LD      A,$55
+    LD      (_cpm_bios_canary),A    ;$AA55 flipped to $5555. Not $00 or $FF.
+    LD      (_cpm_bios_canary+1),A
     XOR     A
-    LD      (_cpm_bios_canary),A    ;kill the bios canary
     OUT     ($38),A                 ;toggle ROM
     JP      __Exit                  ;reset back to ROM monitor
                                     ;initialise from beginning

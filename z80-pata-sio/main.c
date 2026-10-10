@@ -21,17 +21,15 @@
 #include "../common/fatfs.h"
 
 #pragma output CRT_ORG_VECTOR_TABLE = 0
-#pragma output REGISTER_SP = 0xE8E0
+#pragma output REGISTER_SP = 0xE9E0
 #pragma output CRT_ITERM_TERMINAL_FLAGS = 0
 #pragma output TTY_ITERM_TERMINAL_FLAGS = 0
 #pragma printf = "%c %s %d %u %lu %X"
 
 extern uint8_t bios_iobyte;
 
-extern uint8_t sioa_flush_rx_di(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 extern uint8_t sioa_pollc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 extern uint8_t sioa_getc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
-extern uint8_t siob_flush_rx_di(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 extern uint8_t siob_pollc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 extern uint8_t siob_getc(void) __preserves_regs(b,c,d,e,h,iyl,iyh);
 
@@ -49,7 +47,6 @@ void select_console(void)
                 fprintf(output, "\b-)");
                 return;
             }
-            sioa_flush_rx_di();
         }
         if (siob_pollc() != 0) {
             if (siob_getc() == ':') {
@@ -60,7 +57,6 @@ void select_console(void)
                 fprintf(output, "\b-)");
                 return;
             }
-            siob_flush_rx_di();
         }
     }
 }

@@ -580,14 +580,14 @@ bdos_dma:   defw    $0080
 
 ;
 ; Chapter 6 Figure 6-4, copied with the stub into the resident page.
-; EXM 0 and DSM 2047 is the 2 KB / 4 MB disk. (DSM/8)+1 is 256 bytes.
+; EXM 0 and DSM 4095 is the 2 KB / 8 MB disk. (DSM/8)+1 is 512 bytes.
 ;
 bdos_dpb:
     defw    128
     defb    4
     defb    15
     defb    0
-    defw    2047
+    defw    4095
     defw    511
     defb    0
     defb    0
@@ -1369,33 +1369,6 @@ sy_st:
     inc     hl
     dec     b
     jp      nz,sy_nm
-    ld      hl,(dir_ptr)
-    ld      de,13
-    add     hl,de
-    ld      a,(hl)
-    cp      32
-    jp      nc,sy_attr
-    ld      c,a
-    ld      hl,ent_buf+1
-    ld      b,4
-sy_f:
-    ld      a,c
-    rrca
-    ld      c,a
-    jp      nc,sy_fn
-    ld      a,(hl)
-    or      $80
-    ld      (hl),a
-sy_fn:
-    inc     hl
-    dec     b
-    jp      nz,sy_f
-    ld      a,c
-    rrca
-    jp      nc,sy_attr
-    ld      a,(ent_buf+11)
-    or      $80
-    ld      (ent_buf+11),a
 sy_attr:
     ld      hl,(dir_ptr)
     ld      de,11
@@ -1654,8 +1627,9 @@ op_sy:
 
 ;
 ; Close. Bit 7 of S2 looks the name up and does not write. Bit 7 clear
-; stores the FCB size and the attribute bits, then syncs. A zero size
-; frees the old chain. The directory write is not marked archive.
+; stores the FCB size, then T1' and T2' in the FAT attribute. Directory
+; byte 13 stays the creation-time tenths. A zero size frees the old
+; chain. The directory write is not marked archive.
 ;
 fn_close:
     call    gate
@@ -1800,8 +1774,8 @@ ss_zero:
     ret
 
 ;
-; T1' and T2' replace FAT attr bits 0 and 1. F1'..F4' and T3' replace
-; directory byte 13 and clear its top three bits. Other attr bits stay.
+; T1' and T2' replace FAT attr bits 0 and 1. F1'..F4' and T3' are
+; not stored: directory byte 13 is the FAT creation-time tenths.
 ;
 apply_attr:
     ld      hl,(dir_ptr)
@@ -1832,47 +1806,6 @@ aa_t2c:
     and     $FD
     ld      c,a
 aa_st:
-    ld      (hl),c
-    xor     a
-    ld      c,a
-    ld      a,(bdos_fcb+1)
-    and     $80
-    jp      z,aa1
-    ld      a,c
-    or      1
-    ld      c,a
-aa1:
-    ld      a,(bdos_fcb+2)
-    and     $80
-    jp      z,aa2
-    ld      a,c
-    or      2
-    ld      c,a
-aa2:
-    ld      a,(bdos_fcb+3)
-    and     $80
-    jp      z,aa3
-    ld      a,c
-    or      4
-    ld      c,a
-aa3:
-    ld      a,(bdos_fcb+4)
-    and     $80
-    jp      z,aa4
-    ld      a,c
-    or      8
-    ld      c,a
-aa4:
-    ld      a,(bdos_fcb+11)
-    and     $80
-    jp      z,aa5
-    ld      a,c
-    or      $10
-    ld      c,a
-aa5:
-    ld      hl,(dir_ptr)
-    ld      de,13
-    add     hl,de
     ld      (hl),c
     ld      a,1
     ld      (fat_wflag),a
@@ -3649,13 +3582,20 @@ fn_tell:
 ; then A: is logged in when its cluster is set. A live '$' name for
 ; this user returns 00FFh. Any other user returns 0. A mount that does
 ; not come up returns FFFFh. 0 and 00FFh stay the success results.
+; The shell mounted the card. fat_mount runs ide_init again, and the
+; next directory walk misses until a later read. Mount only when
+; fs_type is still 0.
 ;
 fn_reset:
     call    bdos_warm
     ld      hl,$0080
     ld      (bdos_dma),hl
+    ld      a,(_cpm_fat_vol)
+    or      a
+    jp      nz,fn_reset_on
     call    fat_mount
     jp      nc,dol_fail
+fn_reset_on:
     xor     a
     call    drv_mounted
     jp      nc,dol_none
@@ -3790,8 +3730,8 @@ fn_dpb:
     ret
 
 ;
-; Function 27. fatwin becomes 256 bytes, all used, then the free 2 KB
-; blocks (capped at 2048) are cleared from block 2047 downward.
+; Function 27. fatwin becomes 512 bytes, all used, then the free 2 KB
+; blocks (capped at 4096) are cleared from block 4095 downward.
 ; Bit 7 of byte 0 is block 0. The window is invalidated before return:
 ; the bitmap is not a sector, and the pointer dies on the next disk call.
 ;
@@ -3829,14 +3769,14 @@ vec_div:
     or      c
     jp      nz,vec_cap
     ld      a,d
-    cp      8
+    cp      16
     jp      c,vec_have
     jp      nz,vec_cap
     ld      a,e
     or      a
     jp      z,vec_have
 vec_cap:
-    ld      de,2048
+    ld      de,4096
     jp      vec_have
 vec_zero:
     ld      de,0
@@ -3844,14 +3784,18 @@ vec_have:
     pop     hl
     push    hl
     push    de
-    ld      b,0                 ;(DSM/8)+1 = 256
+    ld      c,2                 ;(DSM/8)+1 = 512. Two passes of 256.
+vec_pass:
+    ld      b,0
 vec_ff:
     ld      (hl),$FF
     inc     hl
     dec     b
     jp      nz,vec_ff
+    dec     c
+    jp      nz,vec_pass
     pop     bc
-    ld      hl,2047
+    ld      hl,4095
 vec_bit:
     ld      a,b
     or      c
@@ -3895,7 +3839,7 @@ clr_bit:
     ld      a,l
     and     7
     ld      c,a
-    sra     hl              ;HL >> 3. Block numbers are 0..2047, so bit 15 is 0.
+    sra     hl              ;HL >> 3. Block numbers are 0..4095, so bit 15 is 0.
     sra     hl
     sra     hl
     ld      de,fatwin

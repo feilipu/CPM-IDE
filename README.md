@@ -42,7 +42,7 @@ The IDE Hard Drive Module interface driver is optimised for performance and can 
 
 The IDE Hard Drive Module supports both PATA hard drives (including 3 1/2" magnetic platter, SSD, and DOM storage) and Compact Flash cards in their native 16-bit PATA mode, with buffered I/O provided by the 82C55 device. The IDE Hard Drive Module is the ideal way to attach "spinning rust" to your RC2014. Attaching one physical Master drive is supported.
 
-The CP/M-IDE system mounts up to 16 drives, A: through P:, as directories on one FAT16 or FAT32 volume. Type `cpm` on its own to read `CPMIDE.CFG`, or type `cpm` and a directory name to use the folders `A` through `P` inside that directory. A drive with no directory is empty. Drive A has to be present or CP/M does not start. The steps are in [Working drive](#working-drive).
+The CP/M-IDE system mounts up to 16 drives, A: through P:, as directories on one FAT16 or FAT32 volume. A `CPMIDE.CFG` in the root of that volume starts CP/M when the machine boots. `EXIT` returns to the shell and stays there. Type `cpm` on its own to read `CPMIDE.CFG`, or type `cpm` and a directory name to use the folders `A` through `P` inside that directory. A drive with no directory is empty. Drive A has to be present or CP/M does not start. The steps are in [Working drive](#working-drive).
 
 A CP/M program runs from `$0100` up to the CCP. The space for each ROM is in [Modifications to the CCP and BDOS](readme_ccp_bdos.md).
 
@@ -228,9 +228,9 @@ Connect the RC2014 hardware as shown above, and then use the commands in [Usage 
 
 When the RC2014 first boots, the z88dk `crt0` preamble configures the machine.
 
-The preamble copies the CCP, the resident BDOS stub, and the BIOS into high RAM. If the BIOS canary is `$AA55`, that copy is already in place and control returns to the CCP. That is the path when a CP/M application overwrites the CCP. Otherwise the preamble starts the shell.
+The preamble copies the CCP and the resident BDOS stub into high RAM. `cboot` stores the BIOS canary as the word `$AA55`, low byte first. That word is the floor of the BIOS stack, so a stack overrun lands on it. When the word is whole the BIOS stays in RAM, the mounted volume stays mounted, and control returns to the CCP. A jump to `0000h` takes that path. `EXIT` changes the `$AA` byte to `$55`. The preamble then clears the volume, copies the BIOS, and starts the shell, and the shell stays at the prompt. A cold start, or a canary that is `$00` or `$FF`, does the same copy and then starts CP/M from the root `CPMIDE.CFG` when that file names drive A.
 
-__NOTE:__ Where the SIO Module or the UART Module is in use, the shell waits for a `:` to select the serial port. It stays on that port until CP/M loads.
+The shell mounts the FAT volume. When `CPMIDE.CFG` is in the root and names drive A, CP/M starts from that file. `EXIT` does not start it again.
 
 Command use is in [Usage of the Shell Command Interface](#usage-of-the-shell-command-interface).
 
@@ -254,7 +254,7 @@ The [CP/M Drives directory](https://github.com/feilipu/CPM-IDE/tree/master/CPM%2
 
 An empty [CP/M 8 MB image](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/TEMPLATE.CPM.zip) is a host template. `mkfs.cpm -f rc2014-8MB` writes the directory and leaves the image at 128 KB. `truncate -s 8388608 file.cpm` extends that file to a full image (`truncate -s 8M` is the same length). The directory already written stays in place, and the added bytes read as zeros. Unzipping the template and renaming it also produces a full 8 MB image with 2048 directory entries. Those files are for cpmtools. They are not the letter directories `cpm` mounts.
 
-`hget` receives an Intel HEX file onto the FAT volume. The seven HEX files include that command. `-DYASH_HGET=0` leaves it out. [Sending a file to the RC2014](#sending-a-file-to-the-rc2014) covers that transfer. Storing an 8 MB image this way puts a file on the card. It does not create a CP/M drive. `cpm` boots from `CPMIDE.CFG` or from letter directories on this volume.
+`hget` receives an Intel HEX file onto the FAT volume. The seven HEX files include that command. [Sending a file to the RC2014](#sending-a-file-to-the-rc2014) covers that transfer. Storing an 8 MB image this way puts a file on the card. It does not create a CP/M drive. `cpm` boots from `CPMIDE.CFG` or from letter directories on this volume.
 
 FAT32 can hold more than 65,000 files in one directory. A 128 GB card holds about 16,000 of these 8 MB images as ordinary files. A larger disk can hold more, and that upper limit has not been tested.
 
@@ -313,9 +313,9 @@ Again, here is a view of what success looks like.
 </div>
 
 ### CP/M Functions
-- `cpm` — boot CP/M from `CPMIDE.CFG` in the current directory, or in the root of the card if it is not there. Each line is a drive letter and a directory. Drive A has to be listed or CP/M does not start.
-- `cpm <directory>` — boot CP/M from subdirectories `A` through `P` in that directory. A missing letter is an empty drive. `A` has to be present.
-- `hget <file>` — receive an Intel HEX file onto the FAT volume. The steps are in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014). The seven HEX files include this command. `-DYASH_HGET=0` leaves it out.
+- `cpm` — boot CP/M from `CPMIDE.CFG` in the current directory, or in the root of the card when the current directory has no such file. When the file is missing, or it does not name drive A, `cpm` uses the letter directories in the current directory. Drive A has to be present or CP/M does not start.
+- `cpm <directory>` — boot CP/M from subdirectories `A` through `P` in that directory. A missing letter is an empty drive. `A` has to be present. After `cd` into that directory, `cpm .` and `cpm` with the directory's own name mount those same letters. `cpm` with no directory still prefers `CPMIDE.CFG` when that file is present.
+- `hget <file>` — receive an Intel HEX file onto the FAT volume. The steps are in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014). The seven HEX files include this command.
 
 From the CCP, `EXIT` returns to this shell. See [CCP & BDOS Extension](#ccp--bdos-extension).
 
@@ -340,7 +340,7 @@ From the CCP, `EXIT` returns to this shell. See [CCP & BDOS Extension](#ccp--bdo
 
 __`hget`__ stores the file on the FAT volume. The shell follows the cluster chain, including a file that is more than one run. A received `.CPM` image is a file on that volume. It is not a drive letter. On the host, `mkfs.cpm -f rc2014-8MB` followed by `truncate -s 8388608` builds an empty image, and unzipping the template does the same. Extract that image with cpmtools when the programs need to appear in a letter directory.
 
-[`tools/bin2hex/bin2hex.py`](tools/bin2hex/bin2hex.py) converts a normal file into Intel HEX for __`hget`__. One command runs `objcopy -I binary -O ihex` and writes the `.hex` beside the input (`drive.cpm` becomes `drive.hex`). `objcopy` marks each 64 KB boundary below 1 MB with a type `02` record. The parser advances past 64 KB only on a type `04` record, so the script rewrites those records. An 8 MB image and any smaller binary use the same command. The result has to be 16 MB or less, which is the size the parser accepts. The tool's own notes are in [`tools/bin2hex/README.md`](tools/bin2hex/README.md). The seven HEX files include __`hget`__. `-DYASH_HGET=0` leaves it out.
+[`tools/bin2hex/bin2hex.py`](tools/bin2hex/bin2hex.py) converts a normal file into Intel HEX for __`hget`__. One command runs `objcopy -I binary -O ihex` and writes the `.hex` beside the input (`drive.cpm` becomes `drive.hex`). `objcopy` marks each 64 KB boundary below 1 MB with a type `02` record. The parser advances past 64 KB only on a type `04` record, so the script rewrites those records. An 8 MB image and any smaller binary use the same command. The result has to be 16 MB or less, which is the size the parser accepts. The tool's own notes are in [`tools/bin2hex/README.md`](tools/bin2hex/README.md). The seven HEX files include __`hget`__.
 
 ```bash
 python3 tools/bin2hex/bin2hex.py drive.cpm
@@ -367,7 +367,7 @@ mkdir DRIVES/B
 cpm DRIVES
 ```
 
-`DRIVES/A` becomes `A:` and `DRIVES/B` becomes `B:`. You can stop at the letters you need. `C` through `P` are empty drives when those directories are not there. If `A` is missing, CP/M does not start. The parent directory itself is not a drive. Upper and lower case are the same name, so `drives/a` is the same directory as `DRIVES/A`.
+`DRIVES/A` becomes `A:` and `DRIVES/B` becomes `B:`. You can stop at the letters you need. `C` through `P` are empty drives when those directories are not there. If `A` is missing, CP/M does not start. The parent directory itself is not a drive. Upper and lower case are the same name, so `drives/a` is the same directory as `DRIVES/A`. `cd DRIVES` and then `cpm .` or `cpm DRIVES` mounts those letters. `cpm` with no directory does that when `CPMIDE.CFG` is not in this directory and not in the root, and also when a file is present but does not name A:. A file in this directory that does not name A: is not replaced by the root file. A name that is not the current directory still has to be a parent of `A`.
 
 **A config file.** `CPMIDE.CFG` is a short text file. Each line names one drive and the directory it should open. The directory can sit anywhere on the card. A line can use a space or an equals sign. A line that starts with `#` is a note. Then type `cpm` with no directory:
 
@@ -382,13 +382,13 @@ C GAMES
 cpm
 ```
 
-The shell looks for `CPMIDE.CFG` in the directory you are in. If it is not there, it looks in the root of the card. It reads the first 511 characters, so keep the file short. A letter you leave out is an empty drive. Drive A has to name a real directory, or CP/M does not start and the shell prints `cpm <directory>`. You can prepare this file on the host and leave it in the root of the card before the first boot.
+The shell looks for `CPMIDE.CFG` in the directory you are in. If it is not there, it looks in the root of the card. It reads the first 511 characters, so keep the file short. A letter you leave out is an empty drive. Drive A has to name a real directory, or CP/M does not start and the shell prints `cpm <directory>`. You can prepare this file on the host and leave it in the root of the card. That root file also starts CP/M when the machine boots, as described in [Boot-up Process](#boot-up-process). `EXIT` returns to the shell and does not start CP/M again.
 
 __`cp`__, __`mv`__, __`rm`__, __`mkdir`__, and __`rmdir`__ change the FAT volume as well. A file prepared on the host, including a full `.CPM` image, is copied onto the card as described in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014). Copying the template drive onto the card from a PC still works, and so does `mkfs.cpm -f rc2014-8MB` followed by `truncate -s 8388608`.
 
 When working with a CP/M compiler or editor, keep that work in its own letter directory. The shell can __`cp`__ a file to a new name, which allocates a fresh cluster chain.
 
-On first entry to CP/M, `A` can hold the system files and another letter the work. Copy the CP/M commands onto the working directory with `PIP`. Later, the starting directory can contain only `A`. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`. A program that runs under the CCP is a file in that letter directory. Upload that file with `XMODEM` after __`cpm`__ has started. The seven HEX files include __`hget`__. __`cp`__ and the other shell commands still change the FAT volume. `-DYASH_HGET=0` leaves the receiver out.
+On first entry to CP/M, `A` can hold the system files and another letter the work. Copy the CP/M commands onto the working directory with `PIP`. Later, the starting directory can contain only `A`. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`. A program that runs under the CCP is a file in that letter directory. Upload that file with `XMODEM` after __`cpm`__ has started. The seven HEX files include __`hget`__. __`cp`__ and the other shell commands still change the FAT volume.
 
 A later boot can name a starting directory that contains only the working letter. After compiling a new project with z88dk, the work-in-progress application `*.COM` file can be uploaded to the RC2014 using `XMODEM` and then tested. If the work-in-progress crashes CP/M, or needs further work, then repeat the process as needed. An example `picocom` command line is provided below, although many other `XMODEM` tools are available.
 
@@ -426,7 +426,7 @@ Policy, dual-stack rules, and fuller recipes:
 
 ## Building Software from Source
 
-The z88dk command lines to build the **CP/M-IDE ROM** (firmware) for the Z80 CPU are below. For the RC2014, build with the `rc2014` target and the relevant subtype, from within the relevant directory.
+The z88dk command lines to build the **CP/M-IDE ROM** (firmware) for the Z80 CPU are below. These four images use sdcc (`-SO3`). For the RC2014, build with the `rc2014` target and the relevant subtype, from within the relevant directory.
 
 First though, refer to the library, disk and buffer configuration notes below.
 
@@ -439,15 +439,17 @@ First though, refer to the library, disk and buffer configuration notes below.
 `zcc +rc2014 -subtype=acia -SO3 --opt-code-speed -m --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-acia -create-app`
 
 
-The z88dk command lines to build the CP/M-IDE for the 8085 CPU Module are below. The `rc2014` target and relevant subtype should be selected, from within the relevant directory. Set `Z88DK` to your z88dk install root. The `-I${Z88DK}/include` path must precede the `_DEVELOPMENT/common` include path so classic `<stdio.h>` is used (required for `stdin`/`stdout` on the hybrid 8085 CRT).
+The z88dk command lines to build the CP/M-IDE for the 8085 CPU Module are below. These three images use 80cc (`-compiler=80cc`), with locals on the stack and no `-fframe-pointer`. The `rc2014` target and relevant subtype should be selected, from within the relevant directory. Set `Z88DK` to your z88dk install root. The `-I${Z88DK}/include` path must precede the `_DEVELOPMENT/common` include path so classic `<stdio.h>` is used (required for `stdin`/`stdout` on the hybrid 8085 CRT).
 
-The 8085 images use 80cc (`-compiler=80cc`), with locals on the stack and no `-fframe-pointer`. 80cc accepts `--opt-code-speed` and ignores it. `lib/z80rules.8` is the sccz80 inline-int peephole file, and 80cc does not run it. The integer helpers that file inlines are lowered in the 80cc back end. The PATA line still names those sccz80 speed options and leaves `all` and `inlineints` out, so building that line with sccz80 does not pull `z80rules.8` back in. The Z80 images stay on sdcc.
+80cc accepts `--opt-code-speed` and ignores it. `lib/z80rules.8` is the sccz80 inline-int peephole file, and 80cc does not run it. The integer helpers that file inlines are lowered in the 80cc back end. The PATA line still names those sccz80 speed options and leaves `all` and `inlineints` out, so building that line with sccz80 does not pull `z80rules.8` back in.
 
 `zcc +rc2014 -subtype=uart85 -compiler=80cc -O2 --opt-code-speed=lshift32,rshift32,add32,sub32,sub16,intcompare,charcompare,longcompare,ucharmult,floatconst -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
 
 `zcc +rc2014 -subtype=uart85 -compiler=80cc -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-uart -create-app`
 
 `zcc +rc2014 -subtype=acia85 -compiler=80cc -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
+
+The 8085 host programs use 80cc as well. `sh test/bdos/run_disk.sh` builds the disk harness with `zcc +test -clib=8085 -m8085 -compiler=80cc`. That image is 62929 bytes. `z88dk-ticks` accepts a file of up to 65536 bytes, and the run prints `BDOS_DISK_OK`.
 
 The ROM shell no longer links ChaN `ff_ro`. `common/yash.c` calls the mini-FAT in `common/fatfs.asm`. Volume rules and the drive map are in [Modifications to the CCP and BDOS](readme_ccp_bdos.md). A [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) is still what a CP/M application links when it wants ChaN `f_*` on the IDE volume.
 

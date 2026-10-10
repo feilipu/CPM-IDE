@@ -23,7 +23,7 @@ EXTERN _cpm_bios_rodata_tail
 EXTERN _cpm_bios_bss_head
 EXTERN _cpm_bios_bss_initialised_tail
 
-EXTERN _cpm_bios_canary     ; if it matches $AA55, BIOS has been loaded, and is likely whole
+EXTERN _cpm_bios_canary     ; word $AA55, low byte first: BIOS left in RAM
 
 SECTION code_crt_init
 
@@ -73,6 +73,10 @@ loop_set_bdos:
     dec bc
     jp NK,loop_set_bdos
 
+    INCLUDE "../common/canary_boot.asm"
+    push af                 ; $55 = EXIT, 0 = cold. qboot did not push.
+
+zero_fat:
     xor a
     ld hl,_cpm_dir_sclust
     ld bc,_fat_bss_tail-_cpm_dir_sclust-1
@@ -81,15 +85,6 @@ loop_set_fat:
     ld (hl+),a
     dec bc
     jp NK,loop_set_fat
-
-    ld hl,_cpm_bios_canary  ; $AA55 means cboot already left the BIOS in RAM
-    ld a,(hl)
-    cp $AA
-    jp nz,copy_bios
-    inc hl
-    ld a,(hl)
-    cp $55
-    call z,qboot            ; matched: ROM out, enter CCP
 
 copy_bios:
     ld hl,_rodata_cpm_bios_head
@@ -110,6 +105,9 @@ loop_set_bios:
     ld (hl+),a
     dec bc
     jp NK,loop_set_bios
+
+    pop af
+    INCLUDE "../common/canary_restore.asm"
 
     ; now fall through to normal _main() function and get set up for CP/M
 

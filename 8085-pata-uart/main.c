@@ -20,17 +20,15 @@
 #include "../common/yash.h"
 #include "../common/fatfs.h"
 
-#pragma output REGISTER_SP = 0xE880
+#pragma output REGISTER_SP = 0xE980
 #pragma printf = "%c %s %d %u %lu %X"
 
 extern uint8_t bios_iobyte;
 
 extern uint8_t uarta_control;
 extern uint8_t uartb_control;
-extern uint8_t uarta_reset(void);
 extern uint8_t uarta_pollc(void);
 extern uint8_t uarta_getc(void);
-extern uint8_t uartb_reset(void);
 extern uint8_t uartb_pollc(void);
 extern uint8_t uartb_getc(void);
 
@@ -48,7 +46,6 @@ void select_console(void)
                 fprintf(output, "\b-)");
                 return;
             }
-            uarta_reset();
         }
         if ((uartb_control != 0) && (uartb_pollc() != 0)) {
             if (uartb_getc() == ':') {
@@ -59,7 +56,6 @@ void select_console(void)
                 fprintf(output, "\b-)");
                 return;
             }
-            uartb_reset();
         }
     }
 }

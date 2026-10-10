@@ -2,7 +2,7 @@
 
 ## Status
 
-Current on 2026-10-09. Branch `cpm-ide-msx`. The parent of this update is `16b61ad` ("Build the 8085 ROMs with 80cc"), which is on `origin/cpm-ide-msx`. The shell starts CP/M in two ways. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the volume root. `cpm <directory>` mounts the letter directories `A` through `P` inside that directory. Drive A has to be present or CP/M does not start. `hget` is in the seven HEX files. `md`, `dd`, and the shell `mount` command are not. 8085 ROMs are built with 80cc, stack locals, and no `-fframe-pointer`. Z80 ROMs stay on sdcc (`-SO3`). This file is the implementation guide. The contract sections below were checked against the Digital Research CP/M 2.2 manual (chapters 1, 5, and 6), John Elliott’s BDOS and FCB pages, and the Calkins BDOS in `z80-cf-acia/cpm22.asm`. Where those three disagree, the rule is:
+Current on 2026-10-09. Branch `cpm-ide-msx`. The parent of this update is `16b61ad` ("Build the 8085 ROMs with 80cc"), which is on `origin/cpm-ide-msx`. The shell starts CP/M in two ways, and `EXIT` stays in the shell. A root `CPMIDE.CFG` that names A: boots CP/M when the shell starts. `EXIT` flips the BIOS canary `$AA` byte to `$55`, and that `$5555` word does not boot again. A whole `$AA55` is RST 0 back to the CCP. The canary is the floor of `bios_stack`. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the volume root, and a missing file uses the letter directories in the working directory. `cpm <directory>` mounts the letter directories `A` through `P` inside that directory. Drive A has to be present or CP/M does not start. `hget` is in the seven HEX files. `md`, `dd`, and the shell `mount` command are not. 8085 ROMs are built with 80cc, stack locals, and no `-fframe-pointer`. Z80 ROMs stay on sdcc (`-SO3`). This file is the implementation guide. The contract sections below were checked against the Digital Research CP/M 2.2 manual (chapters 1, 5, and 6), John Elliott’s BDOS and FCB pages, and the Calkins BDOS in `z80-cf-acia/cpm22.asm`. Where those three disagree, the rule is:
 
 - Return codes and control flow follow the Calkins BDOS when Elliott’s CP/M 2.2 note agrees with it.
 - The manual’s programmer-facing description wins when Elliott’s CP/M 2.2 note agrees with the manual.
@@ -27,15 +27,15 @@ Commit only when asked. One subject line, no body, no trailer. Tag `cpm-ide-v2.6
 | `ad12965` | Close the reviewed FAT and BDOS defects | Review resolutions. That HEX set is the sccz80 8085 link. |
 | `16b61ad` | Build the 8085 ROMs with 80cc | 8085 product lines use `-compiler=80cc`. Z80 stays sdcc. |
 
-`YASH_HGET` defaults to 1. The seven HEX files include `hget`. `-DYASH_HGET=0` compiles it out. `md`, `dd`, and `mount` are not shell commands. Each `main.c` calls `fat_mount` before the prompt. `ds` calls it again when `fs_type` is 0. `cpm` calls `fat_mount`, clears `cpm_dir_sclust`, then reads `CPMIDE.CFG` or walks `A` through `P`. `hg_sum` stays file-scope and is shared by `hg_hexbyte`, `hg_cksum`, and `hg_record`. The seven per-ROM `ffconf.h` copies are gone. ChaN `ff` still uses `ff/source/ffconf.h` in z88dk-libraries.
+The seven HEX files include `hget`. `md`, `dd`, and `mount` are not shell commands. Each `main.c` calls `fat_mount` before the prompt. `ya_loop` calls `ya_boot_root` unless the canary is `$5555`. `ds` calls `fat_mount` again when `fs_type` is 0. `cpm` calls `fat_mount` only when `fs_type` is still 0, then clears `cpm_dir_sclust` and reads `CPMIDE.CFG` or walks `A` through `P`. A second init makes the next directory walk miss every name. `hg_sum` stays file-scope and is shared by `hg_hexbyte`, `hg_cksum`, and `hg_record`. The seven per-ROM `ffconf.h` copies are gone. ChaN `ff` still uses `ff/source/ffconf.h` in z88dk-libraries.
 
 ### How `cpm` fills the drive table
 
-`read_cfg` in `common/yash.c` looks up `CPMIDE.CFG` in the working directory. A miss looks in the root. The file has to start at cluster 2 or above, so a FAT16 root is not itself a drive and is not a valid config file cluster. One sector is read. Bytes after the file length, or byte 511 of a longer file, become a terminator. A line may start with spaces. `#` and `[` skip the rest of the line. The first character is the drive letter, `A`–`P` or `a`–`p`. Spaces, tabs, and `=` are skipped, then an optional quote. The path runs to the next quote, CR, or LF. `mount_dir` stores the directory cluster. A path that is not a directory is skipped. `cpm_dir_sclust[0]` still zero means the file did not name A:, `cpm` prints `cpm <directory>`, and CP/M does not start.
+`find_cfg` / `load_cfg` in `common/yash.c` look up `CPMIDE.CFG`. `read_cfg` searches the working directory. A miss looks in the root. A file that is present and does not name A: is not replaced by the root file. `mount_letters` then clears the table. The file has to start at cluster 2 or above, so a FAT16 root is not itself a drive and is not a valid config file cluster. One sector is read. Bytes after the file length, or byte 511 of a longer file, become a terminator. A line may start with spaces. `#` and `[` skip the rest of the line. The first character is the drive letter, `A`–`P` or `a`–`p`. Spaces, tabs, and `=` are skipped, then an optional quote. The path runs to the next quote, CR, or LF. `mount_dir` stores the directory cluster. A path that is not a directory is skipped. If `cpm_dir_sclust[0]` is still zero, `cpm` with no arguments mounts letter directories in the working directory. If that also misses A:, `cpm` prints `cpm <directory>`, and CP/M does not start. `ya_boot_root` reads only the root file and has no letter-directory fallback. On a miss it clears the table again, so a `B:` line does not linger. `find_cfg(dir, &file)` and `load_cfg(file)` take the cluster as an argument. There is no `cfg_file` static. `clear_drives` is the C loop in `common/yash.c` on both CPUs. The preamble classifies the canary before it wipes BIOS BSS, then writes `$5555` back only for `EXIT`. `common/canary_boot.asm` and `common/canary_restore.asm` are that check.
 
-`cpm <directory>` builds `directory/A` through `directory/P` in the 512-byte sector buffer and mounts each one that exists. The directory itself is not mounted as A:. A second argument prints `cpm <directory>` and does not boot. There is no list of named directories on the command line, and a missing letter directory is not replaced by mounting the parent as A:.
+`cpm <directory>` opens that directory and mounts each letter subdirectory `A` through `P` that exists. The directory itself is not mounted as A:. If that lookup misses A: and the argument is `.` or the name of the working directory, the same walk uses the working directory. A second argument prints `cpm <directory>` and does not boot. There is no list of named directories on the command line, and a missing letter directory is not replaced by mounting the parent as A:. Letter compare is case-insensitive.
 
-`test/fatfs/test_cfg.c` covers both. A bare `cpm` with an empty `CPMIDE.CFG` does not boot. A file whose only line is `B` does not boot. `# note`, `A=USER`, and `B SYS/B` boot with A: at cluster 4 and B: at cluster 5. `cpm DRIVES` still requires the letter children, and an extra argument does not boot.
+`test/fatfs/test_cfg.c` covers both command forms, `ya_boot_root`, and the canary. A bare `cpm` with an empty `CPMIDE.CFG` does not boot from the root. A file whose only line is `B` does not boot. `# note`, `A=USER`, and `B SYS/B` boot with A: at cluster 4 and B: at cluster 5, from `cpm` and from `ya_boot_root`. `cpm DRIVES` still requires the letter children, including a lower-case child `a` and a directory that starts with `.` and `..`. Inside that directory the root file is empty, so a bare `cpm` still mounts `./A`, as do `cpm .` and `cpm` of its name. A different name does not. An extra argument does not boot. A whole `$AA55` takes the qboot path and leaves the word unchanged. `EXIT`'s `$5555` is restored after the wipe and does not call `ya_boot_root`. `$00` and `$FF` are a cold start.
 
 On `fd57ad9`, `YASH_HGET` was 0 and `ya_mkdrv` still called `hg_open`. A rebuild then, `WORK=/tmp/cpm-ide-hgv`, zcc `v25461-415806f08c-20260813`, 2026-10-08 12:56–13:03, finished `ok=7 fail=0` and printed `UNCHANGED` for every HEX. `__IO_CF_8_BIT` was left at `0x01`. Those blobs are `676d65b`, not the HEX files in the tree now.
 
@@ -96,10 +96,10 @@ Earlier tick figures live in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026
 
 Closed items stay here so a later edit does not reopen them. The others are still open.
 
-1. **Closed. `hget` is in the seven HEX files.** `YASH_HGET` defaults to 1. The installed image is 8085 PATA 32421 bytes, `__CODE_END` `$7E46` (347 under 32768, 315 before `$7F81`). `md`, `dd`, and the shell `mount` command are gone. `cpm` reads `CPMIDE.CFG` or mounts letter directories. An 8 MB `.CPM` image is a file on the FAT volume. Extract it with cpmtools into a letter directory. `cpm` does not mount the image. `-DYASH_HGET=0` still compiles the receiver out.
+1. **Closed. `hget` is in the seven HEX files.** The installed image is 8085 PATA 32421 bytes, `__CODE_END` `$7E46` (347 under 32768, 315 before `$7F81`). `md`, `dd`, and the shell `mount` command are gone. `cpm` reads `CPMIDE.CFG` or mounts letter directories. An 8 MB `.CPM` image is a file on the FAT volume. Extract it with cpmtools into a letter directory. `cpm` does not mount the image.
 
 2. **The host harness enters at `_cpm_bdos_fbase`.** BIOS cold boot is what plants the jump at RAM `0005`. The suites call the symbol directly.
-   Future run: boot one product image under ticks through `cboot` and check that the planted word at `0005` is `JP` to `$F106`. Leave the fbase instruction sequence as it is.
+   Future run: boot one product image under ticks through `cboot` and check that the planted word at `0005` is `JP` to `$F206`. Leave the fbase instruction sequence as it is.
 
 3. **`badsctr` is not provoked.** The RAM disk never fails a read. Select, disk R/O, and file R/O already print their messages and take the warm-boot hook.
    Future run: a host hook that makes one `disk_read` fail, then assert the Bad Sector wait for CTRL-C and for retry. The BDOS source stays unchanged. Add the hook in the disk harness, which already requires the four error words to be distinct. The character link aliases those words under `BDOS_ROM_OMIT` and should keep doing so.
@@ -113,10 +113,10 @@ Closed items stay here so a later edit does not reopen them. The others are stil
 6. **Master and this branch are different shells.** Master is the container line. Its 8085 PATA image still has `hget` and is 11 bytes under 32768. This branch mounts letter directories, reads `CPMIDE.CFG` when `cpm` has no arguments, and includes `hget` because `md`, `dd`, and `mount` are gone. The automatic-frame trial on master was reverted. `864f590` is `origin/master`.
    Future run: leave the branched functions static on `master`. Do not push `master` from this branch. Leave tag `cpm-ide-v2.6` at `1df2f37`.
 
-7. **`hg_sum` stays file-scope.** `hg_hexbyte`, `hg_record`, and `hg_cksum` share it. A pointer parameter would give the frameless helpers their first automatic. The symbol is in the default ROM because `YASH_HGET` is 1.
+7. **`hg_sum` stays file-scope.** `hg_hexbyte`, `hg_record`, and `hg_cksum` share it. A pointer parameter would give the frameless helpers their first automatic. The symbol is in the ROM.
    Future run: leave `hg_sum` file-scope.
 
-8. **A few limits are accepted and are not open defects.** Function 0 is specified as warm-boot with no return; the suites count `wboot` hits from the error paths and do not add a separate "function 0 does not return" case. The FAT32 `+test` image still does not fit. `fs_type` stays unpoked. GPT stays out until functions 0–40 pass on an MBR FAT32 image. The 80cc host run is in `FAT-BDOS-REVIEW.md`: mini-FAT, yash config, BDOS character, BDOS disk, and ISA kern were green. The 8085 disk harness in that run stayed on sccz80 because the 80cc image is over 65536 bytes. `test/bdos/isa/run_isa.sh seq` still prints `SEQ_BAD 5` because that harness leaves `cpm_dir_sclust` at 0. The config-file cases in `test/fatfs/test_cfg.c` were run after `read_cfg` landed: Z80 `YASH_CFG_OK` at 11193879 ticks, 8085 80cc `YASH_CFG_OK` at 12627960 ticks.
+8. **A few limits are accepted and are not open defects.** Function 0 is specified as warm-boot with no return; the suites count `wboot` hits from the error paths and do not add a separate "function 0 does not return" case. The FAT32 `+test` image still does not fit. `fs_type` stays unpoked. GPT stays out until functions 0–40 pass on an MBR FAT32 image. The 80cc host run is in `FAT-BDOS-REVIEW.md`: mini-FAT, yash config, BDOS character, BDOS disk, and ISA kern were green. The 8085 disk harness in `test/bdos/run_disk.sh` is `-compiler=80cc`. That image is 62929 bytes. `z88dk-ticks -m8085` prints `BDOS_DISK_OK` at 56635198 ticks. `test/bdos/isa/run_isa.sh seq` still prints `SEQ_BAD 5` because that harness leaves `cpm_dir_sclust` at 0. The config-file cases in `test/fatfs/test_cfg.c` were run after `read_cfg` landed: Z80 `YASH_CFG_OK` at 11193879 ticks, 8085 80cc `YASH_CFG_OK` at 12627960 ticks.
    Future run: after the next BDOS or mini-FAT edit, re-run `test/bdos/run.sh`, `test/bdos/run_disk.sh`, and `test/fatfs/run.sh`. A green host suite is the host gate. It is a different result from item 5.
 
 9. **The RC2014 repository.** Its v2.6 release is its own tag. This branch has not been copied there.
@@ -170,7 +170,7 @@ The DRI disk BDOS in `cpm22.asm` (allocation vector, extent block map, directory
 
 The latch is port `__IO_ROM_TOGGLE` (`$38`). Data `$00` maps ROM over `$0000`–`$7FFF`. Data `$01` maps RAM there. `$8000`–`$FFFF` is always RAM. Both CPUs already use this port. `cboot` writes `$01`. `wboot` writes `$00` and jumps to `pboot`, which copies the resident image and returns through `qboot`, which writes `$01` again.
 
-A transient program reads the TPA ceiling from the word at `0006h`. That word is the resident BDOS entry. Everything above it is reserved. Everything from `$0100` up to it, including the reloadable CCP, is the TPA. On tag `cpm-ide-v2.6` those ceilings are `$E200` on the two SIO ROMs and `$E300` or `$E400` on the others, because the whole disk BDOS and the disk half of the BIOS sit in that reserved block. On this branch the linked word is `$F106`.
+A transient program reads the TPA ceiling from the word at `0006h`. That word is the resident BDOS entry. Everything above it is reserved. Everything from `$0100` up to it, including the reloadable CCP, is the TPA. On tag `cpm-ide-v2.6` those ceilings are `$E200` on the two SIO ROMs and `$E300` or `$E400` on the others, because the whole disk BDOS and the disk half of the BIOS sit in that reserved block. On this branch the linked word is `$F206`.
 
 This branch reserves only what cannot run from the ROM window:
 
@@ -255,7 +255,7 @@ Buffers:
 - Staged 128-byte record, also the search image. Search and read do not nest.
 - No `hstbuf`, and nothing aliased with `fatwin`.
 
-Function 27’s allocation vector is rebuilt into `fatwin` and is valid until the next disk call. The call then invalidates the sector window, so the bitmap is not served as the next sector. The DPB is the 2 KB / EXM 0 / DSM 2047 disk in the contracts section (4 MB reported, 256 bitmap bytes). Function 31 returns that block from the resident stub, which is still readable after the latch restores. The 8 MB record-number cap is separate and does not grow this vector. A permanent bitmap would lower `0006h` on every program, including ones that never ask for free space.
+Function 27’s allocation vector is rebuilt into `fatwin` and is valid until the next disk call. The call then invalidates the sector window, so the bitmap is not served as the next sector. The DPB is the 2 KB / EXM 0 / DSM 4095 disk in the contracts section (8 MB reported, 512 bitmap bytes, the whole of `fatwin`). Function 31 returns that block from the resident stub, which is still readable after the latch restores. The 8 MB record-number cap is the same size as this disk. Free FAT space above 8 MB still fills the vector. A permanent bitmap would lower `0006h` on every program, including ones that never ask for free space.
 
 The first link measures `0006h`. The old origins (`$D9E0` / `$E200` / `$F100` and the two higher sets) are the size of the disk BDOS plus the PHASE disk BIOS. They are not a target to preserve. BIOS code still has to leave the serial rings on their current alignment. `_cpm_dsk0_base` at `$F800` was the four container LBA bases; this branch has one volume and does not keep that table. The `SERIAL_DISPATCH` `defc` may use a hole that table leaves, once the map shows the hole is outside the rings.
 
@@ -351,11 +351,11 @@ Attribute map, function 30 and the dirent. Matching ignores bit 7. The bits are 
 | --- | --- | --- |
 | T1' | FAT attribute `0x01` | Read-only. Delete and write take the fatal File R/O path |
 | T2' | FAT attribute `0x02` (hidden) | System. Search returns it. CCP DIR skips the name. BDOS still opens it |
-| T3' | directory byte 13, bit 4 | Stored and returned. The 2.2 manual reserves it. Elliott calls it the archive bit. It is not wired to FAT `0x20`, because those two bits mean opposite things |
-| F1'..F4' | directory byte 13, bits 0..3 | Application attributes. Stored and returned. Not part of the name match |
+| T3' | not stored | The 2.2 manual reserves it. Elliott calls it the archive bit. It is not wired to FAT `0x20`, because those two bits mean opposite things |
+| F1'..F4' | not stored | Application attributes. Left clear so a host creation time cannot set them |
 | F5'..F8' | not stored | Interface attributes. In a 2.2 directory they stay 0. CP/M 3 open modes and the last-record flag are ignored |
 
-Directory byte 13 is the FAT creation-time tenths field. Values 0..31 written by this BDOS are a legal tenths count. A host file whose tenths byte is already 1..31 will show the corresponding F1'..F4' or T3' until function 30 rewrites it. A tenths value above 31 is read as all five bits clear.
+Directory byte 13 is the FAT creation-time tenths field. Function 30 does not write it, and search does not publish it.
 
 A BDOS write sets FAT attribute `0x20` (the volume needs a backup). That bit is not copied into T3'. Delete of a T1' file takes the fatal File R/O path (`CHKROFL`): print, wait for any console character, then warm boot. It does not return `0FFh`. The same path is used for a write to a T1' file.
 
@@ -379,7 +379,7 @@ Delete (19) accepts `?` in the name and type. The drive byte is not ambiguous. F
 
 Rename (23) accepts `?` and rewrites every match. The drive byte at FCB+0 selects the disk. The drive byte at FCB+16 is ignored, as the manual says. The user number of the file stays 0. The cluster chain stays. If the expanded new name already exists, return `0FFh` and leave both names alone. The manual and Calkins do not check; FAT cannot hold two entries of one 8.3 name, and deleting the destination would erase a file the caller did not name in the old-name field.
 
-Close (16) matches the name the way open does. S2 bit 7 set: return a directory code in 0..3 and do not write. S2 bit 7 clear: write the size from the FCB extent and RC, update T1', T2', and the byte-13 attribute bits, then `fat_sync`. A missing name returns `0FFh`. A directory write that fails returns `0FFh`.
+Close (16) matches the name the way open does. S2 bit 7 set: return a directory code in 0..3 and do not write. S2 bit 7 clear: write the size from the FCB extent and RC, update T1' and T2', then `fat_sync`. Directory byte 13 is left as the host stored it. A missing name returns `0FFh`. A directory write that fails returns `0FFh`.
 
 Open (15) forces S1 to 0, then matches bytes 1..14 with the extent rules above. Question marks are legal. On a hit, copy the synthesized dirent into FCB bytes 0..31, restore the caller’s extent byte, set RC, and set S2 bit 7. CR and R0..R2 are left as the caller set them. The caller zeros CR to read from the first record. The drive byte is restored to the value the caller passed. A missing file returns `0FFh`. RC follows `OPENIT`: the requested extent equal to the file’s extent uses that extent’s record count; a later extent returns success with `RC = 0`; an earlier extent returns `RC = 128`.
 
@@ -435,7 +435,7 @@ Character functions follow the current `cpm22.asm` routines, including APN 02 (D
 | 10 | Buffered line. See the control list under this table. |
 | 11 | `A = 00h` empty, `A = 0FFh` when a character is waiting. Elliott says nonzero; the manual and `GETCSTS` return `0FFh`. |
 | 12 | `A = L = 22h`, `B = H = 0`. Stay on 2.2 so callers do not take the CP/M 3 path. |
-| 13 | All drives read/write, login vector cleared, DMA back to `0080h`, select and log in A:, mount. Return `0FFh` when a live file in the current user has a name starting with `$`, else 0. A mount that does not come up returns `FFFFh`. The manual omits the `$` return. Calkins `BITMAP` and Elliott both have it. |
+| 13 | All drives read/write, login vector cleared, DMA back to `0080h`, select and log in A:. Mount only when `fs_type` is 0. Return `0FFh` when a live file in the current user has a name starting with `$`, else 0. A mount that does not come up returns `FFFFh`. The manual omits the `$` return. Calkins `BITMAP` and Elliott both have it. |
 | 14 | `E = 0..15` returns 0 when that letter's directory cluster is set, and selects it. An unmounted letter returns `0FFh` and leaves the current drive selected. The drive stays logged in until cold start, warm start, function 13, or function 37. |
 | 24 | `HL = 0001h` after A: is logged in, else 0. Bit 0 of L is A:. |
 | 25 | `A = 0` while A: is current. |
@@ -475,7 +475,7 @@ SPT  = 128           ; unused by file I/O
 BSH  = 4             ; 2 KB blocks
 BLM  = 15
 EXM  = 0             ; 16 KB logical extent, one directory step
-DSM  = 2047          ; 4 MB. (DSM/8)+1 = 256 bitmap bytes
+DSM  = 4095          ; 8 MB. (DSM/8)+1 = 512 bitmap bytes
 DRM  = 511           ; reported directory width; the FAT directory is the real limit
 AL0  = 0             ; the FAT root is not a reserved data block
 AL1  = 0
@@ -485,7 +485,7 @@ OFF  = 0
 
 Field order and widths are chapter 6 Figure 6-4: SPT, DSM, DRM, CKS, OFF are 16-bit; BSH, BLM, EXM, AL0, AL1 are 8-bit.
 
-Function 27 fills `fatwin` and returns its address. The bitmap is `(DSM/8)+1` bytes. Bit 7 of the first byte is block 0 (Elliott). A set bit means used. The call sets the whole vector, then clears `min(free FAT bytes, 4 MB) / 2048` bits at the high end. The pointer is valid until the next disk call, which reuses `fatwin`. File I/O never reads this vector. It is a free-space count in CP/M’s bit order, not a map of which clusters a file owns. The manual allows the vector to be stale while the disk is read-only; rebuilding it on each call is the fresher of the two legal results.
+Function 27 fills `fatwin` and returns its address. The bitmap is `(DSM/8)+1` bytes. Bit 7 of the first byte is block 0 (Elliott). A set bit means used. The call sets the whole vector, then clears `min(free FAT bytes, 8 MB) / 2048` bits at the high end. The pointer is valid until the next disk call, which reuses `fatwin`. File I/O never reads this vector. It is a free-space count in CP/M’s bit order, not a map of which clusters a file owns. The manual allows the vector to be stale while the disk is read-only; rebuilding it on each call is the fresher of the two legal results.
 
 ## Mini-FAT
 
@@ -503,7 +503,7 @@ GPT and logical partitions stay out of the first milestone. `fat_mount` today re
 
 ## BDOS 3
 
-Not in the first dispatcher. Function 12 keeps returning `0022h`. A later build flag may advertise `31h` and add functions that have a clear FAT meaning: 45 (error mode), 46 (free space as a dword, which lifts the 4 MB bitmap clamp), 47 (chain to program), 48 (flush), 98 (parse filename), and date stamps from the FAT write time. Handle calls, passwords, and banked overlays are not part of that flag.
+Not in the first dispatcher. Function 12 keeps returning `0022h`. A later build flag may advertise `31h` and add functions that have a clear FAT meaning: 45 (error mode), 46 (free space as a dword, which lifts the 8 MB bitmap clamp), 47 (chain to program), 48 (flush), 98 (parse filename), and date stamps from the FAT write time. Handle calls, passwords, and banked overlays are not part of that flag.
 
 ## Tests
 
@@ -529,9 +529,9 @@ Fixtures: a small FAT16 volume, a FAT32 volume, a fragmented file (cluster chain
 | 20, 21 | Sequential EOF does not advance CR. Write extends. Disk full is 2. |
 | 22 | Creates a size-0 FAT entry and sets S2 bit 7. Second make of the same name truncates. Full FAT16 root is `0FFh`. |
 | 23 | Wildcard rename, same chain. The drive byte at FCB+16 is ignored. An existing destination is `0FFh` and both names stay. |
-| 27, 31 | Pointers are in the resident page. Free-bit count matches `min(free, 4 MB) / 2048`. Bit 7 of the first bitmap byte is block 0. EXM in the DPB is 0, BSH is 4, DSM is 2047. The pointer from 27 is not used across a later disk call. |
+| 27, 31 | Pointers are in the resident page. Free-bit count matches `min(free, 8 MB) / 2048`. Bit 7 of the first bitmap byte is block 0. EXM in the DPB is 0, BSH is 4, DSM is 4095. The pointer from 27 is not used across a later disk call. |
 | 28, 29 | After 28, a write takes the fatal R/O path. Vector bit 0 is set. |
-| 30 | T1' and T2' survive in the FAT attribute and in the next search. F1' and T3' survive in directory byte 13. F5' does not. |
+| 30 | T1' and T2' survive in the FAT attribute and in the next search. F1', T3', and F5' do not. |
 | 32 | `E = 0FFh` returns the value stored. `E = 17` stores 17. User 1 searches see no files. |
 | 33, 34, 36 | Random record positions the sequential cursor and does not advance R0..R2. The next sequential call repeats that record. R2 nonzero is error 6. The last record of an extent does not open the next extent. |
 | 34, 40 | A write past EOF zero-fills the gap. The next read of the gap is zeros, `A = 0`. A read past EOF is `A = 1` and does not advance CR. |

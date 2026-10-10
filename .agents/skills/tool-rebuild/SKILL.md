@@ -14,7 +14,7 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 | Script | What |
 |--------|------|
 | `rebuild-ff.sh` | ChaN `ff` RW+RO, Z80 all FatFs targets + rc2014 `ff_85` / `ff_85_ro`. Installs into `$ZCCCFG/../clibs`. |
-| `rebuild-hex.sh` | All seven ROMs on the FAT map (stub `$F100`, BDOS BSS `$F650`, FAT BSS `$F6D0`, BIOS `$F984`). PATA first (`__IO_CF_8_BIT` 0, both libraries: Z80 SIO and 8085 UART), then CF (flag 1, both libraries: three Z80 and two 8085). Copies `.ihx` → `.hex` only after `gate_fat`. |
+| `rebuild-hex.sh` | All seven ROMs on the FAT map (stub `$F200`, BDOS BSS `$F750`, FAT BSS `$F7D0`, BIOS `$FB00`). PATA first (`__IO_CF_8_BIT` 0, both libraries: Z80 SIO and 8085 UART), then CF (flag 1, both libraries: three Z80 and two 8085). Copies `.ihx` → `.hex` only after `gate_fat`. |
 
 ```bash
 # from repo root
@@ -30,6 +30,8 @@ git add -f rc2014-cpm22-*.hex
 `MAXJOBS` default 2. Each job has its own cwd and `TMPDIR` — **never** parallel bare `zcc` in one directory (`zcc_opt.def`).
 
 The ROM zcc lines are the README lines. They do not link ChaN `ff_ro` or `ff_85_ro`. `common/yash.c` calls mini-FAT.
+
+The resident BDOS must start on a page. The product link passes that page as `BDOS_STUB_ORG` (`$F200`). `ALIGN $100` is the other spelling; the unlinked DRI listing in each `cpm22.asm` uses it. CCP and BIOS should start on a page when the image fits. BIOS is the page `$FB00`. The CCP origins are `$E9E0` (Z80) and `$E980` (8085). FAT BSS is `$F7D0`–`$FA84`. The BIOS stack pad is 8 bytes.
 
 Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `$7F81`, a FAT-map overlap (`gate_fat`: `0006h` six bytes after `bdos`, CCP tail, stub tail, FAT tail, BIOS code tail against the ring), the wrong IDE port bytes, or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). The v2.6 check that the BDOS tail equals the BIOS origin is not the live gate. A failed ROM is not copied to `.hex`. `reap` records the failure and the other products still build. The script exits 1 if any product failed. Job-dir `rm` is not success. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`). After HEX `wait_all`, every product in that run must exist and be non-empty or the script exits 1. The flag is left at 1. A crash before the CF libraries are selected restores them from the EXIT trap.
 

@@ -14,7 +14,7 @@ INCLUDE "config_rc2014_private.inc"
 ;------------------------------------------------------------------------------
 
 PUBLIC  __COMMON_AREA_PHASE_BIOS    ;base of bios
-defc    __COMMON_AREA_PHASE_BIOS    = 0xF984
+defc    __COMMON_AREA_PHASE_BIOS    = 0xFB00
 
 
 ;------------------------------------------------------------------------------
@@ -572,7 +572,7 @@ putc_buffer_tx:
 
 ;------------------------------------------------------------------------------
 ; One drive. DPB matches bdos_dpb: SPT 128, BSH 4, BLM 15, EXM 0,
-; DSM 2047, DRM 511, AL0/AL1/CKS/OFF 0.
+; DSM 4095, DRM 511, AL0/AL1/CKS/OFF 0.
 ;------------------------------------------------------------------------------
 
 dph0:
@@ -586,7 +586,7 @@ dpb0:
     defb    4
     defb    15
     defb    0
-    defw    2047
+    defw    4095
     defw    511
     defb    0
     defb    0
@@ -620,7 +620,6 @@ PUBLIC  _acia_interrupt
 
 _cpm_bios_bss_head:
 
-_cpm_bios_canary:   defw 0          ;$AA55 once CP/M has been cold-booted
 _bios_iobyte:       defb 0
 dmaadr:             defs 2
 hstact:             defs 1
@@ -629,7 +628,8 @@ hstwrt:             defs 1
 SERIAL_DISPATCH:
 _acia_interrupt:    defs 3          ;JP cpm_acia_isr, planted after this zero
 
-                    defs 64
+_cpm_bios_canary:   defw 0          ;$AA55 at the floor of bios_stack.
+                    defs 8          ;serial ISR is 6. 8085 TRAP return is 2 more.
 bios_stack:
 
 PUBLIC  _cpm_bios_bss_initialised_tail

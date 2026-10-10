@@ -35,9 +35,8 @@ SECTION rodata_lib           ;read only library (code)
 PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
 ; Live image length is $86A when this origin is 32-byte aligned.
 ; ALIGN 0x20 above CCPSTACK changes the pad if the origin is not.
-; $E8E0 produced tail $F14A (74 bytes past bdos). $E896 produced tail $F10A.
-; $E880 + $86A = $F0EA, 22 bytes before bdos at $F100.
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE880
+; $E980 + $86A = $F1EA, 22 bytes before bdos at $F200.
+defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE980
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -123,7 +122,7 @@ PRINTB:
 ;   Routine to send a carriage return, line feed combination
 ;   to the console.
 ;
-CRLF:   
+CRLF:
     LD      A,CR
     CALL    PRINTB
     LD      A,LF
@@ -740,7 +739,7 @@ COMMAND:
     LD      A,C
     AND     0FH             ;isolate the drive number.
     LD      (CDRIVE),A      ;and save.
-    CALL    DSKSEL          ;...and select. 
+    CALL    DSKSEL          ;...and select.
     LD      A,(INBUFF+1)
     OR      A               ;anything in input buffer already?
     JP      NZ,CMMND2       ;yes, we just process it.
@@ -866,7 +865,7 @@ DECODE4:
     DEC    C
     JP    NZ,DECODE3
     LD    A,B        ;set (A)=the numeric value entered.
-    RET  
+    RET
 ;
 ;   Compute (HL)=(TBUFF)+(A)+(C) and get the byte that's here.
 ;
@@ -1245,8 +1244,10 @@ EXTERN __Exit
 EXIT:
     LD      BC,EXIT_MSG ;notify exit to bios monitor
     CALL    PLINE
+    LD      A,$55
+    LD      (_cpm_bios_canary),A    ;$AA55 flipped to $5555. Not $00 or $FF.
+    LD      (_cpm_bios_canary+1),A
     XOR     A
-    LD      (_cpm_bios_canary),A    ;kill the bios canary
     OUT     ($38),A                 ;toggle ROM
     JP      __Exit                  ;reset back to ROM monitor
                                     ;initialise from beginning
@@ -1580,7 +1581,7 @@ FBASE:
     LD      A,C             ;get function number.
     CP      NFUNCTS         ;valid function number?
     RET     NC
-    LD      C,E             ;keep single register function here.   
+    LD      C,E             ;keep single register function here.
     LD      HL,FUNCTNS      ;now look thru the function table.
     LD      E,A
     LD      D,0             ;(DE)=function number.
@@ -1815,7 +1816,7 @@ NEWLN1:
 ;
 ;   Output a (cr) (lf) to the console device (screen).
 ;
-OUTCRLF:   
+OUTCRLF:
     LD      C,CR
     CALL    OUTCHAR
     LD      C,LF
@@ -2811,7 +2812,7 @@ SETFL4:
 ;
 BITMAP:
     LD      HL,(DSKSIZE)    ;compute size of allocation table.
-    SRA     HL              ;(HL)=(HL)/8. 
+    SRA     HL              ;(HL)=(HL)/8.
     SRA     HL
     SRA     HL
 ;   INC     HL              ;at least 1 byte.
@@ -3589,7 +3590,7 @@ WTSEQ8:
 ;   Normal disk write. Set the desired track and sector then
 ;   do the actual write.
 ;
-WTSEQ9:    
+WTSEQ9:
     CALL    TRKSEC1         ;determine track and sector for this write.
     POP     BC              ;get write status flag.
     PUSH    BC
@@ -4113,7 +4114,7 @@ WTRANDOM:
 ;
 FILESIZE:
     CALL    AUTOSEL         ;select proper drive and check file length
-    JP      RANSIZE   
+    JP      RANSIZE
 ;
 ;   Function to selectively reset disc drives.
 ;   This allows a program to log off any drives.
@@ -4169,7 +4170,7 @@ RETMON:
     LD      B,H
     RET                     ;and go back to user.
 ;
-;   Funtion to write random with zero fill.
+;    to write random with zero fill.
 ;   This is a special entry to do random i/o.
 ;   For the case where we are writing to unused disk space,
 ;   this space will be zeroed out first.

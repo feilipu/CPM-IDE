@@ -15,8 +15,8 @@
 # Optional arg: acia — z80-cf-acia only.
 # Optional arg: acia85 — 8085-cf-acia only.
 # Default (no arg) is PATA (Z80 SIO and 8085 UART), then all five CF ROMs.
-# Every product uses the FAT resident map: stub $F100, BDOS BSS $F650,
-# FAT BSS $F6D0, BIOS $F984. The v2.6 tail==BIOS gate is not used.
+# Every product uses the FAT resident map: stub $F200, BDOS BSS $F750,
+# FAT BSS $F7D0, BIOS $FB00. The v2.6 tail==BIOS gate is not used.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -355,7 +355,7 @@ build_fat() {
         -I"${Z88DK}/include/_DEVELOPMENT/common" \
         -I"${Z88DK}/libsrc/target/rc2014" \
         -L"${Z88DK}/lib/clibs/sccz80" \
-        -Ca-DBDOS_STUB_ORG=0xF100 -Ca-DBDOS_BSS_ORG=0xF650 -Ca-DFAT_BSS_ORG=0xF6D0 \
+        -Ca-DBDOS_STUB_ORG=0xF200 -Ca-DBDOS_BSS_ORG=0xF750 -Ca-DFAT_BSS_ORG=0xF7D0 \
         @cpm22.lst -o "../$out" -create-app
     ) || return 1
   else
@@ -364,7 +364,7 @@ build_fat() {
       cd "$ROOT/$dir"
       zcc +rc2014 -subtype="$sub" -SO3 --opt-code-speed -m \
         --max-allocs-per-node400000 \
-        -Ca-DBDOS_STUB_ORG=0xF100 -Ca-DBDOS_BSS_ORG=0xF650 -Ca-DFAT_BSS_ORG=0xF6D0 \
+        -Ca-DBDOS_STUB_ORG=0xF200 -Ca-DBDOS_BSS_ORG=0xF750 -Ca-DFAT_BSS_ORG=0xF7D0 \
         @cpm22.lst -o "../$out" -create-app
     ) || return 1
   fi
@@ -387,7 +387,7 @@ build_acia() {
     cd "$ROOT/z80-cf-acia"
     zcc +rc2014 -subtype=acia -SO3 --opt-code-speed -m \
       --max-allocs-per-node400000 \
-      -Ca-DBDOS_STUB_ORG=0xF100 -Ca-DBDOS_BSS_ORG=0xF650 -Ca-DFAT_BSS_ORG=0xF6D0 \
+      -Ca-DBDOS_STUB_ORG=0xF200 -Ca-DBDOS_BSS_ORG=0xF750 -Ca-DFAT_BSS_ORG=0xF7D0 \
       @cpm22.lst -o "../$out" -create-app
   ) || return 1
   gate_fat "$out" cf-acia || return 1
@@ -408,7 +408,7 @@ build_acia85() {
       -I"${Z88DK}/include/_DEVELOPMENT/common" \
       -I"${Z88DK}/libsrc/target/rc2014" \
       -L"${Z88DK}/lib/clibs/sccz80" \
-      -Ca-DBDOS_STUB_ORG=0xF100 -Ca-DBDOS_BSS_ORG=0xF650 -Ca-DFAT_BSS_ORG=0xF6D0 \
+      -Ca-DBDOS_STUB_ORG=0xF200 -Ca-DBDOS_BSS_ORG=0xF750 -Ca-DFAT_BSS_ORG=0xF7D0 \
       @cpm22.lst -o "../$out" -create-app
   ) || return 1
   gate_fat "$out" cf-acia || return 1
