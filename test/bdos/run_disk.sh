@@ -14,7 +14,7 @@ run_cpu() {
     fat="$3"
     ide="$4"
     out="$HERE/out/disk${5}"
-    # 8085 disk harness is 80cc. The image is 62929 bytes, inside the
+    # 8085 disk harness is 80cc. The image is 65463 bytes, inside the
     # z88dk-ticks limit of 65536. The 8085 ROMs use 80cc as well.
     if [ "$cpu" = "8085" ]; then
         # ldi_body ends above the default $FF00 stack. SP=0 keeps

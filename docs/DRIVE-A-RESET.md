@@ -76,9 +76,11 @@ Layout around the byte, 8085 CF ACIA:
 
 ## Current theory
 
+This section is the theory written before the resolution. The patch is `latch_next`.
+
 `$F666` is cleared while a directory scan reads a sector that is not already in `fatwin`. The first `dir` after a drive change, and the first `dir` after `bdos_warm` has cleared the cluster cache, takes that path. A later `dir` on the same drive finds the sector in the window and the prompt stays. C: staying on the samples taken fits a window that was already warm. The letter on the listing is printed after search-first, so the clear is on a later call in that same `dir`, not on the first sector read.
 
-The scan does not contain either store of `bdos_drive`. The clear is an entry into `bdos_warm` or `fn_select` with E = 0 that is not in the `dir` source, or some other write onto `$F666`. The instruction has not been found. No patch has been applied for this bug.
+The scan does not contain either store of `bdos_drive`. The clear is an entry into `bdos_warm` or `fn_select` with E = 0 that is not in the `dir` source, or some other write onto `$F666`. The instruction had not been found when this section was written. The resolution names it.
 
 `GETDSK` printed `E:` after search-first, so `$F666` was still 4 on the window-miss call. The store of 0 is on the later search-next of the `0x00` marker, or on the CCP return after it. That order is recorded in `DIR-SEARCH-FAULT.md` lead 4.
 
@@ -107,6 +109,6 @@ That is also why the symptom stopped appearing: the CCP stack move (`CCPSTACK` `
 
 Fixed by PR #3, "Stop function 18 from writing through the caller's DE" (merged 2026-10-11T12:35:07Z, `7cf18d9`), which removes the copy-back for function 18 entirely - see the Resolution section of `DIR-SEARCH-FAULT.md`.
 
-Still open: the `A>` transcript on this layout is inference from the map plus the copy-back arithmetic, not a replay. The pre-stack-move ROM was not rebuilt and run. Both halves of the arithmetic are separately checkable and were checked on the current image: `DE` measured at `$F14D` on the `dir` path, and the four CCP flags still contiguous.
+The board no longer drops the prompt to `A>` after `dir` on the `latch_next` images. The pre-stack-move ROM was not rebuilt and run. Both halves of the arithmetic were checked on the current image: `DE` measured at `$F14D` on the `dir` path, and the four CCP flags still contiguous.
 
 The stack theory in "Current theory" is disproved. `$F666` is 167 bytes below `bdos_stack`, and the deepest failing call shape uses 32-34 bytes of the 160-byte reservation on both CPUs.

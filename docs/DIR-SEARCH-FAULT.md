@@ -6,7 +6,7 @@ Branch `cpm-ide-msx`. The disk BDOS is `common/cpm22bdos.asm` and `common/cpm22b
 
 Boards: `z80-cf-acia` and `8085-cf-acia`. The same BDOS and mini-FAT sources are linked into all seven ROMs. These transcripts are the two CF ACIA boards only.
 
-`DRIVE-A-RESET.md` is a separate open note. D: and E: builtin `dir` can return to `A>` with no `Bdos Err` line. That may be the same end-of-directory call. It has not been shown to be the same store.
+[DRIVE-A-RESET.md](DRIVE-A-RESET.md) is the same store. D: and E: builtin `dir` returned to `A>` with no `Bdos Err` line. The resolution below covers both notes.
 
 The intermittent hang after the shell line `Initialised CP/M` is a different report and is outside this note.
 
@@ -107,7 +107,7 @@ The shared event is a BDOS call that walked a directory or a file, returned to t
 - After `LS?`, the following `dir` printed a correct A: from `DUMP.COM` through `XSUB.COM`. Those names sit in directory sectors 0, 1, and 2. Each new LBA is a window miss and a read, and those reads returned the right names. The failed open had finished by walking to the `0x00` slot, so the window was on sector 3 at the start of `dir`. That stale sector does not survive the three reads that just succeeded. The search after `XSUB` is another miss, of sector 3, and that is the call that leaves `DIRECT`. The prior open changes the result of that call. The instruction that makes it differ from the sector reads in the same `dir` has not been found.
 - After `type`, 8085 `dir` completes, including its own end-marker return, and the next open misses `SD.COM`. `dir_sdi` of offset 0 worked at the start of that `dir`. The open is the same `dir_sdi(0)` → `find_name` path, and it returns `0xFF`. A cache that answers offset 0 with the end-marker sector would do that: the first byte is `0x00`, and `find_name` stops. That false hit was not present at the start of the `dir`, so the end-marker call of the `dir` is what would have to arm it. The `LS?` transcript points the other way: the end state of a not-found open still allows `dir_sdi(0)` to list the real names, and the failure is the later end-marker search. One "offset 0 reads the last sector" fault does not cover both transcripts by itself.
 - Z80 A: hangs with no listing reported, Z80 B: prints every name and then hangs, 8085 A: prints every name and then emits unmasked bytes. The visible part is the same: the CCP stopped receiving search results it can format. A wrong LBA on one slot can hang in the IDE wait, or it can return a sector whose bytes are then executed or printed raw. A `goback` whose saved SP or return word was overwritten can enter `0100h`. The older Z80 `S4096` session did that: the resident image printed `Drive/User Error` and `Free: 30k`. The `LS?` session and the later Z80 hang do not print that text. `OPENFCB` clears the current-record byte before the missed open, so a record count of 32 or 64 is not required for the high-byte tail.
-- `bdos_drive` is stored by `bdos_warm` and by function 14. The `LS?` prompt was already `A>` and the following `dir` printed `A:` on every line, so the drive byte was 0 for the whole listing. The smash after `XSUB` is not a drive reselection. The D: and E: prompt change in `DRIVE-A-RESET.md` is still an unexplained store of that byte during a directory end marker. If that store and this non-return are one instruction, one change covers both. That is not yet shown.
+- `bdos_drive` is stored by `bdos_warm` and by function 14. The `LS?` prompt was already `A>` and the following `dir` printed `A:` on every line, so the drive byte was 0 for the whole listing. The smash after `XSUB` is not a drive reselection. The D: and E: prompt change in [DRIVE-A-RESET.md](DRIVE-A-RESET.md) is the same search-next store, aimed at `CDRIVE` and `CHGDRV`. The resolution is that store.
 
 The change, once the instruction is known, belongs in the two BDOS files, or in `common/fatfs.asm` and `common/fatfs_85.asm`, so all seven ROMs get it. A Z80 ACIA-only vector/stack fix would live in that product's `cpm22bios.asm` / `cpm22preamble.asm`, not in the shared BDOS.
 
@@ -154,7 +154,7 @@ Z80 ACIA layout from the 8-byte-pad stack-move map, high to low: `bios_stack` `$
 
 Live `dir` / `type` after the CCP has started uses `bdos_stack` (160 bytes) and `CCPSTACK`. The ACIA ISR uses the interrupted stack. The pad is still live on `wboot` / `rboot` until the CCP loads `SP`, and on every ROM-in interrupt if `SERIAL_DISPATCH` is smashed.
 
-### 4. BDOS stack overflow still fits the three CCP shapes
+### 4. BDOS stack overflow was measured and does not reach the drive byte
 
 `fbase` sets `SP` to `bdos_stack` on every call. 8085: reservation `$F66D`–`$F70C`, `bdos_drive` `$F666`, `bdos_usrstack` `$F65D`. About 167 bytes down hits the drive byte (prompt becomes `A>` while `goback` still returns). About 176 bytes hits the saved CCP SP (return to `0100h`, or leave `DIRECT` so unmasked bytes print). Each call resets `SP`; depth is per-call.
 
@@ -250,9 +250,9 @@ Z80 CF ACIA:
 
 **Still open.**
 
-- All seven HEX files are relinked with `latch_next`. No hardware run was done.
-- The high-bit listing tail and the hang were not reproduced. They are the same class of store only if the previous print left `DE` on a different CCP field; that was not ruled in or out.
+- All seven HEX files are relinked with `latch_next`. On the board, the major crash is gone: `dir` no longer returns the prompt to `A>`.
+- The high-bit listing tail and the hang were not given a separate replay. They fit this store when the previous print left `DE` on a different CCP field. That landing was not measured on those transcripts.
 - `test/fatfs/run.sh` does not reach `MINIFAT_OK` on this machine (the ChaN FatFs source tree is absent).
-- The 8085 host image no longer fits under the default `$FF00` stack on this base: `ldi_body` is 65 bytes and ends at `$FF13`, and unmodified HEAD returns to address 0 with no output. `test/bdos/run_disk.sh` now passes `-pragma-define:REGISTER_SP=0` on the 8085 line only.
+- The 8085 host image places `ldi_body` at `$FF5F` for 65 bytes, and compiler BSS ends at `$FFA0`. `test/bdos/run_disk.sh` passes `-pragma-define:REGISTER_SP=0` on the 8085 line. The image is 65463 bytes. The committed log is `BDOS_DISK_OK` at 56635198 ticks.
 
 The BDOS stack-overflow theory under "Current ideas" is disproved: the deepest failing call shape uses 32-34 bytes of the 160-byte reservation, and reaching `bdos_drive` needs 167. Leads 1 and 2 were already fixed by `0d671b3` and are no longer reachable. The 48-name, four-cluster fixture described under lead 4 was never in the tree; `test_dir_after_walk` (added in `009d4ef`) is the committed multi-cluster walk, and it reaches function 18 only through `count_search`, which passes `DE = 0`, so it does not by itself catch this class of fault.

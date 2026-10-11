@@ -4,11 +4,11 @@ The CCP is `common/cpm22ccp.asm` (Z80) and `common/cpm22ccp_85.asm` (8085). Z80 
 
 The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 (27 February 1981). That listing is the unmodified original this port was built from, and its header is still at the top of `cpm22ccp.asm` and `cpm22ccp_85.asm`. The version bytes stored by the resident BDOS are unchanged: version 2, release 2, revision 0.
 
-`CALL 5` is the resident stub in `common/cpm22bdos.asm` (Z80) or `common/cpm22bdos_85.asm` (8085). Those two files are one logical flow. The function contract is in `CPM-IDE-MSX.md`.
+`CALL 5` is the resident stub in `common/cpm22bdos.asm` (Z80) or `common/cpm22bdos_85.asm` (8085). Those two files are one logical flow. The function contract is in [CPM-IDE-MSX.md](CPM-IDE-MSX.md).
 
 ## Origins
 
-All seven products share one high map. The CCP origin differs by CPU because the 8085 CCP image is shorter.
+All seven products share one high map. The CCP origin differs by CPU because the 8085 CCP image is longer.
 
 | | Z80 | 8085 |
 |--|-----|------|
@@ -64,6 +64,6 @@ A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entri
 
 `mkdir` and `cp` free a new cluster chain when the directory update does not finish. `cp` also releases that chain when the source has walked as many clusters as the volume has. It does this before the new name is written. A file read walks the FAT chain, including a chain that is more than one run.
 
-At shell start the root `CPMIDE.CFG` boots CP/M when it names A:. `EXIT` returns to the shell and does not boot again. A whole canary returns to the CCP. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the root when that directory has no file. A missing file, or a file that does not name A:, mounts the letter directories in the working directory. A line is a letter `A`–`P` and a directory path, separated by a space or `=`. A `#` or `[` line is skipped. `cpm <directory>` records the start cluster of each letter directory `A` through `P` inside that directory. A missing letter stays empty. `A` has to be present or CP/M does not start.
+At shell start, `ya_boot_root` boots CP/M only when `CPMIDE.CFG` is in the volume root and names A:. A file in any other directory does not auto-boot, and there is no letter-directory fallback on that path. Change to the directory that holds the file and type `cpm` with no arguments. `EXIT` returns to the shell and does not boot again. A whole canary returns to the CCP. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the root when that directory has no file. A missing file, or a file that does not name A:, mounts the letter directories in the working directory. A line is a letter `A`–`P` and a directory path, separated by a space or `=`. A `#` or `[` line is skipped. `cpm <directory>` records the start cluster of each letter directory `A` through `P` inside that directory. A missing letter stays empty. `A` has to be present or CP/M does not start.
 
 Two cluster counts follow ChaN rather than Microsoft FAT specification 1.03. `nclst <= $0FF5` is rejected as FAT12. The specification treats a count of 4085 as FAT16. `nclst == $FFF5` stays FAT16. The specification would use FAT32. The mount suite does not build either boundary. A third limit is local: `BPB_SecPerClus >= 65` (a 64 KiB cluster) is refused with `L = 19`, because that cluster is 0 bytes in the 16-bit sector math. `BPB_Media` is not read. JumpBoot is not required. The VBR check does require the `55AA` signature.

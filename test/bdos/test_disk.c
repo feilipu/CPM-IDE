@@ -1,6 +1,6 @@
 /*
  * Step 4: directory walker, open through rename, attributes, function 10.
- * FAT16 image in the +test RAM disk. Oracle is CPM-IDE-MSX.md.
+ * FAT16 image in the +test RAM disk. Oracle is docs/CPM-IDE-MSX.md.
  */
 
 #include <stdio.h>

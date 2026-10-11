@@ -338,9 +338,8 @@ GETINP:
                         ;all 128 characters may be used.
     CALL    LDI_128     ;(HL++)->(DE++), 128 times.
     LD    HL,BATCHFCB+14
-    LD    (HL),0        ;zero out the 's2' byte.
-    INC    HL           ;and decrement the record count.
-    DEC    (HL)
+    LD    (HL+),0       ;zero out the 's2' byte.
+    DEC    (HL)         ;and decrement the record count.
     LD    DE,BATCHFCB    ;close the batch file now.
     CALL    CLOSE
     JP    Z,GETINP1    ;quit on an error.
@@ -914,8 +913,7 @@ DIRECT:
     JP    NZ,DIRECT2
     LD    B,11        ;no. Fill field with '?' - same as *.*.
 DIRECT1:
-    LD    (HL),'?'
-    INC    HL
+    LD    (HL+),'?'
     DEC    B
     JP    NZ,DIRECT1
 DIRECT2:

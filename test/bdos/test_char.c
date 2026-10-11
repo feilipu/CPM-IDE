@@ -1,6 +1,6 @@
 /*
  * Step 3: character BDOS (0-9, 11, 12) and the ROM latch.
- * Oracle is CPM-IDE-MSX.md. Disk functions are the host double in bdos_host.asm.
+ * Oracle is docs/CPM-IDE-MSX.md. Disk functions are the host double in bdos_host.asm.
  */
 
 #include <stdio.h>

@@ -2880,14 +2880,11 @@ ex1_lp:
 ex1_cmp:
     ld      hl,_cpm_fat_vol+4
     ld      a,(fat_work)
-    sub     (hl)
-    inc     hl
+    sub     (hl+)
     ld      a,(fat_work+1)
-    sbc     a,(hl)
-    inc     hl
+    sbc     a,(hl+)
     ld      a,(fat_work+2)
-    sbc     a,(hl)
-    inc     hl
+    sbc     a,(hl+)
     ld      a,(fat_work+3)
     sbc     a,(hl)
     jp      nc,ex_bad            ;step >= n_fatent
@@ -2922,10 +2919,8 @@ ex_bad:
 map_sector:
     ld      a,(io_sclust)
     ld      hl,io_sclust+1
-    or      (hl)
-    inc     hl
-    or      (hl)
-    inc     hl
+    or      (hl+)
+    or      (hl+)
     or      (hl)
     jp      nz,map_walk
     ld      a,(io_alloc)
@@ -3079,9 +3074,8 @@ zg_lp:
     jp      c,zg_have
     ld      hl,io_fptr
     ld      a,(io_mark)
-    sub     (hl)
+    sub     (hl+)
     ld      c,a
-    inc     hl
     ld      a,(io_mark+1)
     sbc     a,(hl)
     ld      b,a
@@ -3132,9 +3126,8 @@ xfer_read:
 xr_short:
     ld      hl,io_fptr
     ld      a,(io_size)
-    sub     (hl)
+    sub     (hl+)
     ld      c,a
-    inc     hl
     ld      a,(io_size+1)
     sbc     a,(hl)
     or      a
