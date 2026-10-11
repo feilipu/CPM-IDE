@@ -136,6 +136,11 @@ cboot:
     ld      ($0028),a               ;rst 28
     ld      ($0030),a               ;rst 30
 
+    ld      a,$C3                   ;C3 is a jmp instruction for:
+    ld      ($0038),a               ;jmp _acia_interrupt
+    ld      hl,_acia_interrupt
+    ld      ($0039),hl              ;enable acia interrupt at rst 38
+
     xor     a                       ;zero in the accum
     ld      (_cpm_cdisk),a          ;select disk zero
 
@@ -198,24 +203,10 @@ rboot:
     ldir                    ;clear default FCB
 
     call    _acia_reset     ;reset and empty the ACIA Tx & Rx buffers
-    call    plant_cpm_isr   ;RAM $0038 and the ROM-in slot
     ld      a,(_cpm_cdisk)  ;uuuudddd. Cold boot stored 0. RST 0 keeps it.
     ld      c,a             ;ldir left C = 0. CCP user is C>>4.
     ei
     jp      _cpm_ccp_head
-
-;
-; RAM page zero jumps straight at the ISR. The three-byte slot is what
-; the ROM vector uses while the ROM window is mapped in.
-;
-plant_cpm_isr:
-    ld      a,$C3
-    ld      ($0038),a
-    ld      hl,cpm_acia_isr
-    ld      ($0039),hl
-    ld      (SERIAL_DISPATCH),a
-    ld      (SERIAL_DISPATCH+1),hl
-    ret
 
 ;=============================================================================
 ; Console I/O routines
@@ -362,6 +353,7 @@ write:
 ;------------------------------------------------------------------------------
 
 PUBLIC cpm_acia_isr
+PUBLIC _acia_interrupt
 
 PUBLIC _acia_reset
 PUBLIC _acia_pollc
@@ -377,6 +369,7 @@ PUBLIC _acia1_putc
 PUBLIC _acia1_pollc
 
 cpm_acia_isr:
+_acia_interrupt:
     push af
     push hl
 
@@ -617,18 +610,12 @@ PUBLIC  _cpm_bios_canary
 PUBLIC  _bios_iobyte
 PUBLIC  hstact
 PUBLIC  hstwrt
-PUBLIC  SERIAL_DISPATCH
-PUBLIC  _acia_interrupt
-
 _cpm_bios_bss_head:
 
 _bios_iobyte:       defb 0
 dmaadr:             defs 2
 hstact:             defs 1
 hstwrt:             defs 1
-
-SERIAL_DISPATCH:
-_acia_interrupt:    defs 3          ;JP cpm_acia_isr, planted after this zero
 
 _cpm_bios_canary:   defw 0          ;$AA55 at the floor of bios_stack.
                     defs 8          ;serial ISR is 6. 8085 TRAP return is 2 more.

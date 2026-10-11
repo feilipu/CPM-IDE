@@ -24,8 +24,6 @@ EXTERN _cpm_bios_bss_head
 EXTERN _cpm_bios_bss_initialised_tail
 
 EXTERN _cpm_bios_canary     ; word $AA55, low byte first: BIOS left in RAM
-EXTERN SERIAL_DISPATCH
-EXTERN cpm_acia_isr
 
 SECTION code_crt_init
 
@@ -104,7 +102,7 @@ copy_bios:
     ld bc,_cpm_bios_bss_initialised_tail-_cpm_bios_bss_head-1
     ldir
 
-    call plant_dispatch     ; returns to the CRT xor a / _acia_init / _main
+
     pop af
     ; A = $55 rewrites both canary bytes. Zero leaves the copied word.
     or a
@@ -113,18 +111,7 @@ copy_bios:
     ld (_cpm_bios_canary+1),a
 canary_restored:
 
-SECTION code_lib
-
-;
-; ROM vector at $0038 is JP SERIAL_DISPATCH. Plant the CP/M ISR.
-; This is not in code_crt_init: a ret there pops the CCP word at REGISTER_SP.
-;
-plant_dispatch:
-    ld a,$C3
-    ld (SERIAL_DISPATCH),a
-    ld hl,cpm_acia_isr
-    ld (SERIAL_DISPATCH+1),hl
-    ret
+    ; now fall through to normal _main() function and get set up for CP/M
 
 ENDIF
 
