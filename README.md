@@ -228,7 +228,7 @@ Connect the RC2014 hardware as shown above, and then use the commands in [Usage 
 
 When the RC2014 first boots, the z88dk `crt0` preamble configures the machine.
 
-The preamble copies the CCP and the resident BDOS stub into high RAM. `cboot` stores the BIOS canary as the word `$AA55`, low byte first. That word is the floor of the BIOS stack, so a stack overrun lands on it. When the word is whole the BIOS stays in RAM, the mounted volume stays mounted, and control returns to the CCP. A jump to `0000h` takes that path. `EXIT` changes the `$AA` byte to `$55`. The preamble then clears the volume, copies the BIOS, and starts the shell, and the shell stays at the prompt. A cold start, or a canary that is `$00` or `$FF`, does the same copy and then starts CP/M from the root `CPMIDE.CFG` when that file names drive A.
+The preamble copies the CCP and the resident BDOS stub into high RAM. `cboot` stores the BIOS canary as the word `$AA55`, low byte first. That word is the floor of the 16-byte BIOS stack, so a stack overrun lands on it. When the word is whole the BIOS stays in RAM, the mounted volume stays mounted, and control returns to the CCP. A jump to `0000h` takes that path. `EXIT` changes the `$AA` byte to `$55`. The preamble then clears the volume, copies the BIOS, and starts the shell, and the shell stays at the prompt. A cold start, or a canary that is `$00` or `$FF`, does the same copy and then starts CP/M from the root `CPMIDE.CFG` when that file names drive A.
 
 The shell mounts the FAT volume. When `CPMIDE.CFG` is in the root and names drive A, CP/M starts from that file. `EXIT` does not start it again.
 

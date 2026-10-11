@@ -22,6 +22,9 @@
 
 #pragma output REGISTER_SP = 0xE980
 #pragma output __COMMON_AREA_PHASE_CCP = 0xE980
+/* BDOS stub is CCP + 0x880. zpragma cannot add. */
+#pragma output __COMMON_AREA_PHASE_BDOS = 0xF200
+#pragma output __COMMON_AREA_PHASE_BIOS = 0xFB00
 #pragma printf = "%c %s %d %u %lu %X"
 
 extern uint8_t bios_iobyte;

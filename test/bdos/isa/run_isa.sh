@@ -4,7 +4,7 @@
 # against test/bdos/isa/baseline.txt and is not a pass/fail gate, because
 # the repairs are supposed to change the counts.
 #
-# No BDOS_STUB_ORG, BDOS_BSS_ORG, FAT_BSS_ORG, or BDOS_ROM_OMIT.
+# No BDOS_STUB_ORG, __COMMON_AREA_PHASE_BDOS, BDOS_BSS_ORG, FAT_BSS_ORG, or BDOS_ROM_OMIT.
 # One zcc at a time, each in its own directory. Not parallel.
 #
 #   test/bdos/isa/run_isa.sh          both

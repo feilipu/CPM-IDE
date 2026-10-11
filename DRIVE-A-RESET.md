@@ -82,7 +82,7 @@ The scan does not contain either store of `bdos_drive`. The clear is an entry in
 
 `GETDSK` printed `E:` after search-first, so `$F666` was still 4 on the window-miss call. The store of 0 is on the later search-next of the `0x00` marker, or on the CCP return after it. That order is recorded in `DIR-SEARCH-FAULT.md` lead 4.
 
-`3e7c4f2` cut the BIOS stack pad from 64 bytes to 8 and put the canary on its floor. `cboot` / `wboot` / `rboot` run there. On Z80 CF ACIA the RST38 trampoline `SERIAL_DISPATCH` sits in the three bytes below that canary. 8085 CF ACIA has no such trampoline: ROM `$0034` is the library ISR at `$0189`, and `cboot` plants RAM `$0034` to the BIOS copy. See `DIR-SEARCH-FAULT.md` leads 1–3.
+`3e7c4f2` cut the BIOS stack pad from 64 bytes to 8 and put the canary on its floor. The pad is now 16 bytes. `cboot` / `wboot` / `rboot` run there. On Z80 CF ACIA the RST38 trampoline `SERIAL_DISPATCH` sits in the three bytes below that canary. 8085 CF ACIA has no such trampoline: ROM `$0034` is the library ISR at `$0189`, and `cboot` plants RAM `$0034` to the BIOS copy. See `DIR-SEARCH-FAULT.md` leads 1–3.
 
 ## Proven non-items
 

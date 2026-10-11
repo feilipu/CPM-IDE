@@ -9,8 +9,8 @@
 ;
 ; High memory holds the entry, the character path, the latch, and the
 ; resident stack. ROM holds the disk functions and the function 10
-; editor. The product copies the high piece to BDOS_STUB_ORG. ROM is
-; not phased.
+; editor. The product copies the high piece to BDOS_STUB_ORG
+; (__COMMON_AREA_PHASE_BDOS). ROM is not phased.
 ;
 ; 0006h points at _cpm_bdos_fbase. That is JP fbase, six bytes after
 ; the serial at _cpm_bdos_head. Four error words follow the JP. The
@@ -36,10 +36,22 @@
 ;
 
 ;
-; Product link defines BDOS_STUB_ORG. The bytes are stored in ROM and
-; copied to that run address. The +test link leaves the symbol undefined
-; and runs this code where it is stored.
+; Product main.c sets __COMMON_AREA_PHASE_BDOS (CCP + $880). INCLUDE
+; zcc_opt.def aliases that to BDOS_STUB_ORG so the existing PHASE /
+; IFDEF blocks stay. The +test link leaves both undefined and runs
+; this code where it is stored.
 ;
+INCLUDE "zcc_opt.def"
+IFNDEF BDOS_STUB_ORG
+IFDEF __COMMON_AREA_PHASE_BDOS
+defc BDOS_STUB_ORG = __COMMON_AREA_PHASE_BDOS
+ENDIF
+ENDIF
+IFDEF BDOS_STUB_ORG
+IFDEF __COMMON_AREA_PHASE_CCP
+ASSERT BDOS_STUB_ORG == __COMMON_AREA_PHASE_CCP + $880
+ENDIF
+ENDIF
 IFNDEF BDOS_STUB_ORG
 SECTION code_lib
 ELSE
@@ -122,7 +134,8 @@ SERIAL_DISPATCH:
 ENDIF
 
 ;
-; Page origin of the resident BDOS. BDOS_STUB_ORG is that page.
+; Page origin of the resident BDOS. BDOS_STUB_ORG is that page
+; (__COMMON_AREA_PHASE_BDOS, CCP + $880).
 ; Serial, then the JP at 0006h, then the four error words, then fbase.
 ; Serial bytes are SNH, version 2.2, REV, SNL: 00 16 00 00 00 00.
 ; add hl,sp saves the user SP while HL is 0 and leaves DE as the

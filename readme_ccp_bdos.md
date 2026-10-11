@@ -1,6 +1,6 @@
 # Modifications to the CCP and BDOS
 
-The CCP is `common/cpm22ccp.asm` (Z80) and `common/cpm22ccp_85.asm` (8085). Z80 block moves in the CCP use `LDI`. The 8085 CCP calls `LDI_3`, which is three `ld a,(hl+)` / `ld (de+),a` pairs. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP` next to `REGISTER_SP` (Z80 `$E9E0`, 8085 `$E980`).
+The CCP is `common/cpm22ccp.asm` (Z80) and `common/cpm22ccp_85.asm` (8085). Z80 block moves in the CCP use `LDI`. The 8085 CCP calls `LDI_3`, which is three `ld a,(hl+)` / `ld (de+),a` pairs. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP` next to `REGISTER_SP` (Z80 `$E9E0`, 8085 `$E980`), `__COMMON_AREA_PHASE_BDOS` (`$F200`, CCP + `$820` on Z80 and CCP + `$880` on 8085), and `__COMMON_AREA_PHASE_BIOS` (`$FB00`). zpragma cannot add, so BDOS is the computed constant.
 
 The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 (27 February 1981). That listing is the unmodified original this port was built from, and its header is still at the top of `cpm22ccp.asm` and `cpm22ccp_85.asm`. The version bytes stored by the resident BDOS are unchanged: version 2, release 2, revision 0.
 
@@ -18,7 +18,7 @@ All seven products share one high map. The CCP origin differs by CPU because the
 | `0006h` | `$F206` | `$F206` |
 | BIOS | `$FB00` | `$FB00` |
 
-The Z80 CCP image is `$820` bytes, so `$E9E0` meets the stub. The 8085 image is `$880` bytes, so `$E980` meets the stub. The 32-byte CCP stack is the last bytes of each image, and its top is the stub. `REGISTER_SP` sits at the CCP origin, and the shell stack stays below the CCP. The resident BDOS is on a page. Disk BSS is `$F750`–`$F7C6`. FAT BSS is `$F7D0`–`$FA84`, and the BIOS page is `$FB00`. The BIOS stack pad is 8 bytes.
+The Z80 CCP image is `$820` bytes, so `$E9E0` meets the stub. The 8085 image is `$880` bytes, so `$E980` meets the stub. The 32-byte CCP stack is the last bytes of each image, padded to `__COMMON_AREA_PHASE_BDOS`, and its top is the stub. `REGISTER_SP` sits at the CCP origin, and the shell stack stays below the CCP. The resident BDOS is on a page. Disk BSS is `$F750`–`$F7C6`. FAT BSS is `$F7D0`–`$FA84`, and the BIOS page is `$FB00`. The BIOS stack pad is 16 bytes. The canary word is its floor.
 
 The transient program area runs from `$0100` to the word at `0006h` (`$F206`). The CCP is reloaded on warm boot and is inside that range. It is not the ceiling.
 

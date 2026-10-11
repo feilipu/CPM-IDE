@@ -22,6 +22,9 @@
 
 #pragma output REGISTER_SP = 0xE9E0
 #pragma output __COMMON_AREA_PHASE_CCP = 0xE9E0
+/* BDOS stub is CCP + 0x820. zpragma cannot add. */
+#pragma output __COMMON_AREA_PHASE_BDOS = 0xF200
+#pragma output __COMMON_AREA_PHASE_BIOS = 0xFB00
 #pragma output CRT_ITERM_TERMINAL_FLAGS = 0
 #pragma printf = "%c %s %d %u %lu %X"
 

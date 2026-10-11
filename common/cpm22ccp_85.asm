@@ -34,7 +34,8 @@ SECTION rodata_lib           ;read only library (code)
 
 ; Run address is #pragma output __COMMON_AREA_PHASE_CCP in each
 ; product main.c (8085 $E980). main.c is first in cpm22.lst so that
-; pragma is in zcc_opt.def before this file is assembled.
+; pragma is in zcc_opt.def before this file is assembled. BDOS and
+; BIOS origins are the sibling pragmas in the same main.c.
 INCLUDE "zcc_opt.def"
 PUBLIC  __COMMON_AREA_PHASE_CCP         ;base of ccp
 ; The image ends at the resident BDOS. $E980 to $F200 is $880 bytes.
@@ -1485,9 +1486,10 @@ NBYTES:     DEFW    0        ;byte counter used by TYPE.
 
 ;
 ;   Room for expansion, and prevent potential stack overflow.
-;   Thirty-two bytes. The top is the resident BDOS.
+;   Thirty-two bytes. The top is the resident BDOS
+;   (__COMMON_AREA_PHASE_BDOS).
 ;
-            DEFS    (0xF200-32)-$,0
+            DEFS    (__COMMON_AREA_PHASE_BDOS-32)-$,0
             DEFS    32,0
 CCPSTACK:                   ;top of ccp stack area.
 

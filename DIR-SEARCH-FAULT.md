@@ -146,13 +146,13 @@ After `cboot` latches RAM in, page 0 is empty except the unused RST `C9` bytes. 
 
 The RAM cold-boot write belongs in `cboot` with the other products. `plant_dispatch` is a second copy of the same three-byte store as `plant_cpm_isr`, placed in `code_lib` so a `ret` is not taken from `code_crt_init`.
 
-### 3. BIOS stack pad is 8 bytes, and on Z80 ACIA the RST38 target sits under it
+### 3. BIOS stack pad was 8 bytes, now 16, and on Z80 ACIA the RST38 target sits under it
 
-`3e7c4f2` cut the pad from `defs 64` to `defs 8` and moved the canary onto the floor of `bios_stack`. Comment: serial ISR is 6 bytes, 8085 TRAP return is 2 more. `cboot` and `wboot` set `SP` here. `wboot` calls `bdos_warm` then `pboot` then `rboot` (`setdma`, serial reset, `ei`, jump to the CCP) on that pad.
+`3e7c4f2` cut the pad from `defs 64` to `defs 8` and moved the canary onto the floor of `bios_stack`. Comment: serial ISR is 6 bytes, 8085 TRAP return is 2 more. The pad is now `defs 16`. `cboot` and `wboot` set `SP` here. `wboot` calls `bdos_warm` then `pboot` then `rboot` (`setdma`, serial reset, `ei`, jump to the CCP) on that pad.
 
-Z80 ACIA layout from the same map, high to low: `bios_stack` `$FD72`, 8-byte pad, canary `$FD68`, then `SERIAL_DISPATCH` `$FD65`. Ten bytes of overflow from `bios_stack` overwrite the trampoline ROM `$0038` still jumps to while ROM is paged in (`rom_enter` during disk BDOS). UART and 8085 do not place the live ISR entry under this pad.
+Z80 ACIA layout from the 8-byte-pad stack-move map, high to low: `bios_stack` `$FD72`, 8-byte pad, canary `$FD68`, then `SERIAL_DISPATCH` `$FD65`. This HEX set has the 16-byte pad: canary `$FD5B`, `bios_stack` `$FD6D`. `_acia_interrupt` is the BIOS copy at `$FC52`, not a BSS trampoline. Ten bytes of overflow from `bios_stack` would still land below the canary. UART and 8085 do not place a live ISR entry under this pad.
 
-Live `dir` / `type` after the CCP has started uses `bdos_stack` (160 bytes) and `CCPSTACK`. The ACIA ISR uses the interrupted stack. The 8-byte pad is still live on `wboot` / `rboot` until the CCP loads `SP`, and on every ROM-in interrupt if `SERIAL_DISPATCH` is smashed.
+Live `dir` / `type` after the CCP has started uses `bdos_stack` (160 bytes) and `CCPSTACK`. The ACIA ISR uses the interrupted stack. The pad is still live on `wboot` / `rboot` until the CCP loads `SP`, and on every ROM-in interrupt if `SERIAL_DISPATCH` is smashed.
 
 ### 4. BDOS stack overflow still fits the three CCP shapes
 

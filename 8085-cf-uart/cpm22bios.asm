@@ -15,8 +15,11 @@ INCLUDE "config_rc2014-8085_private.inc"
 ; location setting
 ;------------------------------------------------------------------------------
 
+; Run address is #pragma output __COMMON_AREA_PHASE_BIOS in each
+; product main.c ($FB00). main.c is first in cpm22.lst so that
+; pragma is in zcc_opt.def before this file is assembled.
+INCLUDE "zcc_opt.def"
 PUBLIC  __COMMON_AREA_PHASE_BIOS    ;base of bios
-defc    __COMMON_AREA_PHASE_BIOS    = 0xFB00
 
 
 ;------------------------------------------------------------------------------
@@ -744,7 +747,7 @@ hstact:             defs 1
 hstwrt:             defs 1
 
 _cpm_bios_canary:   defw 0          ;$AA55 at the floor of bios_stack.
-                    defs 8          ;serial ISR is 6. 8085 TRAP return is 2 more.
+                    defs 16         ;serial ISR is 6. 8085 TRAP return is 2 more.
 bios_stack:
 
 PUBLIC  _cpm_bios_bss_initialised_tail
