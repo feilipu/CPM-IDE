@@ -361,7 +361,7 @@ fcb_copyback:
     ret
 
 ;
-; Character path. Same decisions as cpm22.asm, except function 6
+; Character path. Function 6
 ; treats every E other than $FF as output. $FE and $FD are not status.
 ; Function 11 returns $00 or $FF (the manual). CKCONSOL used to return 1.
 ;
