@@ -1,6 +1,6 @@
 # Directory search fails after another BDOS call
 
-Status: open. No patch has been applied. Recorded 2026-10-11.
+Status: fixed - root-caused and patched; see Resolution at the end. Recorded 2026-10-11, resolved 2026-10-11 (PR #3, merged `7cf18d9`).
 
 Branch `cpm-ide-msx`. The disk BDOS is `common/cpm22bdos.asm` and `common/cpm22bdos_85.asm`. The CCP is `common/cpm22ccp.asm` and `common/cpm22ccp_85.asm`. `CCPSTACK` is at `$F200`. Addresses below are from the stack-move maps in `/tmp/cpm-ide-stack/`. Plain `dir` on a fresh command prompt works on the images under test. The failure shows up on the next directory operation.
 
@@ -239,3 +239,21 @@ Z80 CF ACIA:
 | `_fat_bss_tail` | `$FA84` |
 
 `fatwin` is 512 bytes and ends at `fat_winsect`. BIOS is `$FB00`. CCP origins are unchanged: Z80 `$E9E0`, 8085 `$E980`.
+
+## Resolution (2026-10-11)
+
+**Root cause.** Function 18 was dispatched through `latch_find`, the same handler as function 17. That handler stages 36 bytes from the caller's `DE` (the saved `params`) into `bdos_fcb`, runs the ROM routine, and then copies seven bytes back to the same address: FCB+12, +14, +15 and +32..+35. Function 17 needs that path. Function 18 does not: `fn_next` restores `bdos_fcb` from `srch_fcb` and never reads `DE`, and the CP/M 2 manual gives function 18 no FCB output. The DRI CCP's `SRCHNXT` sets only `C` and jumps to `ENTRY1`, so `DE` is whatever the previous print left there - measured at `$F14D` on the `dir` path, where the search-first call is given a real FCB pointer (`$F18C`). Every search-next therefore stored seven bytes into CCP memory. That store is this fault, and it is the same store as `DRIVE-A-RESET.md`.
+
+**Fix.** PR #3, "Stop function 18 from writing through the caller's DE", merged 2026-10-11T12:35:07Z (`7cf18d9`). Function 18 gets its own function-table entry, `latch_next`, in `common/cpm22bdos.asm` and `common/cpm22bdos_85.asm` (the files named `common/bdos22.asm` and `common/bdos22_85.asm` when this note was written). `latch_next` sets `C` from the function number, points `DE` at `bdos_fcb`, calls `rom_enter`, and joins `latch_srch` for the DMA copy. The caller's memory is neither read nor written, and `srch_on` is left set. Ten bytes of 8080-subset instructions per CPU copy.
+
+**Evidence.** A regression case was added to `test/bdos/test_disk.c`: `test_search` plants 36 bytes of `0x5A` at `ram_image+20000`, calls function 18 with that pointer after a wildcard search-first, and asserts the guard is unchanged and the call is a hit. On the pre-fix BDOS it fails on both CPUs (`fn18_de FAIL`, `BDOS_DISK_BAD 1`); after the fix it passes, with the six-name search-next loop and the multi-cluster walk still passing. The 8085 CF ACIA image was rebuilt and the stub-tail/size gate passes: no BSS overlap, `__CODE_END` under `$7F81`. The corrupting store is measured; the `A>` half of the report is not, see `DRIVE-A-RESET.md`.
+
+**Still open.**
+
+- The Z80 products were not relinked; the Z80 evidence is the shared source plus the Z80 host suite. No hardware run was done.
+- The other six shipped images still carry the old function-18 entry until the next HEX build.
+- The high-bit listing tail and the hang were not reproduced. They are the same class of store only if the previous print left `DE` on a different CCP field; that was not ruled in or out.
+- `test/fatfs/run.sh` does not reach `MINIFAT_OK` on this machine (the ChaN FatFs source tree is absent).
+- The 8085 host image no longer fits under the default `$FF00` stack on this base: `ldi_body` is 65 bytes and ends at `$FF13`, and unmodified HEAD returns to address 0 with no output. `test/bdos/run_disk.sh` now passes `-pragma-define:REGISTER_SP=0` on the 8085 line only.
+
+The BDOS stack-overflow theory under "Current ideas" is disproved: the deepest failing call shape uses 32-34 bytes of the 160-byte reservation, and reaching `bdos_drive` needs 167. Leads 1 and 2 were already fixed by `0d671b3` and are no longer reachable. The 48-name, four-cluster fixture described under lead 4 was never in the tree; `test_dir_after_walk` (added in `009d4ef`) is the committed multi-cluster walk, and it reaches function 18 only through `count_search`, which passes `DE = 0`, so it does not by itself catch this class of fault.

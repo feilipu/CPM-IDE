@@ -1,6 +1,6 @@
 # Drive byte returns to A:
 
-Status: open. Recorded 2026-10-11. Branch `cpm-ide-msx` at `3e7c4f2`, plus the uncommitted `rboot` change that loads CCP register C from `$0004`. Board is 8085 CF ACIA. Image under test is `rc2014-cpm22-8085-cf-acia.hex` from the `/tmp/cpm-ide-rst0` rebuild (32256 bytes, `__CODE_END` `$7DA1`). The drive bug is in the BDOS and CCP that were already on `3e7c4f2`. The `$0004` change is a separate, confirmed fix.
+Status: fixed - mechanism identified and the corrupting store removed; see Resolution at the end. Recorded 2026-10-11, resolved 2026-10-11 (PR #3, merged `7cf18d9`). Branch `cpm-ide-msx` at `3e7c4f2`, plus the uncommitted `rboot` change that loads CCP register C from `$0004`. Board is 8085 CF ACIA. Image under test is `rc2014-cpm22-8085-cf-acia.hex` from the `/tmp/cpm-ide-rst0` rebuild (32256 bytes, `__CODE_END` `$7DA1`). The drive bug is in the BDOS and CCP that were already on `3e7c4f2`. The `$0004` change is a separate, confirmed fix.
 
 Addresses below are from `/tmp/cpm-ide-rst0/rc2014-cpm22-8085-cf-acia.map`.
 
@@ -96,3 +96,17 @@ The scan does not contain either store of `bdos_drive`. The clear is an entry in
 - No `Bdos Err On` text was printed, so the drop is not `fatal_sel` or the bad-sector warm boot.
 - The directory-read stack does not reach `$F666`. The live depth is tens of bytes. The reservation is 160, and the drive byte is 7 bytes below that reservation.
 - An ACIA interrupt during `rom_enter` does not land in the shell at `$0034`. That address is the ACIA ISR.
+
+## Resolution (2026-10-11)
+
+Same store as `DIR-SEARCH-FAULT.md`, aimed at a different address. That note's root cause is the function-18 copy-back: function 18 was dispatched through `latch_find`, which stages 36 bytes from the caller's `DE` into `bdos_fcb` and writes seven bytes back to `(DE)+12`, `+14`, `+15` and `+32..+35`. Function 18 does not need that path - `fn_next` restores `bdos_fcb` from `srch_fcb` and never reads `DE` - and the DRI CCP's `SRCHNXT` leaves `DE` wherever the last print left it.
+
+On the layout this note was recorded on, the four bytes at `(DE)+32` were `RTNCODE`, `CDRIVE`, `CHGDRV` and `NBYTES`. A `dir` therefore left `CHGDRV` non-zero with `CDRIVE` zero. The CCP's `RESETDR` compares the two, takes its `DSKSEL` path with `E = 0`, and function 14 performs the store of 0 into `bdos_drive` that this note could not find. The listing itself had already used the correct drive, so it printed `E:`, and nothing took the `Bdos Err` path.
+
+That is also why the symptom stopped appearing: the CCP stack move (`CCPSTACK` `$F200`) put those four flags at `$F1AD`-`$F1B0`, out of reach of the copy-back for any printable last character, so the byte is no longer cleared on the current branch. Measured on the current image, the only write of `$F666` in a session is the legitimate `e:` selection, `00->04`.
+
+Fixed by PR #3, "Stop function 18 from writing through the caller's DE" (merged 2026-10-11T12:35:07Z, `7cf18d9`), which removes the copy-back for function 18 entirely - see the Resolution section of `DIR-SEARCH-FAULT.md`.
+
+Still open: the `A>` transcript on this layout is inference from the map plus the copy-back arithmetic, not a replay. The pre-stack-move ROM was not rebuilt and run. Both halves of the arithmetic are separately checkable and were checked on the current image: `DE` measured at `$F14D` on the `dir` path, and the four CCP flags still contiguous.
+
+The stack theory in "Current theory" is disproved. `$F666` is 167 bytes below `bdos_stack`, and the deepest failing call shape uses 32-34 bytes of the 160-byte reservation on both CPUs.
