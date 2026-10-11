@@ -37,7 +37,7 @@ Commit only when asked. One subject line, no body, no trailer. Tag `cpm-ide-v2.6
 | `d409570` | Record the PHASE-origin HEX rebuild in CPM-IDE-MSX | This file, at that date. |
 | `009d4ef` | Walk a multi-cluster directory after an exact-record read | `test/bdos/test_disk.c`. |
 | `359be0f` | Stop function 18 from writing through the caller's DE | `latch_next` in both BDOS files. Merged as `7cf18d9`. |
-| `6ae97e9` | Record the function-18 root cause and fix in the two fault notes | [DIR-SEARCH-FAULT.md](DIR-SEARCH-FAULT.md) and [DRIVE-A-RESET.md](DRIVE-A-RESET.md). |
+| `6ae97e9` | Record the function-18 root cause and fix in the two fault notes | The two fault notes, since removed. |
 | `71eb321` | Fold cheap synthetics and relink the seven ROMs | Seven HEX files. Head of this branch. |
 
 A full rebuild on 2026-10-11, `rebuild-hex.sh` mode `all`, zcc `v25461-415806f08c-20260813`, 19:47–19:55, finished `ok=7 fail=0` and printed `UNCHANGED` for every HEX against `9dad56e`. `__IO_CF_8_BIT` was left at `0x01`. Gate: `0006h` `$F206`, CCP tail `$F200`, BIOS `$FB00`. `71eb321` relinked all seven after `latch_next`. A later link kept those sizes. Sizes are under Installed image.
@@ -138,7 +138,7 @@ Closed items stay here so a later edit does not reopen them. The others are stil
 4. **The CCP image is not executed.** DIR, ERA, TYPE, SAVE, REN, USER, and EXIT call BDOS functions that the disk and character suites cover one function at a time. CCP `EXTRACT` (`TBUFF + (A & 3) * 32`) is specified below and the search tests check the directory image. The CCP binary itself is not loaded.
    Future run: after a RAM page-zero plant, load the linked CCP into ticks. Run one command that searches (`DIR`) and one that uses the line editor.
 
-5. **A full command pass on a mounted `A>` is not recorded here.** The 8085 CF ACIA board runs this branch. The directory-search crash is closed in [DIR-SEARCH-FAULT.md](DIR-SEARCH-FAULT.md). ticks emulates the ACIA. It does not emulate CF taskfile ports `$10`–`$17` or the ROM latch at port `$38`. Flat 64K keeps ROM visible when `cboot` writes `$01`. A ticks banner is the shell, which is a different gate from a CCP prompt.
+5. **A full command pass on a mounted `A>` is not recorded here.** The 8085 CF ACIA board runs this branch. The directory-search crash is closed. ticks emulates the ACIA. It does not emulate CF taskfile ports `$10`–`$17` or the ROM latch at port `$38`. Flat 64K keeps ROM visible when `cboot` writes `$01`. A ticks banner is the shell, which is a different gate from a CCP prompt.
    Future run: a board pass in the order already written under Tests (CCP `DIR`, `ERA`, `REN`, `TYPE`, `SAVE`, `USER`, then PIP, STAT, ASM, LOAD, DDT), or a taskfile emulator that can mount. Report that pass only from the board or from that emulator.
 
 6. **Master and this branch are different shells.** Master is the container line. Its 8085 PATA image still has `hget` and is 11 bytes under 32768. This branch mounts letter directories, reads `CPMIDE.CFG` when `cpm` has no arguments, and includes `hget` because `md`, `dd`, and `mount` are gone. The automatic-frame trial on master was reverted. `origin/master` is now `5db3e30`. `864f590` is the `ya_md` commit under that tag.
