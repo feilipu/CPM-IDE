@@ -1686,8 +1686,7 @@ cc_wipe_clr:
     xor     a
     ld      (fat_wflag),a
     ld      hl,fatwin
-    ld      d,h
-    ld      e,l
+    ld      de,hl
     inc     de
     ld      (hl),a
     ld      bc,511

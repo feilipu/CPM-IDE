@@ -186,8 +186,7 @@ fbase:
     ld      d,0             ;(DE)=function number.
     add     hl,de
     add     hl,de           ;(HL)=table+2*(function number).
-    ld      e,(hl)
-    inc     hl
+    ld      e,(hl+)
     ld      d,(hl)          ;now (DE)=address for this function.
     ld      hl,(params)     ;retrieve parameters.
     ex      de,hl           ;now (DE) has the original parameters.
@@ -333,8 +332,7 @@ rom_go:
     ld      b,0
     add     hl,bc
     add     hl,bc
-    ld      a,(hl)
-    inc     hl
+    ld      a,(hl+)
     ld      h,(hl)
     ld      l,a
     jp      (hl)
@@ -364,13 +362,11 @@ fcb_copyback:
     ex      de,hl
     ld      hl,bdos_fcb+12
     ld      a,(hl+)
-    ld      (de),a
-    inc     de
+    ld      (de+),a
     inc     de
     inc     hl
     ld      a,(hl+)
-    ld      (de),a
-    inc     de
+    ld      (de+),a
     ld      a,(hl)
     ld      (de),a
     ld      hl,(params)
@@ -1125,14 +1121,12 @@ load_clst:
     ld      hl,(dir_ptr)
     ld      de,26
     add     hl,de
-    ld      e,(hl)
-    inc     hl
+    ld      e,(hl+)
     ld      d,(hl)
     ld      hl,(dir_ptr)
     ld      bc,20
     add     hl,bc
-    ld      c,(hl)
-    inc     hl
+    ld      c,(hl+)
     ld      b,(hl)
     ld      a,(_cpm_fat_vol)
     cp      3
@@ -1160,15 +1154,13 @@ zero_clst:
     ld      de,20
     add     hl,de
     xor     a
-    ld      (hl),a
-    inc     hl
+    ld      (hl+),a
     ld      (hl),a
     ld      hl,(dir_ptr)
     ld      de,26
     add     hl,de
     xor     a
-    ld      (hl),a
-    inc     hl
+    ld      (hl+),a
     ld      (hl),a
     ret
 
@@ -1221,12 +1213,9 @@ ext_rc:
     ld      hl,(dir_ptr)
     ld      de,28
     add     hl,de
-    ld      c,(hl)
-    inc     hl
-    ld      b,(hl)
-    inc     hl
-    ld      e,(hl)
-    inc     hl
+    ld      c,(hl+)
+    ld      b,(hl+)
+    ld      e,(hl+)
     ld      d,(hl)
     ld      a,d
     or      a
@@ -1451,8 +1440,7 @@ cursor_after:
     call    want_ext
     pop     bc
     jp      nc,curs_slot
-    ld      h,b
-    ld      l,c
+    ld      hl,bc
     ld      (srch_ext),hl
     ret
 curs_slot:
@@ -1532,8 +1520,7 @@ sf_slot:
     jp      nc,sf_adv
 sf_ex:
     ld      hl,(srch_ext)
-    ld      b,h
-    ld      c,l
+    ld      bc,hl
     push    bc
     call    ext_rc
     pop     bc
@@ -1686,8 +1673,7 @@ cl_at:
     or      a
     jp      z,cl_ret
     ld      hl,(ent_buf+2)
-    ld      b,h
-    ld      c,l
+    ld      bc,hl
     ld      hl,(ent_buf)
     ex      de,hl
     call    maybe_free
@@ -1755,8 +1741,7 @@ ss_sh:
     or      $80
     ld      c,a
 ss_s1:
-    ld      (hl),c
-    inc     hl
+    ld      (hl+),c
     ld      a,d
     srl     a               ;D >> 1. 8085: or a / rra
     ld      (hl+),a
@@ -1867,8 +1852,7 @@ del_zap:
     call    fat_sync_window
     jp      nc,del_bad
     ld      hl,(ent_buf+2)
-    ld      b,h
-    ld      c,l
+    ld      bc,hl
     ld      hl,(ent_buf)
     ex      de,hl
     call    maybe_free
@@ -1931,8 +1915,7 @@ fn_make:
     call    fat_sync_window
     jp      nc,ret_ff
     ld      hl,(ent_buf+2)
-    ld      b,h
-    ld      c,l
+    ld      bc,hl
     ld      hl,(ent_buf)
     ex      de,hl
     call    maybe_free
@@ -1975,8 +1958,7 @@ mk_legal:
     ld      hl,bdos_fcb+1
     ld      b,11
 mk_leg1:
-    ld      a,(hl)
-    inc     hl
+    ld      a,(hl+)
     and     $7F
     cp      $20
     jp      c,mk_legno
@@ -2256,8 +2238,7 @@ ed_line:
     ld      a,(curpos)
     ld      (starting),a
     ld      hl,bdos_line
-    ld      c,(hl)
-    inc     hl
+    ld      c,(hl+)
     push    hl
     ld      b,0
 ed_loop:
@@ -2576,8 +2557,7 @@ pos_hi0:
     ld      a,e
     or      l
     ld      e,a
-    ld      b,d
-    ld      c,e
+    ld      bc,de
     ld      a,e
     and     $1F
     ld      (io_ex),a
@@ -2705,8 +2685,7 @@ oh_lp:
     and     $7F
     call    fold
     ld      c,a
-    ld      a,(de)
-    inc     de
+    ld      a,(de+)
     cp      c
     jp      nz,oh_no
     inc     hl
@@ -2953,8 +2932,7 @@ map_sector:
     or      a
     jp      z,map_eof
     ld      bc,0
-    ld      d,b
-    ld      e,c
+    ld      de,bc
     call    create_chain
     jp      nc,map_full
     ld      hl,io_sclust
@@ -3182,8 +3160,7 @@ xr_cp:
     ld      a,128
     sub     c
     jp      z,xr_ok
-    ld      h,d
-    ld      l,e
+    ld      hl,de
     ld      (hl),0
     dec     a
     jp      z,xr_ok
@@ -3195,8 +3172,7 @@ xr_cp:
 xr_z128:
     ld      hl,bdos_rec
     ld      (hl),0
-    ld      d,h
-    ld      e,l
+    ld      de,hl
     inc     de
     ld      bc,127
     ldir
@@ -3551,8 +3527,7 @@ fn_tell:
     add     hl,hl
     add     hl,hl
     add     hl,hl
-    ld      e,l
-    ld      d,h
+    ld      de,hl
     ld      c,0
     ld      a,(bdos_fcb+32)
     add     a,e
@@ -3775,8 +3750,7 @@ vec_have:
     push    hl
     push    de
     ld      (hl),$FF
-    ld      d,h
-    ld      e,l
+    ld      de,hl
     inc     de
     ld      bc,511              ;(DSM/8)+1 = 512, including the byte just stored
     ldir

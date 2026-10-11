@@ -781,8 +781,7 @@ CMMND2:
     LD    D,0
     ADD    HL,DE
     ADD    HL,DE        ;(HL)=(CMDADR)+2*(command number).
-    LD    A,(HL)        ;now pick out this address.
-    INC    HL
+    LD    A,(HL+)        ;now pick out this address.
     LD    H,(HL)
     LD    L,A
     JP    (HL)        ;now execute it.

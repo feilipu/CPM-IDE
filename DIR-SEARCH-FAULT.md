@@ -250,8 +250,7 @@ Z80 CF ACIA:
 
 **Still open.**
 
-- The Z80 products were not relinked; the Z80 evidence is the shared source plus the Z80 host suite. No hardware run was done.
-- The other six shipped images still carry the old function-18 entry until the next HEX build.
+- All seven HEX files are relinked with `latch_next`. No hardware run was done.
 - The high-bit listing tail and the hang were not reproduced. They are the same class of store only if the previous print left `DE` on a different CCP field; that was not ruled in or out.
 - `test/fatfs/run.sh` does not reach `MINIFAT_OK` on this machine (the ChaN FatFs source tree is absent).
 - The 8085 host image no longer fits under the default `$FF00` stack on this base: `ldi_body` is 65 bytes and ends at `$FF13`, and unmodified HEAD returns to address 0 with no output. `test/bdos/run_disk.sh` now passes `-pragma-define:REGISTER_SP=0` on the 8085 line only.
