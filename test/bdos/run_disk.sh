@@ -17,7 +17,10 @@ run_cpu() {
     # 8085 disk harness is 80cc. The image is 62929 bytes, inside the
     # z88dk-ticks limit of 65536. The 8085 ROMs use 80cc as well.
     if [ "$cpu" = "8085" ]; then
+        # ldi_body ends above the default $FF00 stack. SP=0 keeps
+        # the stack in the bytes above BSS, inside the 64K image.
         ( cd /tmp && zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m \
+            -pragma-define:REGISTER_SP=0 \
             -I"$ROOT/common" -I"$ROOT/test/fatfs" \
             "$HERE/test_disk.c" "$HERE/bdos_host.asm" \
             "$bdos" "$fat" "$ide" "$ROOT/test/fatfs/bss_ram.asm" \

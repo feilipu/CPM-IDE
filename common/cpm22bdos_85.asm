@@ -201,7 +201,7 @@ fbase:
 functns:
     defw    wboot,getcon,outcon,getrdr,punch,list,dircio,getiob
     defw    setiob,prtstr,go_line,getcsts,getver,latch_reg,latch_reg,latch_open
-    defw    latch_fcb,latch_find,latch_find,latch_fcb,latch_read,latch_write,latch_fcb,latch_fcb
+    defw    latch_fcb,latch_find,latch_next,latch_fcb,latch_read,latch_write,latch_fcb,latch_fcb
     defw    latch_reg,getcrnt,putdma,latch_reg,latch_reg,latch_reg,latch_fcb,latch_reg
     defw    getuser,latch_read,latch_write,latch_fcb,latch_fcb,latch_reg,rtn,rtn
     defw    latch_write
@@ -209,7 +209,8 @@ functns:
 ;
 ; Shapes. A is the function. DE is the caller's parameter.
 ; FCB calls stage 36 bytes at bdos_fcb. Function 10 stages the line.
-; Register calls keep DE. Search (17, 18) leaves srch_on alone.
+; Register calls keep DE. Search 17 and 18 leave srch_on alone.
+; Function 18 does not use DE. See latch_next.
 ;
 drop_srch:
     push    af
@@ -242,6 +243,14 @@ latch_read:
 
 latch_find:
     call    fcb_go
+    jp      latch_srch
+
+; Function 18. fn_next copies srch_fcb into bdos_fcb.
+; DE is not an FCB, so do not stage it or copy back.
+latch_next:
+    ld      c,a
+    ld      de,bdos_fcb
+    call    rom_enter
     jp      latch_srch
 
 latch_fcb:
