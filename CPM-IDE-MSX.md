@@ -26,6 +26,16 @@ Commit only when asked. One subject line, no body, no trailer. Tag `cpm-ide-v2.6
 | `adeaa63` | Replace the BDOS ISA review with the FAT and BDOS adversarial review | `FAT-BDOS-REVIEW.md` replaces `BDOS-ISA-REVIEW.md`. |
 | `ad12965` | Close the reviewed FAT and BDOS defects | Review resolutions. That HEX set is the sccz80 8085 link. |
 | `16b61ad` | Build the 8085 ROMs with 80cc | 8085 product lines use `-compiler=80cc`. Z80 stays sdcc. |
+| `9b7ad53` | Boot CP/M from CPMIDE.CFG or a letter directory | Working-directory config, then the volume root, or letter directories. |
+| `3e7c4f2` | CP/M-IDE v3.0 release candidate | Tag `cpm-ide-v3.0-rc`. BIOS stack pad cut to 8 bytes. |
+| `f85b875` | Pass $0004 on warm boot, inline the canary, and drop CCP HALT | `rboot` passes `$0004` in C. Canary is the floor of `bios_stack`. |
+| `c6d0b49` | Record the directory-search and drive-reset faults | `DIR-SEARCH-FAULT.md` and `DRIVE-A-RESET.md`. |
+| `0d671b3` | Plant Z80 ACIA RST38 in cboot and rebuild the seven ROMs | RAM `$0038` planted in `cboot`. Seven HEX files. |
+| `273b7c3` | Drop the cpm22.asm pointer from the BDOS character-path comment | Character-path comment. HEX unchanged. |
+| `103c35b` | Share CCP as cpm22ccp and rename leftover BDOS symbols | `common/cpm22ccp.asm` and `cpm22ccp_85.asm`. `__COMMON_AREA_PHASE_CCP` in each `main.c`. |
+| `9dad56e` | Place BDOS and BIOS PHASE origins in main.c and grow the BIOS stack | `__COMMON_AREA_PHASE_BDOS` and `__COMMON_AREA_PHASE_BIOS` in each `main.c`. CCP pad uses PHASE_BDOS. BIOS stack pad is 16 bytes. Seven HEX files. |
+
+A full rebuild on 2026-10-11, `rebuild-hex.sh` mode `all`, zcc `v25461-415806f08c-20260813`, 19:47–19:55, finished `ok=7 fail=0` and printed `UNCHANGED` for every HEX against `9dad56e`. `__IO_CF_8_BIT` was left at `0x01`. Gate: `0006h` `$F206`, CCP tail `$F200`, BIOS `$FB00`.
 
 The seven HEX files include `hget`. `md`, `dd`, and `mount` are not shell commands. Each `main.c` calls `fat_mount` before the prompt. `ya_loop` calls `ya_boot_root` unless the canary is `$5555`. `ds` calls `fat_mount` again when `fs_type` is 0. `cpm` calls `fat_mount` only when `fs_type` is still 0, then clears `cpm_dir_sclust` and reads `CPMIDE.CFG` or walks `A` through `P`. A second init makes the next directory walk miss every name. `hg_sum` stays file-scope and is shared by `hg_hexbyte`, `hg_cksum`, and `hg_record`. The seven per-ROM `ffconf.h` copies are gone. ChaN `ff` still uses `ff/source/ffconf.h` in z88dk-libraries.
 
