@@ -10,7 +10,7 @@
 
 /* A: is cluster 35 at LBA 52. The extent walk reaches LBA 50.
  * B: in the two-drive case is cluster 36 at LBA 53. */
-uint8_t ram_image[27648];
+uint8_t ram_image[28672];
 uint8_t ram_nsect = 54;
 extern uint8_t ram_bad_lba;
 
@@ -103,6 +103,27 @@ static void plant_name(uint8_t *e, const char *n11, unsigned long sz, unsigned a
     put_size(e, sz);
 }
 
+static void fat16_link(unsigned cl, unsigned next)
+{
+    ram_image[512 + cl * 2] = (uint8_t)next;
+    ram_image[512 + cl * 2 + 1] = (uint8_t)(next >> 8);
+}
+
+static uint8_t *dir_slot(unsigned i)
+{
+    return ram_image + (52 + i / 16) * 512 + (i % 16) * 32;
+}
+
+static void plant_numbered(unsigned i, unsigned cl, unsigned long sz)
+{
+    char n11[11];
+
+    memcpy(n11, "FILE00  TXT", 11);
+    n11[4] = (char)('0' + (i / 10));
+    n11[5] = (char)('0' + (i % 10));
+    plant_name(dir_slot(i), n11, sz, 0x20, cl);
+}
+
 static void rebuild(void)
 {
     fat_sync();
@@ -148,6 +169,55 @@ static void set_name(const char *n11)
 static unsigned call(unsigned fn)
 {
     return bdos(fn, (unsigned)fcb) & 0xFF;
+}
+
+/* 48 names fill three 512-byte directory sectors. 0x00 is slot 48,
+ * the first byte of cluster 38 (a new LBA and a new cluster at csize 1).
+ * S4096.TXT is 4096 bytes, 32 CP/M records, last read on a 512-byte
+ * boundary. Hardware TYPE of that length is one of the DIR triggers.
+ */
+static void rebuild_clustered_dir(unsigned nfiles)
+{
+    unsigned i;
+
+    rebuild();
+    ram_nsect = 56;
+    fat16_link(35, 36);
+    fat16_link(36, 37);
+    fat16_link(37, 38);
+    fat16_link(38, 0xFFFF);
+    fat16_link(2, 0xFFFF);
+    fat16_link(3, 4);
+    fat16_link(4, 5);
+    fat16_link(5, 6);
+    fat16_link(6, 7);
+    fat16_link(7, 8);
+    fat16_link(8, 9);
+    fat16_link(9, 10);
+    fat16_link(10, 0xFFFF);
+    memset(ram_image + 19 * 512, 0xCD, 128);
+    memset(ram_image + 20 * 512, '#', 8 * 512);
+    plant_name(dir_slot(0), "SD      COM", 128, 0x20, 2);
+    plant_name(dir_slot(1), "S4096   TXT", 4096, 0x20, 3);
+    for (i = 2; i < nfiles; i++)
+        plant_numbered(i, 2, 0);
+}
+
+static unsigned read_s4096_eof(void)
+{
+    unsigned i;
+    unsigned rc;
+
+    clear_fcb();
+    set_name("S4096   TXT");
+    if (call(15) == 0xFF)
+        return 0xFF;
+    for (i = 0; i < 32; i++) {
+        rc = call(20);
+        if (rc != 0)
+            return rc;
+    }
+    return call(20);
 }
 
 static int name_at(unsigned rc, const char *n11)
@@ -1185,6 +1255,65 @@ static void test_select(void)
     expect("sel_keep FAIL", slot(0)[0] == 'R');
 }
 
+/* Hardware DIR-SEARCH-FAULT: after TYPE of an exact-record file, or
+ * after an OPEN miss that walked to the 0x00 marker, the next search
+ * or OPEN fails. Host search tests stayed in one directory sector.
+ */
+static void test_dir_after_walk(void)
+{
+    unsigned rc;
+    int n;
+
+    rebuild_clustered_dir(48);
+    rc = read_s4096_eof();
+    expect("walk_eof FAIL", rc == 1 && fcb[32] == 32);
+
+    clear_fcb();
+    set_name("???????????");
+    n = count_search();
+    expect("walk_dir48 FAIL", n == 48);
+
+    clear_fcb();
+    set_name("SD      COM");
+    expect("walk_open_sd FAIL", call(15) != 0xFF);
+
+    rebuild_clustered_dir(48);
+    clear_fcb();
+    set_name("LS      COM");
+    expect("walk_ls_miss FAIL", call(15) == 0xFF);
+
+    clear_fcb();
+    set_name("???????????");
+    n = count_search();
+    expect("walk_dir48_after_miss FAIL", n == 48);
+
+    clear_fcb();
+    set_name("SD      COM");
+    expect("walk_open_after_miss FAIL", call(15) != 0xFF);
+
+    rebuild_clustered_dir(10);
+    rc = read_s4096_eof();
+    expect("walk_eof10 FAIL", rc == 1);
+    clear_fcb();
+    set_name("???????????");
+    n = count_search();
+    expect("walk_dir10 FAIL", n == 10);
+    clear_fcb();
+    set_name("SD      COM");
+    expect("walk_open10 FAIL", call(15) != 0xFF);
+
+    rebuild_clustered_dir(31);
+    rc = read_s4096_eof();
+    expect("walk_eof31 FAIL", rc == 1);
+    clear_fcb();
+    set_name("???????????");
+    n = count_search();
+    expect("walk_dir31 FAIL", n == 31);
+    clear_fcb();
+    set_name("SD      COM");
+    expect("walk_open31 FAIL", call(15) != 0xFF);
+}
+
 int main(void)
 {
     unsigned rc;
@@ -1211,6 +1340,7 @@ int main(void)
     test_attr();
     test_select();
     test_io();
+    test_dir_after_walk();
     test_login();
     test_editor();
 
