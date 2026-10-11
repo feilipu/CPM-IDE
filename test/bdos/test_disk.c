@@ -403,7 +403,15 @@ static void test_search(void)
     set_name("???????????");
     rc = bdos(17, (unsigned)fcb);
     expect("srch_first FAIL", (rc & 0xFF) == 0 && name_at(rc, "README  TXT") && others_e5(rc));
-    n = 1;
+    /* Function 18 has no FCB. DE is this guard. A hit restores the
+     * saved FCB, then the old latch wrote seven bytes back through DE. */
+    memset(ram_image + 20000, 0x5A, 36);
+    rc = bdos(18, (unsigned)(ram_image + 20000));
+    n = 0;
+    while (n < 36 && ram_image[20000 + n] == 0x5A)
+        n++;
+    expect("fn18_de FAIL", n == 36 && (rc & 0xFF) != 0xFF);
+    n = 2;
     for (;;) {
         rc = bdos(18, 0xFFFF);
         if ((rc & 0xFF) == 0xFF)
