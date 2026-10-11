@@ -1,8 +1,8 @@
+main.c
 cpm22preamble
 cpm22bios
-cpm22
-../common/bdos22_85.asm
+../common/cpm22ccp_85.asm
+../common/cpm22bdos_85.asm
 ../common/fatfs_85.asm
 ../common/fat_bss.asm
 ../common/yash.c
-main.c

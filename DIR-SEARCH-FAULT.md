@@ -2,7 +2,7 @@
 
 Status: open. No patch has been applied. Recorded 2026-10-11.
 
-Branch `cpm-ide-msx` at `f85b875`. The disk BDOS in `common/bdos22.asm` and `common/bdos22_85.asm` matches that commit. The working tree also has an uncommitted CCP stack move (`CCPSTACK` at `$F200`) and comment-only edits in the two BDOS files. Addresses below are from the stack-move maps in `/tmp/cpm-ide-stack/`. Plain `dir` on a fresh command prompt works on the images under test. The failure shows up on the next directory operation.
+Branch `cpm-ide-msx`. The disk BDOS is `common/cpm22bdos.asm` and `common/cpm22bdos_85.asm`. The CCP is `common/cpm22ccp.asm` and `common/cpm22ccp_85.asm`. `CCPSTACK` is at `$F200`. Addresses below are from the stack-move maps in `/tmp/cpm-ide-stack/`. Plain `dir` on a fresh command prompt works on the images under test. The failure shows up on the next directory operation.
 
 Boards: `z80-cf-acia` and `8085-cf-acia`. The same BDOS and mini-FAT sources are linked into all seven ROMs. These transcripts are the two CF ACIA boards only.
 

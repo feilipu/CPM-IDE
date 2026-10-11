@@ -61,6 +61,6 @@ run_cpu() {
     fi
 }
 
-run_cpu z80 "$ROOT/common/bdos22.asm" ""
-run_cpu 8085 "$ROOT/common/bdos22_85.asm" "85"
+run_cpu z80 "$ROOT/common/cpm22bdos.asm" ""
+run_cpu 8085 "$ROOT/common/cpm22bdos_85.asm" "85"
 echo "BDOS_CHAR_OK z80 and 8085"

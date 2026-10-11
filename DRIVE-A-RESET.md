@@ -44,7 +44,7 @@ Inside `DIRECT`, search-first runs, and only then does `GETDSK` print the drive 
 
 Search-next of a one-file directory stops when the next directory byte is `0x00` (`srch_from`). That is the FAT end marker, so E: does not walk the whole directory. `dir_sdi` of the following slot is often the same 512-byte sector. `fat_move_window` returns immediately when that LBA is already in `fatwin`.
 
-The only stores of `bdos_drive` in `common/bdos22_85.asm` are `bdos_warm` (`xor a`) and `fn_select` (function 14). `bdos_warm` runs from BIOS `wboot` and from function 13 (`fn_reset`). Function 13 leaves the byte at 0. The CCP calls function 13 only at `COMMAND`, then `DSKSEL` of the drive in C.
+The only stores of `bdos_drive` in `common/cpm22bdos_85.asm` are `bdos_warm` (`xor a`) and `fn_select` (function 14). `bdos_warm` runs from BIOS `wboot` and from function 13 (`fn_reset`). Function 13 leaves the byte at 0. The CCP calls function 13 only at `COMMAND`, then `DSKSEL` of the drive in C.
 
 Layout around the byte, 8085 CF ACIA:
 
@@ -63,7 +63,7 @@ Layout around the byte, 8085 CF ACIA:
 | `bdos_stack` and `open_ok` | `$F70D` |
 | `srch_on` | `$F750` |
 | `bdos_login` | `$F7BE` |
-| `_bdos22_bss_tail` | `$F7C6` |
+| `_cpm22bdos_bss_tail` | `$F7C6` |
 | `_fat_bss_head` | `$F7D0` |
 | `CDRIVE` / `CHGDRV` | `$F16E` / `$F16F` |
 | `CCPSTACK` | `$F1A0` |

@@ -32,9 +32,13 @@ SECTION rodata_lib           ;read only library (code)
 ; location setting
 ;------------------------------------------------------------------------------
 
-PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
-; The image ends at the resident BDOS. $E980 to $F200 is $880 bytes.
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE980
+; Run address is #pragma output __COMMON_AREA_PHASE_CCP in each
+; product main.c (Z80 $E9E0). main.c is first in cpm22.lst so that
+; pragma is in zcc_opt.def before this file is assembled.
+INCLUDE "zcc_opt.def"
+PUBLIC  __COMMON_AREA_PHASE_CCP         ;base of ccp
+; CCP sits just below the resident stub at $F200. The image is $820
+; bytes, so the run address is $E9E0 and the tail meets the stub.
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -46,6 +50,9 @@ EXTERN  _cpm_ccp_tfcb
 EXTERN  _cpm_ccp_tbuff
 EXTERN  _cpm_ccp_tbase
 EXTERN  _cpm_bdos_fbase
+EXTERN  LDI_128
+EXTERN  LDI_32
+EXTERN  LDI_16
 
 DEFC    IOBYTE      =       _cpm_iobyte     ;i/o definition byte
 DEFC    TDRIVE      =       _cpm_cdisk      ;current drive name and user number
@@ -78,7 +85,7 @@ DEFC    DEL         =   7FH     ;rubout
 PUBLIC  _rodata_cpm_ccp_head
 _rodata_cpm_ccp_head:           ;origin of the cpm ccp in rodata
 
-PHASE   __COMMON_AREA_PHASE_CCP_BDOS
+PHASE   __COMMON_AREA_PHASE_CCP
 
 PUBLIC  _cpm_ccp_head
 _cpm_ccp_head:                  ;origin of the cpm ccp
@@ -1279,7 +1286,9 @@ UNKWN2:
     CALL    DSELECT        ;select specified drive.
     POP    DE
     LD    HL,COMFILE    ;set the extension to 'COM'.
-    CALL    LDI_3
+    LDI
+    LDI
+    LDI
     CALL    OPENFCB        ;and open this file.
     JP    NZ,UNKWNLD    ;found
     LD    A,(CHGDRV)    ;nameless command: retry A:
@@ -1407,56 +1416,6 @@ GETBACK1:
     JP    NZ,SYNERR
     JP    CMMND1        ;ok, return to command level.
 
-;
-;   CCP copies. These run with ROM latched out, so they stay in this image.
-;   LDI_16 falls through 15, 8, and 3. LDI_128 pushes LDI_32 four times.
-;
-LDI_128:                    ;(HL++)->(DE++), 128 times.
-    LD      BC,LDI_32
-    PUSH    BC
-    PUSH    BC
-    PUSH    BC
-
-LDI_32:                     ;(HL++)->(DE++), 32 times.
-    CALL    LDI_16
-LDI_16:                     ;(HL++)->(DE++), 16 times.
-    LD      A,(HL+)
-    LD      (DE+),A
-LDI_15:                     ;(HL++)->(DE++), 15 times.
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-LDI_8:                      ;(HL++)->(DE++), 8 times.
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-LDI_3:                      ;(HL++)->(DE++), 3 times.
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-    LD      A,(HL+)
-    LD      (DE+),A
-    RET
-
 PUBLIC  _cpm_ccp_tail
 
 _cpm_ccp_tail:                 ;tail of the cpm ccp
@@ -1487,7 +1446,6 @@ NBYTES:     DEFW    0        ;byte counter used by TYPE.
             DEFS    (0xF200-32)-$,0
             DEFS    32,0
 CCPSTACK:                   ;top of ccp stack area.
-
 
 ;
 ;   Note that the following six bytes must match those at

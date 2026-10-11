@@ -5,7 +5,7 @@ A consolidated adversarial review of the FAT and BDOS implementations on this br
 | File | Role |
 |---|---|
 | `common/fatfs.asm`, `common/fatfs_85.asm`, `common/fatfs.h`, `common/fat_bss.asm` | mini-FAT |
-| `common/bdos22.asm`, `common/bdos22_85.asm` | CP/M 2.2 BDOS |
+| `common/cpm22bdos.asm`, `common/cpm22bdos_85.asm` | CP/M 2.2 BDOS |
 
 Scope: find what is wrong, judged against Microsoft FAT specification 1.03 and known
 FAT implementations for the FAT layer, and against John Elliott's CP/M pages and the
@@ -68,7 +68,7 @@ volume shape to the mount test suite, which does not currently build it.
 
 ### MEDIUM — function 27 (free space) poisons the sector-window cache **(three reviews, reproduced, verified)**
 
-`common/bdos22.asm:3685-3761`; `common/bdos22_85.asm:3702-3781`;
+`common/cpm22bdos.asm:3685-3761`; `common/cpm22bdos_85.asm:3702-3781`;
 `common/fatfs.asm:331-362`.
 
 `fn_vec` fills `fatwin[0..256]` with the allocation bitmap and never invalidates
@@ -100,11 +100,11 @@ each BDOS file, with no branch changes.
 
 ### MEDIUM — function 22 (`make`) destroys files it should not **(two reviews, verified)**
 
-- **Read-only files** (`common/bdos22.asm:1919-1970`; 8085 `:1926-1977`): `fn_make` calls a
+- **Read-only files** (`common/cpm22bdos.asm:1919-1970`; 8085 `:1926-1977`): `fn_make` calls a
   read-only check, but that one protects the *disk*. The per-file read-only attribute is
   enforced fatally in delete and write and is not consulted on the truncate path, so a
   read-only file can be destroyed without the `File R/O` message.
-- **Wildcard names** (`common/bdos22.asm:1919`, `:1962-1985`): the name matcher honours `?`,
+- **Wildcard names** (`common/cpm22bdos.asm:1919`, `:1962-1985`): the name matcher honours `?`,
   so a wildcard FCB truncates the first match — `A?.TXT` can destroy `A1.TXT` — and a literal
   `?` can be written into a new 8.3 name, which the specification forbids.
 
@@ -113,7 +113,7 @@ write do, and reject `?` and other bytes outside the 8.3 legal set.
 
 ### MEDIUM-HIGH — function 31 returns a pointer the caller cannot read **(reproduced)**
 
-`common/bdos22.asm:3660-3681`, `:3668`; 8085 `:3677-3698`, `:3685`.
+`common/cpm22bdos.asm:3660-3681`, `:3668`; 8085 `:3677-3698`, `:3685`.
 
 `fn_dpb` returns the address of the disk parameter block, which lives in the ROM piece below
 `$8000`. The call restores the latch on return, so the caller holds a pointer into its own
@@ -155,7 +155,7 @@ and make the allocator abort on it.
 
 ### MEDIUM (latent, not reachable on the current memory map) — four directory walks omit the wrap guard **(verified)**
 
-`common/bdos22.asm:1071` (`nx_adv`), `:1546` (`sf_adv`), `:2135` (`col_next`),
+`common/cpm22bdos.asm:1071` (`nx_adv`), `:1546` (`sf_adv`), `:2135` (`col_next`),
 `:3566` (`dol_adv`); identical in the 8085 file.
 
 All four add 32 to the 16-bit directory offset without testing carry:
@@ -180,7 +180,7 @@ live if the memory map, drive count or offset width changes.
 
 ### LOW — mount and reset fail open **(verified)**
 
-- **Function 13** (`common/bdos22.asm:3533`) calls the mount and then returns zero on
+- **Function 13** (`common/cpm22bdos.asm:3533`) calls the mount and then returns zero on
   failure, which is the success code, so an application cannot tell the volume never came up.
 - **Re-mount** (`common/fatfs.asm:472-556`, `:668-705`): `fs_type` is stored before the later
   checks run and is never cleared at entry, so a card swapped for one with a mangled BPB can
@@ -252,7 +252,7 @@ function 13 a distinguishable failure return.
 ## Resolutions
 
 Work followed the order above. The same branch decision is in `common/fatfs.asm` and
-`common/fatfs_85.asm`, and in `common/bdos22.asm` and `common/bdos22_85.asm`. Host
+`common/fatfs_85.asm`, and in `common/cpm22bdos.asm` and `common/cpm22bdos_85.asm`. Host
 suites were run once after the last code change (`/tmp/cpm-ide-review-tests.log`,
 `REVIEW_TESTS_DONE 06:32:13`):
 

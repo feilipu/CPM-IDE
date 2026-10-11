@@ -179,17 +179,17 @@ case "$WHAT" in
         run_kern 8085 "$HERE/kern_85.asm"
         ;;
     seq)
-        run_seq z80 "$ROOT/common/bdos22.asm" \
+        run_seq z80 "$ROOT/common/cpm22bdos.asm" \
             "$ROOT/common/fatfs.asm" "$ROOT/test/fatfs/ide_ram.asm"
-        run_seq 8085 "$ROOT/common/bdos22_85.asm" \
+        run_seq 8085 "$ROOT/common/cpm22bdos_85.asm" \
             "$ROOT/common/fatfs_85.asm" "$ROOT/test/fatfs/ide_ram_8085.asm"
         ;;
     all)
         run_kern z80 "$HERE/kern_z80.asm"
         run_kern 8085 "$HERE/kern_85.asm"
-        run_seq z80 "$ROOT/common/bdos22.asm" \
+        run_seq z80 "$ROOT/common/cpm22bdos.asm" \
             "$ROOT/common/fatfs.asm" "$ROOT/test/fatfs/ide_ram.asm"
-        run_seq 8085 "$ROOT/common/bdos22_85.asm" \
+        run_seq 8085 "$ROOT/common/cpm22bdos_85.asm" \
             "$ROOT/common/fatfs_85.asm" "$ROOT/test/fatfs/ide_ram_8085.asm"
         ;;
     *)

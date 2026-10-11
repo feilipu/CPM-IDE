@@ -38,8 +38,8 @@ run_cpu() {
     fi
 }
 
-run_cpu z80 "$ROOT/common/bdos22.asm" \
+run_cpu z80 "$ROOT/common/cpm22bdos.asm" \
     "$ROOT/common/fatfs.asm" "$ROOT/test/fatfs/ide_ram.asm" ""
-run_cpu 8085 "$ROOT/common/bdos22_85.asm" \
+run_cpu 8085 "$ROOT/common/cpm22bdos_85.asm" \
     "$ROOT/common/fatfs_85.asm" "$ROOT/test/fatfs/ide_ram_8085.asm" "85"
 echo "BDOS_DISK_OK z80 and 8085"

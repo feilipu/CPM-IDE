@@ -21,6 +21,7 @@
 #include "../common/fatfs.h"
 
 #pragma output REGISTER_SP = 0xE980
+#pragma output __COMMON_AREA_PHASE_CCP = 0xE980
 #pragma printf = "%c %s %d %u %lu %X"
 
 extern uint8_t bios_iobyte;

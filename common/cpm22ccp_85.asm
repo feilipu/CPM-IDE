@@ -32,9 +32,12 @@ SECTION rodata_lib           ;read only library (code)
 ; location setting
 ;------------------------------------------------------------------------------
 
-PUBLIC  __COMMON_AREA_PHASE_CCP_BDOS    ;base of ccp
+; Run address is #pragma output __COMMON_AREA_PHASE_CCP in each
+; product main.c (8085 $E980). main.c is first in cpm22.lst so that
+; pragma is in zcc_opt.def before this file is assembled.
+INCLUDE "zcc_opt.def"
+PUBLIC  __COMMON_AREA_PHASE_CCP         ;base of ccp
 ; The image ends at the resident BDOS. $E980 to $F200 is $880 bytes.
-defc    __COMMON_AREA_PHASE_CCP_BDOS    = 0xE980
 
 ;------------------------------------------------------------------------------
 ; start of definitions
@@ -78,7 +81,7 @@ DEFC    DEL         =   7FH     ;rubout
 PUBLIC  _rodata_cpm_ccp_head
 _rodata_cpm_ccp_head:           ;origin of the cpm ccp in rodata
 
-PHASE   __COMMON_AREA_PHASE_CCP_BDOS
+PHASE   __COMMON_AREA_PHASE_CCP
 
 PUBLIC  _cpm_ccp_head
 _cpm_ccp_head:                  ;origin of the cpm ccp
@@ -120,7 +123,7 @@ PRINTB:
 ;   Routine to send a carriage return, line feed combination
 ;   to the console.
 ;
-CRLF:   
+CRLF:
     LD      A,CR
     CALL    PRINTB
     LD      A,LF
@@ -737,7 +740,7 @@ COMMAND:
     LD      A,C
     AND     0FH             ;isolate the drive number.
     LD      (CDRIVE),A      ;and save.
-    CALL    DSKSEL          ;...and select. 
+    CALL    DSKSEL          ;...and select.
     LD      A,(INBUFF+1)
     OR      A               ;anything in input buffer already?
     JP      NZ,CMMND2       ;yes, we just process it.
@@ -855,7 +858,7 @@ DECODE4:
     DEC    C
     JP    NZ,DECODE3
     LD    A,B        ;set (A)=the numeric value entered.
-    RET  
+    RET
 ;
 ;   Compute (HL)=(TBUFF)+(A)+(C) and get the byte that's here.
 ;
@@ -1487,7 +1490,6 @@ NBYTES:     DEFW    0        ;byte counter used by TYPE.
             DEFS    (0xF200-32)-$,0
             DEFS    32,0
 CCPSTACK:                   ;top of ccp stack area.
-
 
 ;
 ;   Note that the following six bytes must match those at

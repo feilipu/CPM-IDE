@@ -1,7 +1,7 @@
 ;
 ; CP/M 2.2 BDOS (8085).
 ;
-; Same labels and the same branch decisions as common/bdos22.asm.
+; Same labels and the same branch decisions as common/cpm22bdos.asm.
 ; A shift, a load, or a block move uses the 8085 instruction:
 ; copy_mem, rra through A, and rl de. The Z80 file uses ldir,
 ; srl/rr, and sla/rl for those same steps. The entry handler is the
@@ -3896,8 +3896,8 @@ bdos_ro:        defs    2
 vec_free:       defs    4
 
 IFDEF BDOS_BSS_ORG
-PUBLIC  _bdos22_bss_tail
-_bdos22_bss_tail:
+PUBLIC  _cpm22bdos_bss_tail
+_cpm22bdos_bss_tail:
 DEPHASE
 ENDIF
 ENDIF

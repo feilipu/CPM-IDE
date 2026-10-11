@@ -1,10 +1,10 @@
 # Modifications to the CCP and BDOS
 
-Each firmware tree has its own `cpm22.asm`. The CCP logic is the same in all seven. Z80 block moves in the CCP use `LDI`. The 8085 CCP calls `LDI_3`, which is three `ld a,(hl+)` / `ld (de+),a` pairs. The origin constant at the top of the file is the only other per-CPU difference.
+The CCP is `common/cpm22ccp.asm` (Z80) and `common/cpm22ccp_85.asm` (8085). Z80 block moves in the CCP use `LDI`. The 8085 CCP calls `LDI_3`, which is three `ld a,(hl+)` / `ld (de+),a` pairs. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP` next to `REGISTER_SP` (Z80 `$E9E0`, 8085 `$E980`).
 
-The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 (27 February 1981). That listing is the unmodified original this port was built from, and its header is still at the top of `cpm22.asm`. The version bytes stored by the resident BDOS are unchanged: version 2, release 2, revision 0.
+The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 (27 February 1981). That listing is the unmodified original this port was built from, and its header is still at the top of `cpm22ccp.asm` and `cpm22ccp_85.asm`. The version bytes stored by the resident BDOS are unchanged: version 2, release 2, revision 0.
 
-The DRI disk BDOS is still in each `cpm22.asm`, inside `IF 0`. It is not linked. `CALL 5` is the resident stub in `common/bdos22.asm` (Z80) or `common/bdos22_85.asm` (8085). Those two files are one logical flow. The function contract is in `CPM-IDE-MSX.md`.
+`CALL 5` is the resident stub in `common/cpm22bdos.asm` (Z80) or `common/cpm22bdos_85.asm` (8085). Those two files are one logical flow. The function contract is in `CPM-IDE-MSX.md`.
 
 ## Origins
 
@@ -13,12 +13,12 @@ All seven products share one high map. The CCP origin differs by CPU because the
 | | Z80 | 8085 |
 |--|-----|------|
 | CCP run address | `$E9E0` | `$E980` |
-| CCP tail | `$F200` | `$F1EA` |
+| CCP tail | `$F200` | `$F200` |
 | BDOS stub | `$F200` | `$F200` |
 | `0006h` | `$F206` | `$F206` |
 | BIOS | `$FB00` | `$FB00` |
 
-The Z80 CCP image is `$820` bytes, so `$E9E0` meets the stub. The 8085 image is `$86A` bytes when the origin is 32-byte aligned, so `$E980` ends at `$F1EA`, 22 bytes before the stub. `REGISTER_SP` sits at the CCP origin, and the shell stack stays below the CCP. The resident BDOS is on a page. Disk BSS is `$F750`–`$F7C6`. FAT BSS is `$F7D0`–`$FA84`, and the BIOS page is `$FB00`. The BIOS stack pad is 8 bytes.
+The Z80 CCP image is `$820` bytes, so `$E9E0` meets the stub. The 8085 image is `$880` bytes, so `$E980` meets the stub. The 32-byte CCP stack is the last bytes of each image, and its top is the stub. `REGISTER_SP` sits at the CCP origin, and the shell stack stays below the CCP. The resident BDOS is on a page. Disk BSS is `$F750`–`$F7C6`. FAT BSS is `$F7D0`–`$FA84`, and the BIOS page is `$FB00`. The BIOS stack pad is 8 bytes.
 
 The transient program area runs from `$0100` to the word at `0006h` (`$F206`). The CCP is reloaded on warm boot and is inside that range. It is not the ceiling.
 
@@ -40,15 +40,15 @@ The `.COM` extension is three `LDI` instructions on Z80 and `LDI_3` on 8085.
 
 ## BDOS
 
-Function 10 (buffered console input) treats DEL (`7Fh`) as backspace. Digital Research Application Note 02 specifies that. The editor is in the ROM piece of `bdos22.asm`. `ed_ndel` jumps to the same path as BS.
+Function 10 (buffered console input) treats DEL (`7Fh`) as backspace. Digital Research Application Note 02 specifies that. The editor is in the ROM piece of `cpm22bdos.asm`. `ed_ndel` jumps to the same path as BS.
 
-The Calkins directory machinery (`GETNEXT`, `DIRBUF`, the allocation vector, and the host-sector cache) is the `IF 0` listing. The linked disk code walks FAT directory entries and cluster chains. A drive letter is a start cluster in `_cpm_dir_sclust`. Zero means that letter is not mounted.
+The linked disk code walks FAT directory entries and cluster chains. A drive letter is a start cluster in `_cpm_dir_sclust`. Zero means that letter is not mounted.
 
 `0006h` is `JP fbase`, six bytes after the six serial bytes at `$F200`. Four error words follow the `JP`. The handler indexes a 41-word list. Functions 38, 39, and any function above 40 return 0. Function 12 returns `0022h`.
 
 ## v2.6 directory deblock
 
-The figures below are the published BIOS, not this branch. CP/M 2.2 transferred 128-byte records through `SETDMA` / `READ` / `WRITE`, and that BIOS deblocked four records per 512-byte sector in `hstbuf`. `z88dk-ticks` with stub IDE calls, on 32 sequential directory records, reported 6 334 724 T-states for the file-DMA path. That number is not this BDOS. Do not subtract it from a measurement of `bdos22.asm`.
+The figures below are the published BIOS, not this branch. CP/M 2.2 transferred 128-byte records through `SETDMA` / `READ` / `WRITE`, and that BIOS deblocked four records per 512-byte sector in `hstbuf`. `z88dk-ticks` with stub IDE calls, on 32 sequential directory records, reported 6 334 724 T-states for the file-DMA path. That number is not this BDOS. Do not subtract it from a measurement of `cpm22bdos.asm`.
 
 This branch has no `hstbuf`. BIOS `read` and `write` are `ld a,1` / `ret`. Sector I/O is the ROM BDOS calling mini-FAT through `fatwin`.
 

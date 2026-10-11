@@ -22,6 +22,7 @@
 
 #pragma output CRT_ORG_VECTOR_TABLE = 0
 #pragma output REGISTER_SP = 0xE9E0
+#pragma output __COMMON_AREA_PHASE_CCP = 0xE9E0
 #pragma output CRT_ITERM_TERMINAL_FLAGS = 0
 #pragma output TTY_ITERM_TERMINAL_FLAGS = 0
 #pragma printf = "%c %s %d %u %lu %X"

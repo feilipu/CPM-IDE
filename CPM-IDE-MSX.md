@@ -2,7 +2,7 @@
 
 ## Status
 
-Current on 2026-10-09. Branch `cpm-ide-msx`. The parent of this update is `16b61ad` ("Build the 8085 ROMs with 80cc"), which is on `origin/cpm-ide-msx`. The shell starts CP/M in two ways, and `EXIT` stays in the shell. A root `CPMIDE.CFG` that names A: boots CP/M when the shell starts. `EXIT` flips the BIOS canary `$AA` byte to `$55`, and that `$5555` word does not boot again. A whole `$AA55` is RST 0 back to the CCP on the same user and drive. `rboot` passes `$0004` in C. The canary is the floor of `bios_stack`. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the volume root, and a missing file uses the letter directories in the working directory. `cpm <directory>` mounts the letter directories `A` through `P` inside that directory. Drive A has to be present or CP/M does not start. `hget` is in the seven HEX files. `md`, `dd`, and the shell `mount` command are not. 8085 ROMs are built with 80cc, stack locals, and no `-fframe-pointer`. Z80 ROMs stay on sdcc (`-SO3`). This file is the implementation guide. The contract sections below were checked against the Digital Research CP/M 2.2 manual (chapters 1, 5, and 6), John Elliott’s BDOS and FCB pages, and the Calkins BDOS in `z80-cf-acia/cpm22.asm`. Where those three disagree, the rule is:
+Current on 2026-10-09. Branch `cpm-ide-msx`. The parent of this update is `16b61ad` ("Build the 8085 ROMs with 80cc"), which is on `origin/cpm-ide-msx`. The shell starts CP/M in two ways, and `EXIT` stays in the shell. A root `CPMIDE.CFG` that names A: boots CP/M when the shell starts. `EXIT` flips the BIOS canary `$AA` byte to `$55`, and that `$5555` word does not boot again. A whole `$AA55` is RST 0 back to the CCP on the same user and drive. `rboot` passes `$0004` in C. The canary is the floor of `bios_stack`. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the volume root, and a missing file uses the letter directories in the working directory. `cpm <directory>` mounts the letter directories `A` through `P` inside that directory. Drive A has to be present or CP/M does not start. `hget` is in the seven HEX files. `md`, `dd`, and the shell `mount` command are not. 8085 ROMs are built with 80cc, stack locals, and no `-fframe-pointer`. Z80 ROMs stay on sdcc (`-SO3`). This file is the implementation guide. The contract sections below were checked against the Digital Research CP/M 2.2 manual (chapters 1, 5, and 6), John Elliott’s BDOS and FCB pages, and the Calkins reconstruction in `common/cpm22ccp.asm`. Where those three disagree, the rule is:
 
 - Return codes and control flow follow the Calkins BDOS when Elliott’s CP/M 2.2 note agrees with it.
 - The manual’s programmer-facing description wins when Elliott’s CP/M 2.2 note agrees with the manual.
@@ -41,7 +41,7 @@ On `fd57ad9`, `YASH_HGET` was 0 and `ya_mkdrv` still called `hg_open`. A rebuild
 
 The same automatic split was tried on `master`, where `hget` is still compiled in. 8085 PATA grew to 32981 bytes, `__CODE_END` `$8036` (213 bytes over 32768, code overlapping DATA at `$8000`). The committed master 8085 PATA image is 32757 bytes, 11 under the limit. The smallest new frame on that object, `hg_wr`, was +16 bytes, so no partial of those frames fits. The trial was reverted in the working tree. `864f590` is the `ya_md` comment on top of tag `cpm-ide-v2.6`. Master's branched helpers stay static.
 
-The product boot path was left as it was. CRT page zero is the ROM-in vector. `cboot` and `rboot` still seed RAM after the latch. Z80 and 8085 CRT0 stay different. `common/bdos22.asm` and `common/bdos22_85.asm` were not edited to satisfy a test.
+The product boot path was left as it was. CRT page zero is the ROM-in vector. `cboot` and `rboot` still seed RAM after the latch. Z80 and 8085 CRT0 stay different. `common/cpm22bdos.asm` and `common/cpm22bdos_85.asm` were not edited to satisfy a test.
 
 ### Installed image
 
@@ -61,15 +61,15 @@ Gate lines from `/tmp/cpm-ide-cfg-hex/summary.txt` (`rebuild-hex.sh all`, zcc `v
 
 The `/tmp/cpm-ide-fit-nomount` table (8085 PATA 32342 / `$7DF7`) is the sccz80 link before 80cc and before `CPMIDE.CFG`. The 80cc link before this config file is in `FAT-BDOS-REVIEW.md` (8085 PATA 31742 / `$7B9F`). Adding `read_cfg` grew that 80cc image by 679 bytes.
 
-Every gate line from that run: `0006h` `$F106`, Z80 CCP tail `$F100`, 8085 CCP tail `$F0EA`, BIOS `$F984`. `bdos` stays `$F100` and `fbase` stays `$F111` because `bdos22.asm` and `bdos22_85.asm` were not edited. The config-file cases in `test/fatfs/test_cfg.c` were run for this shell. The rest of `test/fatfs/run.sh` and `test/bdos` were not re-run for this link.
+Every gate line from that run: `0006h` `$F106`, Z80 CCP tail `$F100`, 8085 CCP tail `$F0EA`, BIOS `$F984`. `bdos` stays `$F100` and `fbase` stays `$F111` because `cpm22bdos.asm` and `cpm22bdos_85.asm` were not edited. The config-file cases in `test/fatfs/test_cfg.c` were run for this shell. The rest of `test/fatfs/run.sh` and `test/bdos` were not re-run for this link.
 
-The `676d65b` image, from `/tmp/cpm-ide-hgv`, had no `hget` and BIOS `$F960`: z80-cf-acia 31378 / `$79D2`, through 8085 PATA 32533 / `$7E7C`. On that HEX the stub was stored at `$7110`. `bdos22.asm` was not edited between that link and this one, so the phase bytes of the stub are the same and the file offset moved.
+The `676d65b` image, from `/tmp/cpm-ide-hgv`, had no `hget` and BIOS `$F960`: z80-cf-acia 31378 / `$79D2`, through 8085 PATA 32533 / `$7E7C`. On that HEX the stub was stored at `$7110`. `cpm22bdos.asm` was not edited between that link and this one, so the phase bytes of the stub are the same and the file offset moved.
 
 The earlier links are kept in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026-10-09 (see git history). "ROM rebuild" is the pre-hget run (z80-cf-acia 32631 installed, six images over 32768). "hget compiled out" is the 31306-byte table, md counters still static, `_main` `$662A`. "Repair results" and "8085-cf-acia does not fit" (bin 33703, `__CODE_END` `$8308`, `_main` `$6B35`) are the repair history. "Image at 676d65b" in that review is the `$F960` link. The table above is the HEX files in the tree.
 
 ### Entry
 
-`common/bdos22.asm` is the Z80 BDOS. `common/bdos22_85.asm` is the 8085 BDOS. Same labels and the same branches. Z80 shifts and block moves use `ldir`, `srl`/`rr`, and `sla`/`rl`. 8085 uses `copy_mem`, `rra` through A, and `rl de`. The disk entry is six shapes (`latch_reg`, `latch_fcb`, `latch_open`, `latch_find`, `latch_read`, `latch_write`) plus `go_line`. `functns` names those shapes. `rom_go` indexes `romfns` after the latch.
+`common/cpm22bdos.asm` is the Z80 BDOS. `common/cpm22bdos_85.asm` is the 8085 BDOS. Same labels and the same branches. Z80 shifts and block moves use `ldir`, `srl`/`rr`, and `sla`/`rl`. 8085 uses `copy_mem`, `rra` through A, and `rl de`. The disk entry is six shapes (`latch_reg`, `latch_fcb`, `latch_open`, `latch_find`, `latch_read`, `latch_write`) plus `go_line`. `functns` names those shapes. `rom_go` indexes `romfns` after the latch.
 
 `bdos` / `_cpm_bdos_head` is the page. Six serial bytes (`00 16 00 00 00 00`) come first. `0006h` is `_cpm_bdos_fbase`, the `JP fbase` six bytes later. Four `DEFW` error words follow (`badsctr`, `badslct`, `rodisk`, `rofile`). `fbase` starts with `ex de,hl`. It saves the user SP with `add hl,sp` while HL is 0, switches to `bdos_stack`, pushes `goback`, rejects C >= 41, indexes `functns` by two, and `jp (hl)` with DE restored. `ld de,sp` is the wrong save on both CPUs. Callers, including `test/bdos/bdos_host.asm`, enter at `_cpm_bdos_fbase`. Entering at the serial executes `16h` (`ld d,0`) and drops the high byte of DE. GOBACK returns with A = L and B = H. Function 12 stores `0022h`. An open miss stores `00FFh` in both the A/B pair and HL.
 
@@ -81,7 +81,7 @@ POWER.COM needs this entry: the serial, the `JP`, the four error words, and the 
 
 ### Tests recorded with the image
 
-`sh test/bdos/run.sh`, then `sh test/bdos/run_disk.sh`. They share `/tmp` and `zcc_opt.def`, so they run one after the other. Both were green on `676d65b`. They were not re-run after `075318e`, `7c0ad9b`, or the `hget` link in the tree now. Those later edits did not change `bdos22.asm`.
+`sh test/bdos/run.sh`, then `sh test/bdos/run_disk.sh`. They share `/tmp` and `zcc_opt.def`, so they run one after the other. Both were green on `676d65b`. They were not re-run after `075318e`, `7c0ad9b`, or the `hget` link in the tree now. Those later edits did not change `cpm22bdos.asm`.
 
 | Suite | Z80 | 8085 | Log |
 |---|---:|---:|---|
@@ -162,9 +162,9 @@ Hardware drivers stay as they are. There is no reason to rewrite them.
 - Mass storage, one copy in ROM: CF 8-bit (`$10`–`$17`) and PATA 8255 (`$20`–`$23`). The instruction sequence is the one already in the BIOS (`ide_wait_ready`, `ide_setup_lba`, `ide_wait_drq`, sector read and write). Entry stays BCDE = LBA with E low, HL = buffer, carry set on success. Today that sequence sits in the PHASE BIOS so CP/M can call it with ROM out, and the shell calls the library copy in ROM. This branch keeps one ROM copy. Mini-FAT and the ROM disk BDOS call it. The PHASE copy goes away.
 - Page-zero IOBYTE at address 3, filled from `_bios_iobyte` on cold boot. That byte is RAM, and it is valid while ROM is out.
 - Mini-FAT code: `common/fatfs.asm`, `common/fatfs_85.asm`. Same PUBLIC names. ROM-resident, outside PHASE.
-- CCP in each tree’s `cpm22.asm`: command names, the A: `.COM` retry, EXIT, and the line that reaches BDOS. CCP DIR reads a search hit at `TBUFF + (A & 3) * 32` (`EXTRACT`). That address formula is a contract. The CCP is reloaded on warm boot and sits just below the resident entry. It is not the TPA ceiling. The word at `0006h` is.
+- CCP in `common/cpm22ccp.asm` (Z80) and `common/cpm22ccp_85.asm` (8085): command names, the A: `.COM` retry, EXIT, and the line that reaches BDOS. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP`. CCP DIR reads a search hit at `TBUFF + (A & 3) * 32` (`EXTRACT`). That address formula is a contract. The CCP is reloaded on warm boot and sits just below the resident entry. It is not the TPA ceiling. The word at `0006h` is.
 
-The DRI disk BDOS in `cpm22.asm` (allocation vector, extent block map, directory checksum, `GETNEXT` resume, deblock of a CP/M filesystem image) is not the disk code of this branch. The function 10 editor is taken from that file so the line stays the one the CCP already uses, and it moves to ROM with the disk functions.
+Disk functions and the function 10 editor are in the ROM BDOS. The editor line stays the one the CCP already uses.
 
 ## TPA and the ROM window
 
@@ -266,11 +266,13 @@ These paths are in the tree.
 | Path | Role |
 | --- | --- |
 | `CPM-IDE-MSX.md` | This plan. Written on approval. |
-| `common/bdos22.asm` | Z80 BDOS. High-memory piece and ROM piece. |
-| `common/bdos22_85.asm` | 8085 BDOS. Same flow. `copy_mem`, `rra`, `rl de`. |
+| `common/cpm22ccp.asm` | Z80 CCP. Run address from product `main.c`. |
+| `common/cpm22ccp_85.asm` | 8085 CCP. Same flow. `LDI_3` in this image. |
+| `common/cpm22bdos.asm` | Z80 BDOS. High-memory piece and ROM piece. |
+| `common/cpm22bdos_85.asm` | 8085 BDOS. Same flow. `copy_mem`, `rra`, `rl de`. |
 | `test/bdos/` | Host ticks harness, one group per function, FAT16 and FAT32 images. |
 
-The old disk BDOS in each `cpm22.asm` comes out of the link in the same change that points `0005h` at the stub. The PHASE IDE sequence comes out of each `cpm22bios.asm` in the same change that leaves one ROM copy. Character BIOS stays PHASE’d in that file.
+Disk calls go to the resident stub. The PHASE IDE sequence comes out of each `cpm22bios.asm` in the same change that leaves one ROM copy. Character BIOS stays PHASE’d in that file.
 
 The first ROM linked was `z80-cf-acia`. The v2.6 8085 PATA image was already 32757 bytes, and that limit is the ROM image, not the TPA. All seven products are now on this map. The shell stayed in every image. `0006h` is `$F106`. Sizes are in the action report.
 
@@ -418,7 +420,7 @@ Fatal console waits use the Calkins strings, including the space before the colo
 
 ## Other functions
 
-Character functions follow the current `cpm22.asm` routines, including APN 02 (DEL is backspace in function 10). They call the BIOS. They do not grow new serial code.
+Character functions are the ROM BDOS path, including APN 02 (DEL is backspace in function 10). They call the BIOS. They do not grow new serial code.
 
 | C | Behaviour |
 | --- | --- |

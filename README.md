@@ -398,7 +398,7 @@ Of course other development workflows are possible. Extract the [ZORK](https://g
 
 ## Preparing CP/M applications with z88dk using ChaN FatFS (`-subtype=cpm`)
 
-The **CP/M-IDE ROM** is built with bare-metal serial subtypes (`-subtype=sio` / `uart` / `acia`, or the 8085 hybrids). The shell and the CP/M disk BDOS use mini-FAT in `common/fatfs.asm` (8085: `fatfs_85.asm`), linked from `cpm22.lst`. `cpm` reads `CPMIDE.CFG` or mounts letter directories. That is **firmware**, not a CP/M application.
+The **CP/M-IDE ROM** is built with bare-metal serial subtypes (`-subtype=sio` / `uart` / `acia`, or the 8085 hybrids). The CCP is `common/cpm22ccp.asm` (8085: `cpm22ccp_85.asm`) and the disk BDOS is `common/cpm22bdos.asm` (8085: `cpm22bdos_85.asm`). The shell and mini-FAT (`common/fatfs.asm`, 8085: `fatfs_85.asm`) are linked from `cpm22.lst`. `cpm` reads `CPMIDE.CFG` or mounts letter directories. That is **firmware**, not a CP/M application.
 
 **CP/M applications** (`.COM` files you upload and run under the CCP) should be built with the RC2014 **CP/M subtype**:
 

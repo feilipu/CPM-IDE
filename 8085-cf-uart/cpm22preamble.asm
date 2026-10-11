@@ -13,7 +13,7 @@ EXTERN _bdos_stub_data_tail
 EXTERN bdos_fcb
 EXTERN _bdos_stub_bss_tail
 EXTERN srch_on
-EXTERN _bdos22_bss_tail
+EXTERN _cpm22bdos_bss_tail
 EXTERN _cpm_dir_sclust
 EXTERN _fat_bss_tail
 
@@ -66,7 +66,7 @@ loop_set_stub:
 
     xor a
     ld hl,srch_on
-    ld bc,_bdos22_bss_tail-srch_on-1
+    ld bc,_cpm22bdos_bss_tail-srch_on-1
 
 loop_set_bdos:
     ld (hl+),a
