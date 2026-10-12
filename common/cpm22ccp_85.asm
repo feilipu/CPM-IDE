@@ -1410,7 +1410,8 @@ GETBACK1:
 
 ;
 ;   CCP copies. These run with ROM latched out, so they stay in this image.
-;   LDI_16 falls through 15, 8, and 3. LDI_128 pushes LDI_32 four times.
+;   LDI_16 is sixteen bytes. The last three are LDI_3.
+;   LDI_128 pushes LDI_32 four times.
 ;
 LDI_128:                    ;(HL++)->(DE++), 128 times.
     LD      BC,LDI_32
@@ -1423,7 +1424,6 @@ LDI_32:                     ;(HL++)->(DE++), 32 times.
 LDI_16:                     ;(HL++)->(DE++), 16 times.
     LD      A,(HL+)
     LD      (DE+),A
-LDI_15:                     ;(HL++)->(DE++), 15 times.
     LD      A,(HL+)
     LD      (DE+),A
     LD      A,(HL+)
@@ -1438,7 +1438,6 @@ LDI_15:                     ;(HL++)->(DE++), 15 times.
     LD      (DE+),A
     LD      A,(HL+)
     LD      (DE+),A
-LDI_8:                      ;(HL++)->(DE++), 8 times.
     LD      A,(HL+)
     LD      (DE+),A
     LD      A,(HL+)

@@ -51,9 +51,6 @@ EXTERN  _cpm_ccp_tfcb
 EXTERN  _cpm_ccp_tbuff
 EXTERN  _cpm_ccp_tbase
 EXTERN  _cpm_bdos_fbase
-EXTERN  LDI_128
-EXTERN  LDI_32
-EXTERN  LDI_16
 
 DEFC    IOBYTE      =       _cpm_iobyte     ;i/o definition byte
 DEFC    TDRIVE      =       _cpm_cdisk      ;current drive name and user number
@@ -128,7 +125,7 @@ PRINTB:
 ;   Routine to send a carriage return, line feed combination
 ;   to the console.
 ;
-CRLF:   
+CRLF:
     LD      A,CR
     CALL    PRINTB
     LD      A,LF
@@ -237,7 +234,7 @@ ENTRY2:
 ;
 RDREC:
     LD    C,20
-    JP    ENTRY2
+    JR    ENTRY2
 ;
 ;   Routine to read file at (FCB).
 ;
@@ -517,7 +514,7 @@ NONBLANK:
     CP    ' '
     RET    NZ
     INC    DE
-    JP    NONBLANK
+    JR    NONBLANK
 ;
 ;   Add (HL)=(HL)+(A)
 ;
@@ -559,12 +556,12 @@ CONVERT:
     INC    DE        ;check next character for a ':'.
     LD    A,(DE)
     CP    ':'
-    JP    Z,CONVRT2
+    JR    Z,CONVRT2
     DEC    DE        ;nope, move pointer back to the start of the line.
 CONVRT1:
     LD    A,(CDRIVE)
     LD    (HL),A
-    JP    CONVRT3
+    JR    CONVRT3
 CONVRT2:
     LD    A,B
     LD    (CHGDRV),A    ;set change in drives flag.
@@ -580,9 +577,9 @@ CONVRT4:
     JP    Z,CONVRT8
     INC    HL
     CP    '*'        ;note that an '*' will fill the remaining
-    JP    NZ,CONVRT5    ;field with '?'.
+    JR    NZ,CONVRT5    ;field with '?'.
     LD    (HL),'?'
-    JP    CONVRT6
+    JR    CONVRT6
 CONVRT5:
     LD    (HL),A
     INC    DE
@@ -598,7 +595,7 @@ CONVRT8:
     INC    HL        ;blank fill the file name.
     LD    (HL),' '
     DEC    B
-    JP    NZ,CONVRT8
+    JR    NZ,CONVRT8
 ;
 ;   Get the extension and convert it.
 ;
@@ -612,9 +609,9 @@ GETEXT1:
     JP    Z,GETEXT5
     INC    HL
     CP    '*'
-    JP    NZ,GETEXT2
+    JR    NZ,GETEXT2
     LD    (HL),'?'
-    JP    GETEXT3
+    JR    GETEXT3
 GETEXT2:
     LD    (HL),A
     INC    DE
@@ -630,14 +627,14 @@ GETEXT5:
     INC    HL
     LD    (HL),' '
     DEC    B
-    JP    NZ,GETEXT5
+    JR    NZ,GETEXT5
 GETEXT6:
     LD    B,3
 GETEXT7:
     INC    HL
     LD    (HL),0
     DEC    B
-    JP    NZ,GETEXT7
+    JR    NZ,GETEXT7
     EX    DE,HL
     LD    (INPOINT),HL    ;save input line pointer.
     POP    HL
@@ -650,7 +647,7 @@ GETEXT8:
     INC    HL
     LD    A,(HL)
     CP    '?'        ;any question marks?
-    JP    NZ,GETEXT9
+    JR    NZ,GETEXT9
     INC    B        ;count them.
 GETEXT9:
     DEC    C
@@ -702,13 +699,13 @@ SEARCH2:
     JP    NZ,SEARCH2
     LD    A,(DE)        ;allow a 3 character command to match.
     CP    ' '
-    JP    NZ,SEARCH4
+    JR    NZ,SEARCH4
     LD    A,C        ;set return register for this command.
     RET
 SEARCH3:
     INC    HL
     DEC    B
-    JP    NZ,SEARCH3
+    JR    NZ,SEARCH3
 SEARCH4:
     INC    C
     JP    SEARCH1
@@ -744,7 +741,7 @@ COMMAND:
     LD      A,C
     AND     0FH             ;isolate the drive number.
     LD      (CDRIVE),A      ;and save.
-    CALL    DSKSEL          ;...and select. 
+    CALL    DSKSEL          ;...and select.
     LD      A,(INBUFF+1)
     OR      A               ;anything in input buffer already?
     JP      NZ,CMMND2       ;yes, we just process it.
@@ -861,7 +858,7 @@ DECODE4:
     DEC    C
     JP    NZ,DECODE3
     LD    A,B        ;set (A)=the numeric value entered.
-    RET  
+    RET
 ;
 ;   Compute (HL)=(TBUFF)+(A)+(C) and get the byte that's here.
 ;
@@ -919,7 +916,7 @@ DIRECT:
 DIRECT1:
     LD    (HL+),'?'
     DEC    B
-    JP    NZ,DIRECT1
+    JR    NZ,DIRECT1
 DIRECT2:
     LD    E,0        ;set initial cursor position.
     PUSH    DE
@@ -991,7 +988,7 @@ DIRECT7:
     POP    AF        ;get the next file name.
 DIRECT8:
     CALL    CHKCON        ;first check console, quit on anything.
-    JP    NZ,DIRECT9
+    JR    NZ,DIRECT9
     CALL    SRCHNXT        ;get next name.
     JP    DIRECT3        ;and continue with our list.
 DIRECT9:
@@ -1128,7 +1125,7 @@ SAVE2:
     LD    DE,FCB        ;now close the file.
     CALL    CLOSE
     INC    A        ;did it close ok?
-    JP    NZ,SAVE4
+    JR    NZ,SAVE4
 ;
 ;   Print out error message (no space).
 ;
@@ -1163,7 +1160,7 @@ RENAME:
     EX      DE,HL
     CALL    NONBLANK        ;get next non blank character.
     CP      '='             ;only allow an '=' or '_' seperator.
-    JP      Z,RENAME1
+    JR      Z,RENAME1
     CP      '_'
     JP      NZ,RENAME5
 RENAME1:
@@ -1177,7 +1174,7 @@ RENAME1:
     LD      HL,CHGDRV
     LD      A,(HL)
     OR      A
-    JP      Z,RENAME2
+    JR      Z,RENAME2
     CP      B
     LD      (HL),B
     JP      NZ,RENAME5      ;they were different, error.
@@ -1350,7 +1347,7 @@ UNKWN5:
     OR    A         ;or a null.
     JP    Z,UNKWN6
     CP    ' '
-    JP    Z,UNKWN6
+    JR    Z,UNKWN6
     INC     HL
     JP    UNKWN5
 ;
@@ -1363,7 +1360,7 @@ UNKWN7:
     LD    A,(HL)        ;move it now.
     LD    (DE),A
     OR    A
-    JP    Z,UNKWN8
+    JR    Z,UNKWN8
     INC    B
     INC    HL
     INC    DE
@@ -1413,6 +1410,37 @@ GETBACK1:
     OR    (HL)
     JP    NZ,SYNERR
     JP    CMMND1        ;ok, return to command level.
+
+;
+;   CCP copies. These run with ROM latched out, so they stay in this image.
+;   LDI_16 is sixteen LDI. LDI_128 pushes LDI_32 four times.
+;
+LDI_128:                    ;(HL++)->(DE++), 128 times.
+    LD      BC,LDI_32
+    PUSH    BC
+    PUSH    BC
+    PUSH    BC
+
+LDI_32:                     ;(HL++)->(DE++), 32 times.
+    CALL    LDI_16
+LDI_16:                     ;(HL++)->(DE++), 16 times.
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    LDI
+    RET
 
 PUBLIC  _cpm_ccp_tail
 

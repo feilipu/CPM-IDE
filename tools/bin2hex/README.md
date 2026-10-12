@@ -2,7 +2,7 @@
 
 `bin2hex.py` turns a normal file into Intel HEX for the CP/M-IDE shell command `hget`. One command is the whole conversion. It runs `objcopy -I binary -O ihex` and writes a `.hex` file the parser can store. The seven HEX files include `hget`.
 
-GNU binutils is required (`objcopy`).
+GNU binutils is required (`objcopy`). Homebrew installs it keg-only, so `objcopy` is not on `PATH`. The script also looks for `gobjcopy` and `$(brew --prefix binutils)/bin/objcopy`. `objconv` does not write Intel HEX.
 
 ## Usage
 

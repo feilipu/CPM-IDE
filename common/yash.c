@@ -945,7 +945,11 @@ static uint16_t hg_bpage;
 static uint8_t hg_have;
 static uint8_t hg_sec;
 static uint32_t hg_lba;
-static uint8_t hg_sum;
+uint8_t hg_sum;
+
+/* ROM BDOS. v2.5 hload loop: BIOS conin, nibble pair, checksum in hg_sum. */
+extern int hg_next(void);
+extern int hg_conin(void);
 
 static uint8_t hg_commit(uint32_t *sz)
 {
@@ -1042,53 +1046,17 @@ static uint8_t hg_open(const char *path)
     return 0;
 }
 
-static int hg_nibble(void)
-{
-    int c;
-
-    c = fgetc(input);
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'A' && c <= 'F')
-        return c - 'A' + 10;
-    return -1;
-}
-
-static int hg_hexbyte(void)
-{
-    int h;
-    int l;
-
-    h = hg_nibble();
-    if (h < 0)
-        return -1;
-    l = hg_nibble();
-    if (l < 0)
-        return -1;
-    h = (h << 4) | l;
-    hg_sum = (uint8_t)(hg_sum + (uint8_t)h);
-    return h;
-}
-
 static uint8_t hg_colon(void)
 {
     int c;
 
     for (;;) {
-        c = fgetc(input);
+        c = hg_conin();
         if (c == ':')
             return 0;
-        if (c == EOF || c == 26)
+        if (c == 26)
             return 1;
     }
-}
-
-static int hg_next(void)
-{
-    int v;
-
-    v = hg_hexbyte();
-    return v;
 }
 
 static uint8_t hg_take(uint8_t n, uint8_t store)

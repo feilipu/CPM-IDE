@@ -705,6 +705,62 @@ IFNDEF BDOS_ROM_OMIT
 
 SECTION code_lib
 
+;
+; hget byte. The v2.5 hload loop: BIOS conin, one nibble, four rlca,
+; the second nibble, then the checksum. hg_next is the C entry.
+; A nibble outside 0-9 or A-F returns HL = -1. hg_conin is the same
+; conin for the colon scan. The product link sets BDOS_BSS_ORG.
+;
+IFDEF BDOS_BSS_ORG
+
+PUBLIC  _hg_next
+PUBLIC  _hg_conin
+
+EXTERN  _hg_sum
+
+_hg_conin:
+    call    CONIN
+    ld      l,a
+    ld      h,0
+    ret
+
+_hg_next:
+    call    hg_nibble
+    jp      nc,hg_bad
+    rlca
+    rlca
+    rlca
+    rlca
+    ld      l,a
+    push    hl
+    call    hg_nibble
+    pop     hl
+    jp      nc,hg_bad
+    or      l
+    ld      l,a
+    ld      a,(_hg_sum)
+    add     a,l
+    ld      (_hg_sum),a
+    ld      h,0
+    ret
+
+hg_bad:
+    ld      hl,-1
+    ret
+
+hg_nibble:
+    call    CONIN
+    sub     '0'
+    cp      10
+    ret     c
+    sub     7
+    cp      16
+    ret     c
+    or      a
+    ret
+
+ENDIF
+
 PUBLIC  bdos_warm
 
 EXTERN  dir_sdi
@@ -3913,3 +3969,51 @@ _cpm22bdos_bss_tail:
 DEPHASE
 ENDIF
 ENDIF
+
+;
+;**************************************************************
+;*
+;*        B I O S   J U M P   T A B L E
+;*
+;**************************************************************
+;
+EXTERN    cboot     ;cold start
+EXTERN    wboot     ;warm start
+EXTERN    const     ;console status
+EXTERN    conin     ;console character in
+EXTERN    conout    ;console character out
+EXTERN    list      ;list character out
+EXTERN    punch     ;punch character out
+EXTERN    reader    ;reader character out
+EXTERN    home      ;move head to home position
+EXTERN    seldsk    ;select disk
+EXTERN    settrk    ;set track number
+EXTERN    setsec    ;set sector number
+EXTERN    setdma    ;set dma address
+EXTERN    read      ;read disk
+EXTERN    write     ;write disk
+EXTERN    listst    ;return list status
+EXTERN    sectran   ;sector translate
+;
+DEFC    BOOT    =   cboot
+DEFC    WBOOT   =   wboot
+DEFC    CONST   =   const
+DEFC    CONIN   =   conin
+DEFC    CONOUT  =   conout
+DEFC    LIST    =   list
+DEFC    PUNCH   =   punch
+DEFC    READER  =   reader
+DEFC    HOME    =   home
+DEFC    SELDSK  =   seldsk
+DEFC    SETTRK  =   settrk
+DEFC    SETSEC  =   setsec
+DEFC    SETDMA  =   setdma
+DEFC    READ    =   read
+DEFC    WRITE   =   write
+DEFC    PRSTAT  =   listst
+DEFC    SECTRN  =   sectran
+;
+;*
+;******************   E N D   O F   C P / M   *****************
+;*
+

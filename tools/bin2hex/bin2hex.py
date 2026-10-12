@@ -9,6 +9,7 @@ bytes and writes type 00 data with a type 04 record on each new page.
 """
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -29,14 +30,51 @@ def default_hex(src):
     return root + ".hex"
 
 
+def find_objcopy():
+    """GNU objcopy. Homebrew binutils is keg-only, so it is not on PATH."""
+    for name in ("objcopy", "gobjcopy", "llvm-objcopy"):
+        path = shutil.which(name)
+        if path:
+            return path
+    prefixes = []
+    brew = shutil.which("brew")
+    if brew:
+        try:
+            out = subprocess.run(
+                [brew, "--prefix", "binutils"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            out = None
+        if out and out.stdout.strip():
+            prefixes.append(out.stdout.strip())
+    prefixes.extend(("/opt/homebrew/opt/binutils", "/usr/local/opt/binutils"))
+    seen = set()
+    for prefix in prefixes:
+        if prefix in seen:
+            continue
+        seen.add(prefix)
+        for name in ("objcopy", "gobjcopy"):
+            cand = os.path.join(prefix, "bin", name)
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
+    return None
+
+
 def run_objcopy(src, dst):
+    exe = find_objcopy()
+    if not exe:
+        die(
+            "objcopy not found. Install binutils. "
+            "Homebrew keeps it at $(brew --prefix binutils)/bin/objcopy"
+        )
     try:
         subprocess.run(
-            ["objcopy", "-I", "binary", "-O", "ihex", src, dst],
+            [exe, "-I", "binary", "-O", "ihex", src, dst],
             check=True,
         )
-    except FileNotFoundError:
-        die("objcopy not found (install binutils)")
     except subprocess.CalledProcessError as err:
         die("objcopy failed (%d)" % err.returncode)
 
