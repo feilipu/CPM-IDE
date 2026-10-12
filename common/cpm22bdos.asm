@@ -689,62 +689,6 @@ IFNDEF BDOS_ROM_OMIT
 
 SECTION code_lib
 
-;
-; hget byte. The v2.5 hload loop: BIOS conin, one nibble, four rlca,
-; the second nibble, then the checksum. hg_next is the C entry.
-; A nibble outside 0-9 or A-F returns HL = -1. hg_conin is the same
-; conin for the colon scan. The product link sets BDOS_BSS_ORG.
-;
-IFDEF BDOS_BSS_ORG
-
-PUBLIC  _hg_next
-PUBLIC  _hg_conin
-
-EXTERN  _hg_sum
-
-_hg_conin:
-    call    CONIN
-    ld      l,a
-    ld      h,0
-    ret
-
-_hg_next:
-    call    hg_nibble
-    jr      nc,hg_bad
-    rlca
-    rlca
-    rlca
-    rlca
-    ld      l,a
-    push    hl
-    call    hg_nibble
-    pop     hl
-    jr      nc,hg_bad
-    or      l
-    ld      l,a
-    ld      a,(_hg_sum)
-    add     a,l
-    ld      (_hg_sum),a
-    ld      h,0
-    ret
-
-hg_bad:
-    ld      hl,-1
-    ret
-
-hg_nibble:
-    call    CONIN
-    sub     '0'
-    cp      10
-    ret     c
-    sub     7
-    cp      16
-    ret     c
-    or      a
-    ret
-
-ENDIF
-
 PUBLIC  bdos_warm
 
 EXTERN  dir_sdi
@@ -3863,6 +3807,40 @@ cb_ok:
 bit7:
     defb    $80,$40,$20,$10,$08,$04,$02,$01
 
+;
+; xget console. ROM, in code_compiler with the shell. BIOS CONST,
+; CONIN, and CONOUT. xm_conout sends the byte in _xm_tx, in C.
+; The product link sets BDOS_STUB_ORG. This is not the disk BSS.
+;
+SECTION code_compiler
+
+IFDEF BDOS_STUB_ORG
+
+PUBLIC  _xm_const
+PUBLIC  _xm_conin
+PUBLIC  _xm_conout
+
+EXTERN  _xm_tx
+
+_xm_const:
+    call    CONST
+    ld      l,a
+    ld      h,0
+    ret
+
+_xm_conin:
+    call    CONIN
+    ld      l,a
+    ld      h,0
+    ret
+
+_xm_conout:
+    ld      a,(_xm_tx)
+    ld      c,a
+    jp      CONOUT
+
+ENDIF
+
 SECTION bss_compiler
 
 IFDEF BDOS_BSS_ORG
@@ -3943,7 +3921,7 @@ DEFC    SETSEC  =   setsec
 DEFC    SETDMA  =   setdma
 DEFC    READ    =   read
 DEFC    WRITE   =   write
-DEFC    PRSTAT  =   listst
+DEFC    LISTST  =   listst
 DEFC    SECTRN  =   sectran
 ;
 ;*

@@ -254,7 +254,7 @@ The [CP/M Drives directory](https://github.com/feilipu/CPM-IDE/tree/master/CPM%2
 
 An empty [CP/M 8 MB image](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/TEMPLATE.CPM.zip) is a host template. `mkfs.cpm -f rc2014-8MB` writes the directory and leaves the image at 128 KB. `truncate -s 8388608 file.cpm` extends that file to a full image (`truncate -s 8M` is the same length). The directory already written stays in place, and the added bytes read as zeros. Unzipping the template and renaming it also produces a full 8 MB image with 2048 directory entries. Those files are for cpmtools. They are not the letter directories `cpm` mounts.
 
-`hget` receives an Intel HEX file onto the FAT volume. The seven HEX files include that command. [Sending a file to the RC2014](#sending-a-file-to-the-rc2014) covers that transfer. Storing an 8 MB image this way puts a file on the card. It does not create a CP/M drive. `cpm` boots from `CPMIDE.CFG` or from letter directories on this volume.
+`xget` receives an XMODEM-128 checksum file onto the FAT volume. The seven HEX files include that command. [Sending a file to the RC2014](#sending-a-file-to-the-rc2014) covers that transfer. Storing an 8 MB image this way puts a file on the card. It does not create a CP/M drive. `cpm` boots from `CPMIDE.CFG` or from letter directories on this volume.
 
 FAT32 can hold more than 65,000 files in one directory. A 128 GB card holds about 16,000 of these 8 MB images as ordinary files. A larger disk can hold more, and that upper limit has not been tested.
 
@@ -315,7 +315,7 @@ Again, here is a view of what success looks like.
 ### CP/M Functions
 - `cpm` — boot CP/M from `CPMIDE.CFG` in the current directory, or in the root of the card when the current directory has no such file. When the file is missing, or it does not name drive A, `cpm` uses the letter directories in the current directory. Drive A has to be present or CP/M does not start. This command is how a `CPMIDE.CFG` outside the root starts CP/M. The machine does not boot from that file by itself.
 - `cpm <directory>` — boot CP/M from subdirectories `A` through `P` in that directory. A missing letter is an empty drive. `A` has to be present. After `cd` into that directory, `cpm .` and `cpm` with the directory's own name mount those same letters. `cpm` with no directory still prefers `CPMIDE.CFG` when that file is present.
-- `hget <file>` — receive an Intel HEX file onto the FAT volume. The steps are in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014). The seven HEX files include this command.
+- `xget <file>` — receive an XMODEM-128 checksum file onto the FAT volume. The steps are in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014). The seven HEX files include this command.
 
 From the CCP, `EXIT` returns to this shell. See [CCP & BDOS Extension](#ccp--bdos-extension).
 
@@ -338,21 +338,17 @@ From the CCP, `EXIT` returns to this shell. See [CCP & BDOS Extension](#ccp--bdo
 
 ### Sending a file to the RC2014
 
-__`hget`__ stores the file on the FAT volume. The shell follows the cluster chain, including a file that is more than one run. A received `.CPM` image is a file on that volume. It is not a drive letter. On the host, `mkfs.cpm -f rc2014-8MB` followed by `truncate -s 8388608` builds an empty image, and unzipping the template does the same. Extract that image with cpmtools when the programs need to appear in a letter directory.
+__`xget`__ stores the file on the FAT volume. The shell follows the cluster chain, including a file that is more than one run. A received `.CPM` image is a file on that volume. It is not a drive letter. On the host, `mkfs.cpm -f rc2014-8MB` followed by `truncate -s 8388608` builds an empty image, and unzipping the template does the same. Extract that image with cpmtools when the programs need to appear in a letter directory.
 
-[`tools/bin2hex/bin2hex.py`](tools/bin2hex/bin2hex.py) converts a normal file into Intel HEX for __`hget`__. One command runs `objcopy -I binary -O ihex` and writes the `.hex` beside the input (`drive.cpm` becomes `drive.hex`). `objcopy` marks each 64 KB boundary below 1 MB with a type `02` record. The parser advances past 64 KB only on a type `04` record, so the script rewrites those records. An 8 MB image and any smaller binary use the same command. The result has to be 16 MB or less, which is the size the parser accepts. The tool's own notes are in [`tools/bin2hex/README.md`](tools/bin2hex/README.md). The seven HEX files include __`hget`__.
-
-```bash
-python3 tools/bin2hex/bin2hex.py drive.cpm
-```
+The transfer is XMODEM-128 with the checksum. The shell sends NAK, which selects that mode. Each acknowledged block is 128 data bytes. The stored length keeps the final block, including the usual `0x1A` padding. A file has to be 16 MB or less. The seven HEX files include __`xget`__.
 
 With the serial link at __115200 baud 8n2__ and hardware flow control enabled:
 
 ```text
-hget DRIVE.CPM
+xget DRIVE.CPM
 ```
 
-__`hget`__ prints `Waiting for Intel HEX`. Send `drive.hex` with `ascii-xfr -s` (in minicom, Ctrl-A S, then the ascii protocol). Leave `-e` off. The type `01` record at the end of the file finishes the receive, and a trailing Ctrl-Z would be left for the shell. Hardware flow control lets the receive ring pause the host while a sector is written. Success prints the byte count (`8388608 bytes` for a full CP/M drive). A bad line prints `bad hex`. The name stored on the card is the __`hget`__ argument, in 8.3 form.
+__`xget`__ prints `Waiting for XMODEM`. Then send the file with `sx --checksum` (minicom: Ctrl-A S, then xmodem). The shell answers ACK after each good block is stored, so the host waits while a sector is written. EOT finishes the receive. Success prints the byte count. A quiet line prints `timeout`. CAN prints `cancelled`. The name stored on the card is the __`xget`__ argument, in 8.3 form.
 
 ### Working drive
 
@@ -388,7 +384,7 @@ __`cp`__, __`mv`__, __`rm`__, __`mkdir`__, and __`rmdir`__ change the FAT volume
 
 When working with a CP/M compiler or editor, keep that work in its own letter directory. The shell can __`cp`__ a file to a new name, which allocates a fresh cluster chain.
 
-On first entry to CP/M, `A` can hold the system files and another letter the work. Copy the CP/M commands onto the working directory with `PIP`. Later, the starting directory can contain only `A`. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`. A program that runs under the CCP is a file in that letter directory. Upload that file with `XMODEM` after __`cpm`__ has started. The seven HEX files include __`hget`__. __`cp`__ and the other shell commands still change the FAT volume.
+On first entry to CP/M, `A` can hold the system files and another letter the work. Copy the CP/M commands onto the working directory with `PIP`. Later, the starting directory can contain only `A`. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`. A program that runs under the CCP is a file in that letter directory. Upload that file with `XMODEM` after __`cpm`__ has started. The seven HEX files include __`xget`__. __`cp`__ and the other shell commands still change the FAT volume.
 
 A later boot can name a starting directory that contains only the working letter. After compiling a new project with z88dk, the work-in-progress application `*.COM` file can be uploaded to the RC2014 using `XMODEM` and then tested. If the work-in-progress crashes CP/M, or needs further work, then repeat the process as needed. An example `picocom` command line is provided below, although many other `XMODEM` tools are available.
 

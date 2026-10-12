@@ -62,7 +62,7 @@ uint8_t ya_boot_root(void);
 void put_rc(uint8_t rc);
 
 int8_t ya_mkcpm(char **args);
-int8_t ya_hget(char **args);
+int8_t ya_xget(char **args);
 int8_t ya_help(char **args);
 int8_t ya_exit(char **args);
 int8_t ya_ls(char **args);

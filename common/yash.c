@@ -63,7 +63,7 @@ struct Builtin {
 struct Builtin builtins[] = {
   // CP/M related functions
     { "cpm", &ya_mkcpm, "[path] - CPMIDE.CFG, or A-P in a directory"},
-    { "hget", &ya_hget, "<file> - ascii-xfr -s"},
+    { "xget", &ya_xget, "<file> - sx checksum"},
 
 // fat related functions
     { "ls", &ya_ls, "[path] - directory listing"},
@@ -924,114 +924,112 @@ int8_t ya_mkcpm(char ** args)   /* boot CP/M from a config file or letter direct
 
 
 /*
- * hg_open creates or replaces the file hget receives. A value read
+ * xg_open creates or replaces the file xget receives. A value read
  * or written by one function is an automatic of that function. The
- * names below are the receive
- * session: hg_open clears them and more than one function uses each.
- *
- * ascii-xfr -s sends CRLF lines and -e may send Ctrl-Z. A type 04
- * record selects the 64 KB page. Data records must follow the file
- * in order. One sector is held in `buffer`. The parsed byte and the
- * committed size are automatics.
+ * names below are the receive session: xg_open clears them and more
+ * than one function uses each. One sector is held in `buffer`.
+ * XMODEM-128 checksum: SOH, block, complement, 128 data, sum.
+ * The host is sx. NAK starts checksum mode. ACK is sent after the
+ * 128 bytes are in the sector buffer.
  */
-static uint32_t hg_parent;
-static uint8_t hg_name[11];
-static uint32_t hg_clst;
-static uint32_t hg_first;
-static uint16_t hg_page;
-static uint16_t hg_low;
-static uint16_t hg_pos;
-static uint16_t hg_bpage;
-static uint8_t hg_have;
-static uint8_t hg_sec;
-static uint32_t hg_lba;
-uint8_t hg_sum;
+static uint32_t xg_parent;
+static uint8_t xg_name[11];
+static uint32_t xg_clst;
+static uint32_t xg_first;
+static uint16_t xg_page;
+static uint16_t xg_low;
+static uint16_t xg_pos;
+static uint8_t xg_have;
+static uint8_t xg_sec;
+static uint32_t xg_lba;
+static uint8_t xm_pkt[128];
+uint8_t xm_tx;
 
-/* ROM BDOS. v2.5 hload loop: BIOS conin, nibble pair, checksum in hg_sum. */
-extern int hg_next(void);
-extern int hg_conin(void);
+/* ROM BDOS. BIOS CONST, CONIN, and CONOUT. xm_conout sends xm_tx. */
+extern int xm_const(void);
+extern int xm_conin(void);
+extern void xm_conout(void);
 
-static uint8_t hg_commit(uint32_t *sz)
+static uint8_t xg_commit(uint32_t *sz)
 {
-    if (hg_have && hg_pos) {
-        if (disk_write(0, buffer, hg_lba, 1))
+    if (xg_have && xg_pos) {
+        if (disk_write(0, buffer, xg_lba, 1))
             return 1;
     }
-    if (fat_dir_open(&hg_parent))
+    if (fat_dir_open(&xg_parent))
         return 1;
-    if (dir_find_try(hg_name))
+    if (dir_find_try(xg_name))
         return 1;
-    *sz = (uint32_t)hg_page << 16;
-    *sz |= hg_low;
-    return dir_fill(AM_ARC, hg_first, *sz);
+    *sz = (uint32_t)xg_page << 16;
+    *sz |= xg_low;
+    return dir_fill(AM_ARC, xg_first, *sz);
 }
 
 /* Append one file byte. A full sector is written on the next byte. */
-static uint8_t hg_wr(uint8_t val)
+static uint8_t xg_wr(uint8_t val)
 {
     uint32_t tmp;
     uint32_t sz;
 
-    if (hg_page >= 0x100)
+    if (xg_page >= 0x100)
         return 1;
-    if (hg_pos == 512) {
-        if (disk_write(0, buffer, hg_lba, 1))
+    if (xg_pos == 512) {
+        if (disk_write(0, buffer, xg_lba, 1))
             return 1;
-        hg_pos = 0;
-        if (++hg_sec >= cpm_fat_vol.csize) {
-            hg_have = 0;
-            hg_sec = 0;
+        xg_pos = 0;
+        if (++xg_sec >= cpm_fat_vol.csize) {
+            xg_have = 0;
+            xg_sec = 0;
         } else
-            ++hg_lba;
+            ++xg_lba;
     }
-    if (hg_have == 0) {
+    if (xg_have == 0) {
         if (cpm_fat_vol.csize == 0)
             return 1;
-        tmp = hg_first ? hg_clst : 0;
+        tmp = xg_first ? xg_clst : 0;
         if (fat_alloc(&tmp))
             return 1;
-        if (hg_first == 0) {
-            hg_first = tmp;
-            if (hg_commit(&sz))
+        if (xg_first == 0) {
+            xg_first = tmp;
+            if (xg_commit(&sz))
                 return 1;
         }
-        hg_clst = tmp;
+        xg_clst = tmp;
         if (fat_clst2sect(&tmp))
             return 1;
-        hg_lba = tmp;
-        hg_sec = 0;
-        hg_pos = 0;
-        hg_have = 1;
+        xg_lba = tmp;
+        xg_sec = 0;
+        xg_pos = 0;
+        xg_have = 1;
     }
-    if (hg_pos == 0)
+    if (xg_pos == 0)
         memset(buffer, 0, 512);
-    ((uint8_t *)buffer)[hg_pos++] = val;
-    if (++hg_low == 0)
-        ++hg_page;
+    ((uint8_t *)buffer)[xg_pos++] = val;
+    if (++xg_low == 0)
+        ++xg_page;
     return 0;
 }
 
-static uint8_t hg_open(const char *path)
+static uint8_t xg_open(const char *path)
 {
     uint32_t tmp;
     uint8_t rc;
 
-    hg_page = 0;
-    hg_low = 0;
-    hg_pos = 0;
-    hg_bpage = 0;
-    hg_have = 0;
-    hg_sec = 0;
-    hg_first = 0;
-    hg_clst = 0;
-    rc = path_split(path, &hg_parent, hg_name);
+    xg_page = 0;
+    xg_low = 0;
+    xg_pos = 0;
+    xg_have = 0;
+    xg_sec = 0;
+    xg_first = 0;
+    xg_clst = 0;
+    rc = path_split(path, &xg_parent, xg_name);
     if (rc)
         return rc;
-    if (is_dot_name(hg_name))
+    if (is_dot_name(xg_name))
         return FR_INVALID_NAME;
-    if (fat_dir_open(&hg_parent))
+    if (fat_dir_open(&xg_parent))
         return FR_DISK_ERR;
-    if (dir_find_try(hg_name) == 0) {
+    if (dir_find_try(xg_name) == 0) {
         if (fat_dir_ptr[11] & (AM_DIR | AM_RDO))
             return FR_DENIED;
         tmp = fat_found_sclust;
@@ -1041,128 +1039,137 @@ static uint8_t hg_open(const char *path)
             return FR_DISK_ERR;
         return 0;
     }
-    if (dir_create(hg_name) || dir_fill(AM_ARC, 0, 0))
+    if (dir_create(xg_name) || dir_fill(AM_ARC, 0, 0))
         return FR_DISK_ERR;
     return 0;
 }
 
-static uint8_t hg_colon(void)
+#define XM_SOH 0x01
+#define XM_EOT 0x04
+#define XM_ACK 0x06
+#define XM_NAK 0x15
+#define XM_CAN 0x18
+
+static void xm_putc(uint8_t c)
 {
+    xm_tx = c;
+    xm_conout();
+}
+
+/* Milliseconds with the ring empty. A waiting byte returns at once. */
+static int xm_getc(uint16_t ms)
+{
+    while (ms) {
+        if (xm_const())
+            return xm_conin() & 0xff;
+        cpu_delay_ms(1);
+        --ms;
+    }
+    return -1;
+}
+
+/* 0 next block, 1 duplicate, 2 bad or timed out. */
+static uint8_t xm_packet(uint8_t expect)
+{
+    uint8_t blk;
+    uint8_t cblk;
+    uint8_t sum;
+    uint8_t i;
     int c;
 
-    for (;;) {
-        c = hg_conin();
-        if (c == ':')
-            return 0;
-        if (c == 26)
-            return 1;
-    }
-}
-
-static uint8_t hg_take(uint8_t n, uint8_t store)
-{
-    int v;
-
-    while (n) {
-        v = hg_next();
-        if (v < 0)
-            return 2;
-        if (store && hg_wr((uint8_t)v))
-            return 4;
-        --n;
-    }
-    return 0;
-}
-
-static uint8_t hg_cksum(uint8_t end)
-{
-    if (hg_next() < 0)
+    c = xm_getc(1000);
+    if (c < 0)
         return 2;
-    return hg_sum ? 3 : end;
-}
-
-/* 0 more, 1 end, 2 bad hex, 3 checksum, 4 disk or offset. */
-static uint8_t hg_record(void)
-{
-    uint16_t addr;
-    uint8_t n;
-    uint8_t typ;
-    uint8_t rc;
-    int v;
-
-    if (hg_colon())
+    blk = (uint8_t)c;
+    c = xm_getc(1000);
+    if (c < 0)
+        return 2;
+    cblk = (uint8_t)c;
+    sum = 0;
+    for (i = 0; i < 128; i++) {
+        c = xm_getc(1000);
+        if (c < 0)
+            return 2;
+        xm_pkt[i] = (uint8_t)c;
+        sum += xm_pkt[i];
+    }
+    c = xm_getc(1000);
+    if (c < 0)
+        return 2;
+    if ((uint8_t)c != sum || (uint8_t)(blk ^ cblk) != 0xff)
+        return 2;
+    if (blk == expect)
+        return 0;
+    if ((uint8_t)(blk + 1) == expect)
         return 1;
-    hg_sum = 0;
-    v = hg_next();
-    if (v < 0)
-        return 2;
-    n = (uint8_t)v;
-    v = hg_next();
-    if (v < 0)
-        return 2;
-    addr = (uint16_t)((uint16_t)v << 8);
-    v = hg_next();
-    if (v < 0)
-        return 2;
-    addr |= (uint8_t)v;
-    v = hg_next();
-    if (v < 0)
-        return 2;
-    typ = (uint8_t)v;
-    if (typ == 0) {
-        if (addr != hg_low || hg_bpage != hg_page)
-            return 4;
-        rc = hg_take(n, 1);
-        if (rc)
-            return rc;
-    } else if (typ == 4) {
-        if (n != 2)
-            return 2;
-        v = hg_next();
-        if (v < 0)
-            return 2;
-        addr = (uint16_t)((uint16_t)v << 8);
-        v = hg_next();
-        if (v < 0)
-            return 2;
-        hg_bpage = (uint16_t)(addr | (uint8_t)v);
-    } else {
-        rc = hg_take(n, 0);
-        if (rc)
-            return rc;
-        if (typ == 1)
-            return hg_cksum(1);
-    }
-    return hg_cksum(0);
+    return 2;
 }
 
 /**
    @brief Builtin command:
-   @param args List of args.  args[0] is "hget". args[1] is the file.
+   @param args List of args.  args[0] is "xget". args[1] is the file.
    @return Always returns 1, to continue executing.
  */
-int8_t ya_hget(char ** args)   /* receive an Intel HEX file */
+int8_t ya_xget(char ** args)   /* receive an XMODEM-128 checksum file */
 {
+    uint8_t expect;
     uint8_t rc;
+    uint8_t i;
+    uint8_t tries;
+    int c;
     uint32_t sz;
 
-    if (need_args(args, 1, "hget"))
+    if (need_args(args, 1, "xget"))
         return 1;
-    if (put_fail(hg_open(args[1])))
+    if (put_fail(xg_open(args[1])))
         return 1;
-    fputs("Waiting for Intel HEX\n", output);
+    fputs("Waiting for XMODEM\n", output);
     fflush(output);
     cpu_delay_ms(1);
-    do {
-        rc = hg_record();
-    } while (rc == 0);
-    if (hg_commit(&sz) || rc == 4)
-        put_rc(1);
-    else if (rc != 1)
-        fputs("bad hex\n", error);
-    else
-        fprintf(output, "%lu bytes\n", sz);
-    return 1;
+    expect = 1;
+    tries = 0;
+    xm_putc(XM_NAK);
+    for (;;) {
+        c = xm_getc(10000);
+        if (c < 0) {
+            if (++tries >= 30) {
+                fputs("timeout\n", error);
+                return 1;
+            }
+            xm_putc(XM_NAK);
+            continue;
+        }
+        tries = 0;
+        if (c == XM_EOT) {
+            xm_putc(XM_ACK);
+            if (xg_commit(&sz))
+                put_rc(1);
+            else
+                fprintf(output, "%lu bytes\n", sz);
+            return 1;
+        }
+        if (c == XM_CAN) {
+            fputs("cancelled\n", error);
+            return 1;
+        }
+        if (c != XM_SOH)
+            continue;
+        rc = xm_packet(expect);
+        if (rc == 2) {
+            xm_putc(XM_NAK);
+            continue;
+        }
+        if (rc == 0) {
+            for (i = 0; i < 128; i++) {
+                if (xg_wr(xm_pkt[i])) {
+                    put_rc(1);
+                    return 1;
+                }
+            }
+            ++expect;
+        }
+        xm_putc(XM_ACK);
+    }
 }
 
 /**
