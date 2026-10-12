@@ -421,10 +421,10 @@ PUBLIC _uartb_pollc
 
     ld a,(uartaRxCount)         ; get the current Rx count
     cp __IO_UART_RX_FULLISH     ; compare the count with the preferred full size
-    jp NZ,rxa_check             ; leave the RTS low, and check for Rx/Tx possibility
+    jp NZ,rxa_check             ; not fullish: leave RTS
 
     in a,(__IO_UARTA_MCR_REGISTER)  ; get the UART A MODEM Control Register
-    and ~(__IO_UART_MCR_RTS|__IO_UART_MCR_DTR)  ; set RTS and DTS high
+    and ~(__IO_UART_MCR_RTS|__IO_UART_MCR_DTR)  ; set RTS and DTR high
     out (__IO_UARTA_MCR_REGISTER),a ; set the MODEM Control Register
 
 .rxa_check
@@ -464,10 +464,10 @@ PUBLIC _uartb_pollc
 
     ld a,(uartbRxCount)         ; get the current Rx count
     cp __IO_UART_RX_FULLISH     ; compare the count with the preferred full size
-    jp NZ,rxb_check             ; leave the RTS low, and check for Rx/Tx possibility
+    jp NZ,rxb_check             ; not fullish: leave RTS
 
     in a,(__IO_UARTB_MCR_REGISTER)  ; get the UART B MODEM Control Register
-    and ~(__IO_UART_MCR_RTS|__IO_UART_MCR_DTR)  ; set RTS and DTS high
+    and ~(__IO_UART_MCR_RTS|__IO_UART_MCR_DTR)  ; set RTS and DTR high
     out (__IO_UARTB_MCR_REGISTER),a ; set the MODEM Control Register
 
 .rxb_check
@@ -525,7 +525,7 @@ PUBLIC _uartb_pollc
     ret Z                       ; if the count is zero, then return
 
     cp __IO_UART_RX_EMPTYISH    ; compare the count with the preferred empty size
-    jp NZ,uarta_getc_clean_up   ; if the buffer is too full, don't change the RTS
+    jp NZ,uarta_getc_clean_up   ; not emptyish: leave RTS
 
     in a,(__IO_UARTA_MCR_REGISTER)  ; get the UART A MODEM Control Register
     or __IO_UART_MCR_RTS|__IO_UART_MCR_DTR  ; set RTS and DTR low
@@ -562,7 +562,7 @@ PUBLIC _uartb_pollc
     ret Z                       ; if the count is zero, then return
 
     cp __IO_UART_RX_EMPTYISH    ; compare the count with the preferred empty size
-    jp NZ,uartb_getc_clean_up    ; if the buffer is too full, don't change the RTS
+    jp NZ,uartb_getc_clean_up    ; not emptyish: leave RTS
 
     in a,(__IO_UARTB_MCR_REGISTER)  ; get the UART B MODEM Control Register
     or __IO_UART_MCR_RTS|__IO_UART_MCR_DTR  ; set RTS and DTR low

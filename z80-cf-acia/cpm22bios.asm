@@ -405,7 +405,7 @@ rx_get:
 
     ld a,(aciaRxCount)          ; get the current Rx count
     cp __IO_ACIA_RX_FULLISH     ; compare the count with the preferred full size
-    jp NZ,rx_check              ; leave the RTS low, and check for Rx/Tx possibility
+    jp NZ,rx_check              ; not fullish: leave RTS
 
     ld a,(aciaControl)          ; get the ACIA control echo byte
     and ~__IO_ACIA_CR_TEI_MASK  ; mask out the Tx interrupt bits
@@ -480,7 +480,7 @@ _acia_getc:
     ret Z                       ; if the count is zero, then return
 
     cp __IO_ACIA_RX_EMPTYISH    ; compare the count with the preferred empty size
-    jp NZ,getc_clean_up_rx      ; if the buffer not emptyish, don't change the RTS
+    jp NZ,getc_clean_up_rx      ; not emptyish: leave RTS
 
     di                          ; critical section begin
     ld a,(aciaControl)          ; get the ACIA control echo byte

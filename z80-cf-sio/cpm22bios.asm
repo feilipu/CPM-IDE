@@ -432,7 +432,7 @@ siob_rx_get:
 
     ld a,(siobRxCount)          ; get the current Rx count
     cp __IO_SIO_RX_FULLISH      ; compare the count with the preferred full size
-    jp NZ,siob_rx_check         ; if the buffer is fullish reset the RTS line
+    jp NZ,siob_rx_check         ; not fullish: leave RTS
 
     ld a,__IO_SIO_WR0_R5        ; prepare for a write to R5
     out (__IO_SIOB_CONTROL_REGISTER),a  ; write to SIOB control register
@@ -522,7 +522,7 @@ sioa_rx_get:
 
     ld a,(sioaRxCount)          ; get the current Rx count
     cp __IO_SIO_RX_FULLISH      ; compare the count with the preferred full size
-    jp NZ,sioa_rx_check         ; if the buffer is fullish reset the RTS line
+    jp NZ,sioa_rx_check         ; not fullish: leave RTS
 
     ld a,__IO_SIO_WR0_R5        ; prepare for a write to R5
     out (__IO_SIOA_CONTROL_REGISTER),a   ; write to SIOA control register
@@ -633,7 +633,7 @@ _sioa_getc:
     ret Z                       ; if the count is zero, then return
 
     cp __IO_SIO_RX_EMPTYISH     ; compare the count with the preferred empty size
-    jp NZ,sioa_getc_clean_up    ; if the buffer NOT emptyish, don't change the RTS
+    jp NZ,sioa_getc_clean_up    ; not emptyish: leave RTS
 
     ld a,__IO_SIO_WR0_R5        ; prepare for a write to R5
     out (__IO_SIOA_CONTROL_REGISTER),a  ; write to SIOA control register
@@ -671,7 +671,7 @@ _siob_getc:
     ret Z                       ; if the count is zero, then return
 
     cp __IO_SIO_RX_EMPTYISH     ; compare the count with the preferred empty size
-    jp NZ,siob_getc_clean_up    ; if the buffer NOT emptyish, don't change the RTS
+    jp NZ,siob_getc_clean_up    ; not emptyish: leave RTS
 
     ld a,__IO_SIO_WR0_R5        ; prepare for a write to R5
     out (__IO_SIOB_CONTROL_REGISTER),a  ; write to SIOB control register

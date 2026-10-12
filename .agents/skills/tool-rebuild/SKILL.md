@@ -21,7 +21,9 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 ./.agents/scripts/rebuild-ff.sh
 ./.agents/scripts/rebuild-hex.sh       # PATA, then all five CF ROMs
 ./.agents/scripts/rebuild-hex.sh cf    # five CF ROMs; skips the lib rebuild when the flag is already 1
+./.agents/scripts/rebuild-hex.sh sio   # both SIO ROMs (PATA then CF)
 ./.agents/scripts/rebuild-hex.sh acia  # z80-cf-acia FAT image only; skips the lib rebuild when the flag is already 1
+./.agents/scripts/rebuild-hex.sh acia85  # 8085-cf-acia only; same CF-library rule
 # *.hex gitignored; often assume-unchanged (git ls-files -v shows lowercase h)
 git update-index --no-assume-unchanged rc2014-cpm22-*.hex
 git add -f rc2014-cpm22-*.hex

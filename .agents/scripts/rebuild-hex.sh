@@ -12,6 +12,7 @@
 # Env: Z88DK, ZCCCFG, PATH, MAXJOBS (default 2), WORK (log dir).
 # Optional arg: cf — the five CF ROMs. Skips the library rebuild when
 # __IO_CF_8_BIT is already 0x01.
+# Optional arg: sio — both SIO ROMs (PATA then CF).
 # Optional arg: acia — z80-cf-acia only.
 # Optional arg: acia85 — 8085-cf-acia only.
 # Default (no arg) is PATA (Z80 SIO and 8085 UART), then all five CF ROMs.
@@ -144,9 +145,9 @@ wait_all() { while (( running > 0 )); do reap; done; }
 
 MODE="${1:-all}"
 case "$MODE" in
-  all|cf|acia|acia85) ;;
+  all|cf|sio|acia|acia85) ;;
   *)
-    echo "usage: rebuild-hex.sh [all|cf|acia]" >&2
+    echo "usage: rebuild-hex.sh [all|cf|sio|acia]" >&2
     exit 1
     ;;
 esac
@@ -154,6 +155,11 @@ esac
 if [[ "$MODE" == "acia" ]]; then
   HEX_OUTS=(
     rc2014-cpm22-z80-cf-acia
+  )
+elif [[ "$MODE" == "sio" ]]; then
+  HEX_OUTS=(
+    rc2014-cpm22-z80-pata-sio
+    rc2014-cpm22-z80-cf-sio
   )
 elif [[ "$MODE" == "cf" ]]; then
   HEX_OUTS=(
@@ -462,6 +468,73 @@ cf_selected() {
     inc_is "$INC_OBJ" 0x01 &&
     inc_is "$INC_85" 0x01
 }
+
+if [[ "$MODE" == "sio" ]]; then
+  say "PATA libraries"
+  set_flag 0x00
+  LIBS_CF=0
+  rebuild_z80_lib pata
+  rebuild_8085_lib
+  inc_is "$INC_Z80" 0x00
+  inc_is "$INC_OBJ" 0x00
+  inc_is "$INC_85" 0x00
+
+  spawn z80-pata-sio build_fat z80-pata-sio sio rc2014-cpm22-z80-pata-sio pata-sio
+  wait_all
+  if (( fail != 0 )); then
+    say "FAIL  ok=$ok fail=$fail  (logs $LOG)"
+    exit 1
+  fi
+
+  say "CF libraries"
+  set_flag 0x01
+  LIBS_CF=0
+  rebuild_z80_lib cf
+  rebuild_8085_lib
+  inc_is "$INC_Z80" 0x01
+  inc_is "$INC_OBJ" 0x01
+  inc_is "$INC_85" 0x01
+  LIBS_CF=1
+
+  spawn z80-cf-sio build_fat z80-cf-sio sio rc2014-cpm22-z80-cf-sio cf-sio
+  wait_all
+  if (( fail != 0 )); then
+    say "FAIL  ok=$ok fail=$fail  (logs $LOG)"
+    exit 1
+  fi
+  missing=0
+  for f in "${HEX_OUTS[@]}"; do
+    if [[ ! -s "$ROOT/${f}.hex" ]]; then
+      say "FAIL  missing $f.hex"
+      missing=1
+    fi
+  done
+  if (( missing != 0 )); then
+    exit 1
+  fi
+  say "ALL OK  ok=$ok fail=$fail"
+  echo
+  echo "=== hex ==="
+  ls -l "$ROOT/rc2014-cpm22-z80-pata-sio.hex" "$ROOT/rc2014-cpm22-z80-cf-sio.hex"
+  md5sum "$ROOT/rc2014-cpm22-z80-pata-sio.hex" "$ROOT/rc2014-cpm22-z80-cf-sio.hex"
+  echo
+  echo "=== vs HEAD ==="
+  cd "$ROOT"
+  for f in rc2014-cpm22-z80-pata-sio.hex rc2014-cpm22-z80-cf-sio.hex; do
+    if git cat-file -e "HEAD:$f" 2>/dev/null; then
+      old=$(git show "HEAD:$f" | md5sum | awk '{print $1}')
+      new=$(md5sum "$f" | awk '{print $1}')
+      if [[ "$old" == "$new" ]]; then
+        echo "UNCHANGED $f"
+      else
+        echo "CHANGED   $f"
+      fi
+    else
+      echo "NEW       $f"
+    fi
+  done
+  exit 0
+fi
 
 if [[ "$MODE" == "acia" ]]; then
   if cf_selected; then
