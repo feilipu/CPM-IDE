@@ -148,9 +148,9 @@ DEFC    SNL             =   0000    ;SERIAL NUMBER, LOW. 4 DIGITS
 IFNDEF BDOS_STUB_ORG
 PUBLIC  SERIAL_DISPATCH
 SERIAL_DISPATCH:
-    ret
-    nop
-    nop
+    ret                             ;+test vector: three-byte slot, not the ROM ISR
+    nop                             ;second byte of that JP slot
+    nop                             ;third byte of that JP slot
 ENDIF
 
 ;
@@ -164,66 +164,66 @@ ENDIF
 _cpm_bdos_head:
 bdos:
 serno:
-    defb    SNH
-    defb    VER*10+REL
-    defw    REV
-    defb    SNL/256
-    defb    SNL%256
+    defb    SNH                     ;serial high digit
+    defb    VER*10+REL              ;version byte 22h (2.2)
+    defw    REV                     ;revision word
+    defb    SNL/256                 ;serial low, high byte
+    defb    SNL%256                 ;serial low, low byte
 
 _cpm_bdos_fbase:
-    jp      fbase
+    jp      fbase                   ;0006h enters here
 ;
 ; Error handler vectors. The words address the ROM handlers.
 ;
-    defw    badsctr         ;bad sector
-    defw    badslct         ;disk select
-    defw    rodisk          ;disk read only
-    defw    rofile          ;file read only
+    defw    badsctr                 ;bad sector
+    defw    badslct                 ;disk select
+    defw    rodisk                  ;disk read only
+    defw    rofile                  ;file read only
 ;
 ; (DE) or (E) are the parameters. The function number is in (C).
 ;
 fbase:
-    ex      de,hl           ;save the (DE) parameters.
-    ld      (params),hl
-    ex      de,hl
-    ld      a,e             ;and save register (E) in particular.
-    ld      (eparam),a
-    ld      hl,0
-    ld      (status),hl     ;clear return status.
-    add     hl,sp           ;save the user stack pointer.
-    ld      (bdos_usrstack),hl
-    ld      sp,bdos_stack   ;and set our own.
-    xor     a               ;clear auto select storage.
-    ld      (autoflag),a
-    ld      (auto),a
-    ld      hl,goback       ;set return address.
-    push    hl
-    ld      a,c             ;get function number.
-    cp      NFUNCTS         ;valid function number?
-    ret     nc
-    ld      c,e             ;keep the single register parameter.
-    ld      hl,functns      ;look through the function table.
-    ld      e,a
-    ld      d,0             ;(DE)=function number.
-    add     hl,de
-    add     hl,de           ;(HL)=table+2*(function number).
-    ld      e,(hl+)
-    ld      d,(hl)          ;now (DE)=address for this function.
-    ld      hl,(params)     ;retrieve parameters.
-    ex      de,hl           ;now (DE) has the original parameters.
-    jp      (hl)            ;execute the desired function.
+    ex      de,hl                   ;save the (DE) parameters.
+    ld      (params),hl             ;keep DE while HL is free
+    ex      de,hl                   ;DE is the parameter again
+    ld      a,e                     ;and save register (E) in particular.
+    ld      (eparam),a              ;E alone, for function 32
+    ld      hl,0                    ;zero, so the next add reads SP
+    ld      (status),hl             ;clear return status.
+    add     hl,sp                   ;save the user stack pointer.
+    ld      (bdos_usrstack),hl      ;user SP, restored by goback
+    ld      sp,bdos_stack           ;and set our own.
+    xor     a                       ;clear auto select storage.
+    ld      (autoflag),a            ;no auto-selected drive
+    ld      (auto),a                ;auto drive number unused
+    ld      hl,goback               ;set return address.
+    push    hl                      ;goback runs when the function returns
+    ld      a,c                     ;get function number.
+    cp      NFUNCTS                 ;valid function number?
+    ret     nc                      ;function 41 or more returns 0
+    ld      c,e                     ;keep the single register parameter.
+    ld      hl,functns              ;look through the function table.
+    ld      e,a                     ;function index
+    ld      d,0                     ;(DE)=function number.
+    add     hl,de                   ;HL + function
+    add     hl,de                   ;(HL)=table+2*(function number).
+    ld      e,(hl+)                 ;handler address, low byte
+    ld      d,(hl)                  ;now (DE)=address for this function.
+    ld      hl,(params)             ;retrieve parameters.
+    ex      de,hl                   ;now (DE) has the original parameters.
+    jp      (hl)                    ;execute the desired function.
 ;
 ; BDOS function word table. One word per function 0..40.
 ; Disk slots name the argument shape. rom_go indexes romfns by C.
 ; 38 and 39 are rtn.
 ;
 functns:
-    defw    wboot,getcon,outcon,getrdr,punch,list,dircio,getiob
-    defw    setiob,prtstr,go_line,getcsts,getver,latch_reg,latch_reg,latch_open
-    defw    latch_fcb,latch_find,latch_next,latch_fcb,latch_read,latch_write,latch_fcb,latch_fcb
-    defw    latch_reg,getcrnt,putdma,latch_reg,latch_reg,latch_reg,latch_fcb,latch_reg
-    defw    getuser,latch_read,latch_write,latch_fcb,latch_fcb,latch_reg,rtn,rtn
-    defw    latch_write
+    defw    wboot,getcon,outcon,getrdr,punch,list,dircio,getiob ;fn 0..7: warm boot through get IOBYTE
+    defw    setiob,prtstr,go_line,getcsts,getver,latch_reg,latch_reg,latch_open ;fn 8..15: set IOBYTE through open
+    defw    latch_fcb,latch_find,latch_next,latch_fcb,latch_read,latch_write,latch_fcb,latch_fcb ;fn 16..23: close through make
+    defw    latch_reg,getcrnt,putdma,latch_reg,latch_reg,latch_reg,latch_fcb,latch_reg ;fn 24..31: rename through get DPB
+    defw    getuser,latch_read,latch_write,latch_fcb,latch_fcb,latch_reg,rtn,rtn ;fn 32..39: user, random I/O, 38 and 39 are rtn
+    defw    latch_write             ;fn 40: random write with zero fill
 
 ;
 ; Shapes. A is the function. DE is the caller's parameter.
@@ -232,106 +232,106 @@ functns:
 ; Function 18 does not use DE. See latch_next.
 ;
 drop_srch:
-    push    af
-    xor     a
-    ld      (srch_on),a
-    pop     af
+    push    af                      ;keep the function number
+    xor     a                       ;search is no longer active
+    ld      (srch_on),a             ;fn 18 must not resume this call
+    pop     af                      ;function number back
     ret
 
 latch_reg:
-    call    drop_srch
-    ld      c,a
-    jp      rom_enter
+    call    drop_srch               ;this call is not search-next
+    ld      c,a                     ;rom_go indexes romfns by C
+    jp      rom_enter               ;DE stays the caller's register value
 
 latch_write:
-    push    af
-    call    copy_dma_in
-    pop     af
-    jp      latch_fcb
+    push    af                      ;function number
+    call    copy_dma_in             ;128-byte record into bdos_rec
+    pop     af                      ;function number back
+    jp      latch_fcb               ;stage the FCB, then the ROM write
 
 latch_open:
-    call    latch_fcb
-    jp      fcb_copy32
+    call    latch_fcb               ;open, including EX/S2/RC copy-back
+    jp      fcb_copy32              ;on a hit, also copy bytes 0..31
 
 latch_read:
-    call    latch_fcb
-    ld      a,(status)
-    or      a
-    ret     nz
-    jp      copy_dma_out
+    call    latch_fcb               ;read into bdos_rec
+    ld      a,(status)              ;low byte of the BDOS result
+    or      a                       ;0 is a successful read
+    ret     nz                      ;error: leave the caller's DMA
+    jp      copy_dma_out            ;record out to the caller's DMA
 
 latch_find:
-    call    fcb_go
-    jp      latch_srch
+    call    fcb_go                  ;search-first stages the caller's FCB
+    jp      latch_srch              ;DMA only when the result is 0..3
 
 ; Function 18. fn_next copies srch_fcb into bdos_fcb.
 ; DE is not an FCB, so do not stage it or copy back.
 latch_next:
-    ld      c,a
-    ld      de,bdos_fcb
-    call    rom_enter
-    jp      latch_srch
+    ld      c,a                     ;function 18
+    ld      de,bdos_fcb             ;fn_next reloads srch_fcb; DE is not an FCB
+    call    rom_enter               ;ROM search-next
+    jp      latch_srch              ;copy the directory record on a hit
 
 latch_fcb:
-    call    drop_srch
+    call    drop_srch               ;new FCB call ends the active search
 fcb_go:
-    ld      c,a
-    ld      hl,(params)
-    ld      de,bdos_fcb
-    push    bc
-    ld      bc,36
-    ldir
-    pop     bc
-    ld      de,bdos_fcb
-    call    rom_enter
-    jp      fcb_copyback
+    ld      c,a                     ;function number for rom_go
+    ld      hl,(params)             ;caller's FCB
+    ld      de,bdos_fcb             ;staged FCB
+    push    bc                      ;C is the function across the copy
+    ld      bc,36                   ;drive through r2, 36 bytes
+    ldir                            ;caller's FCB into the stub
+    pop     bc                      ;C is the function again
+    ld      de,bdos_fcb             ;ROM argument is the staged FCB
+    call    rom_enter               ;enter the disk function
+    jp      fcb_copyback            ;write EX, S2, RC, CR and r0..r2 back
 
 ;
 ; Search success is 0..3, not only 0. FF leaves the DMA alone.
 ;
 latch_srch:
-    ld      a,(status)
-    inc     a
-    ret     z
-    jp      copy_dma_out
+    ld      a,(status)              ;search result, low byte
+    inc     a                       ;FF becomes 0
+    ret     z                       ;miss: do not touch the DMA
+    jp      copy_dma_out            ;hit 0..3: directory record to the DMA
 
 ;
 ; Open copies the synthesized directory FCB (bytes 0..31).
 ; A miss (status FF) leaves the caller's name alone.
 ;
 fcb_copy32:
-    ld      a,(status)
-    inc     a
-    ret     z
-    ld      hl,(params)
-    ex      de,hl
-    ld      hl,bdos_fcb
-    ld      bc,32
-    ldir
+    ld      a,(status)              ;open result, low byte
+    inc     a                       ;FF becomes 0
+    ret     z                       ;miss: leave the caller's name
+    ld      hl,(params)             ;caller's FCB
+    ex      de,hl                   ;DE is the caller's FCB
+    ld      hl,bdos_fcb             ;synthesized directory FCB
+    ld      bc,32                   ;bytes 0..31, not CR
+    ldir                            ;name, extent and map back to the caller
     ret
 
 go_line:
-    call    drop_srch
-    push    af
-    ld      hl,(params)
-    ld      c,(hl)
-    ld      b,0
-    inc     bc
-    inc     bc
-    push    bc
-    ld      de,bdos_line
-    ldir
-    pop     bc
-    pop     af
-    push    bc
-    ld      c,a
-    ld      de,bdos_line
-    call    rom_enter
-    pop     bc
-    ld      hl,(params)
-    ex      de,hl
-    ld      hl,bdos_line
-    ldir
+    call    drop_srch               ;function 10 ends an active search
+    push    af                      ;function number
+    ld      hl,(params)             ;caller's line buffer
+    ld      c,(hl)                  ;mx, the maximum count
+    ld      b,0                     ;mx is one byte
+    inc     bc                      ;include the count byte
+    inc     bc                      ;include mx itself
+    push    bc                      ;same length is copied back
+    ld      de,bdos_line            ;staged line
+    ldir                            ;mx, count and the existing text
+    pop     bc                      ;length
+    pop     af                      ;function 10
+    push    bc                      ;length stays across the editor
+    ld      c,a                     ;rom_go index
+    ld      de,bdos_line            ;editor sees bdos_line
+    call    rom_enter               ;function 10 runs in ROM
+    pop     bc                      ;length
+    ld      hl,(params)             ;caller's buffer
+    ex      de,hl                   ;DE is the caller's buffer
+    ld      hl,bdos_line            ;edited line
+    ldir                            ;count and text back to the caller
     ret
 
 ;
@@ -340,63 +340,63 @@ go_line:
 ;
 rom_enter:
 bdos_latch_seq:
-    xor     a
-    out     (IO_ROM_TOGGLE),a
-    call    rom_go
-    ld      a,$01
-    out     (IO_ROM_TOGGLE),a
-    ld      (status),hl
+    xor     a                       ;0 selects the ROM bank
+    out     (IO_ROM_TOGGLE),a       ;OUT (38h),0
+    call    rom_go                  ;romfns[C], ROM is in
+    ld      a,$01                   ;1 selects the RAM bank
+    out     (IO_ROM_TOGGLE),a       ;OUT (38h),1
+    ld      (status),hl             ;HL is the function result
     ret
 
 rom_go:
-    ld      hl,romfns
-    ld      b,0
-    add     hl,bc
-    add     hl,bc
-    ld      a,(hl+)
-    ld      h,(hl)
-    ld      l,a
-    jp      (hl)
+    ld      hl,romfns               ;disk and editor table
+    ld      b,0                     ;BC = function
+    add     hl,bc                   ;start of the word index
+    add     hl,bc                   ;romfns + 2*C
+    ld      a,(hl+)                 ;handler, low byte
+    ld      h,(hl)                  ;handler, high byte
+    ld      l,a                     ;HL = handler
+    jp      (hl)                    ;ROM function
 
 copy_dma_in:
-    ld      hl,(bdos_dma)
-    ld      de,bdos_rec
-    ld      bc,128
-    ldir
+    ld      hl,(bdos_dma)           ;caller's DMA address
+    ld      de,bdos_rec             ;staged record
+    ld      bc,128                  ;one 128-byte record
+    ldir                            ;DMA into bdos_rec before a write
     ret
 
 copy_dma_out:
-    ld      hl,(bdos_dma)
-    ex      de,hl
-    ld      hl,bdos_rec
-    ld      bc,128
-    ldir
+    ld      hl,(bdos_dma)           ;caller's DMA
+    ex      de,hl                   ;DE = DMA
+    ld      hl,bdos_rec             ;record just read or found
+    ld      bc,128                  ;one 128-byte record
+    ldir                            ;bdos_rec out to the DMA
     ret
 
 ;
 ; EX, S2, RC, CR, R0, R1, R2. Open also copies bytes 0..31 on success.
 ;
 fcb_copyback:
-    ld      hl,(params)
-    ld      de,12
-    add     hl,de
-    ex      de,hl
-    ld      hl,bdos_fcb+12
-    ld      a,(hl+)
-    ld      (de+),a
-    inc     de
-    inc     hl
-    ld      a,(hl+)
-    ld      (de+),a
-    ld      a,(hl)
-    ld      (de),a
-    ld      hl,(params)
-    ld      de,32
-    add     hl,de
-    ex      de,hl
-    ld      hl,bdos_fcb+32
-    ld      bc,4
-    ldir
+    ld      hl,(params)             ;caller's FCB
+    ld      de,12                   ;FCB+12 is EX
+    add     hl,de                   ;point at EX
+    ex      de,hl                   ;DE = caller's EX
+    ld      hl,bdos_fcb+12          ;staged EX
+    ld      a,(hl+)                 ;staged EX
+    ld      (de+),a                 ;caller's EX
+    inc     de                      ;skip the caller's S1
+    inc     hl                      ;skip the staged S1
+    ld      a,(hl+)                 ;staged S2
+    ld      (de+),a                 ;caller's S2
+    ld      a,(hl)                  ;staged RC
+    ld      (de),a                  ;caller's RC
+    ld      hl,(params)             ;caller's FCB
+    ld      de,32                   ;FCB+32 is CR
+    add     hl,de                   ;point at CR
+    ex      de,hl                   ;DE = caller's CR
+    ld      hl,bdos_fcb+32          ;staged CR
+    ld      bc,4                    ;CR and r0..r2
+    ldir                            ;four record bytes back
     ret
 
 ;
@@ -406,192 +406,192 @@ fcb_copyback:
 ;
 
 getchar:
-    ld      hl,charbuf
-    ld      a,(hl)
-    ld      (hl),0
-    or      a
-    ret     nz
-    jp      conin
+    ld      hl,charbuf              ;one-byte console lookahead
+    ld      a,(hl)                  ;buffered character, if any
+    ld      (hl),0                  ;the buffer is spent
+    or      a                       ;empty buffer returns 0
+    ret     nz                      ;nonzero: return that character in A
+    jp      conin                   ;otherwise a real console read
 
 getecho:
-    call    getchar
-    call    chkchar
-    ret     c
-    push    af
-    ld      c,a
-    call    outcon
-    pop     af
+    call    getchar                 ;next console character
+    call    chkchar                 ;carry set for a control, not space/CR/LF/TAB/BS
+    ret     c                       ;controls are not echoed
+    push    af                      ;character
+    ld      c,a                     ;CONOUT wants it in C
+    call    outcon                  ;echo
+    pop     af                      ;return the same character in A
     ret
 
 chkchar:
-    cp      CR
-    ret     z
-    cp      LF
-    ret     z
-    cp      TAB
-    ret     z
-    cp      BS
-    ret     z
-    cp      ' '
-    ret
+    cp      CR                      ;CR is printable to the editor
+    ret     z                       ;carry clear: not a caret control
+    cp      LF                      ;LF is printable
+    ret     z                       ;carry clear
+    cp      TAB                     ;TAB is printable
+    ret     z                       ;carry clear
+    cp      BS                      ;BS is printable
+    ret     z                       ;carry clear
+    cp      ' '                     ;space and above are printable
+    ret                             ;carry set when A is below space
 
 ckconsol:
-    ld      a,(charbuf)
-    or      a
-    jp      nz,ckcon2
-    call    const
-    and     $01
-    ret     z
-    call    conin
-    cp      CNTRLS
-    jp      nz,ckcon1
-    call    conin
-    cp      CNTRLC
-    jp      z,wboot
-    xor     a
-    ret
+    ld      a,(charbuf)             ;lookahead from a previous status call
+    or      a                       ;empty means ask the BIOS
+    jp      nz,ckcon2               ;a key is already waiting
+    call    const                   ;BIOS console status
+    and     $01                     ;bit 0 is the ready flag
+    ret     z                       ;nothing ready: return 0
+    call    conin                   ;take the waiting character
+    cp      CNTRLS                  ;CTRL-S starts a stop/start pair
+    jp      nz,ckcon1               ;any other key is buffered
+    call    conin                   ;the character after CTRL-S
+    cp      CNTRLC                  ;CTRL-S CTRL-C warm-boots
+    jp      z,wboot                 ;that pair reboots
+    xor     a                       ;any other pair is swallowed
+    ret                             ;return not-ready
 ckcon1:
-    ld      (charbuf),a
+    ld      (charbuf),a             ;hold the key for the next read
 ckcon2:
-    ld      a,$FF
+    ld      a,$FF                   ;function 11 true value
     ret
 
 outchar:
-    ld      a,(outflag)
-    or      a
-    jp      nz,outchr1
-    push    bc
-    call    ckconsol
-    pop     bc
-    push    bc
-    call    conout
-    pop     bc
-    push    bc
-    ld      a,(prtflag)
-    or      a
-    call    nz,list
-    pop     bc
+    ld      a,(outflag)             ;nonzero: move the column, do not print
+    or      a                       ;suppressed output still tracks curpos
+    jp      nz,outchr1              ;print this character
+    push    bc                      ;C is the character
+    call    ckconsol                ;CTRL-S inside ordinary output
+    pop     bc                      ;C again
+    push    bc                      ;C is the character
+    call    conout                  ;BIOS CONOUT
+    pop     bc                      ;C again
+    push    bc                      ;C for the list device
+    ld      a,(prtflag)             ;list echo flag
+    or      a                       ;0: console only
+    call    nz,list                 ;prtflag set: also LIST
+    pop     bc                      ;C again for the column update
 outchr1:
-    ld      a,c
-    ld      hl,curpos
-    cp      DEL
-    ret     z
-    inc     (hl)
-    cp      ' '
-    ret     nc
-    dec     (hl)
-    ld      a,(hl)
-    or      a
-    ret     z
-    ld      a,c
-    cp      BS
-    jp      nz,outchr2
-    dec     (hl)
+    ld      a,c                     ;character
+    ld      hl,curpos               ;column counter
+    cp      DEL                     ;DEL does not move the column
+    ret     z                       ;RUBOUT is not a column
+    inc     (hl)                    ;count this byte
+    cp      ' '                     ;space and above stay one column
+    ret     nc                      ;printable: column already incremented
+    dec     (hl)                    ;control bytes are not a column
+    ld      a,(hl)                  ;column after the trial increment
+    or      a                       ;do not step back through column 0
+    ret     z                       ;column was 0
+    ld      a,c                     ;control character again
+    cp      BS                      ;BS removes one more column
+    jp      nz,outchr2              ;not BS: only LF resets the column
+    dec     (hl)                    ;BS lands one column left of the old one
     ret
 outchr2:
-    cp      LF
-    ret     nz
-    ld      (hl),0
+    cp      LF                      ;LF is the only control that zeros the column
+    ret     nz                      ;CR and other controls leave the column
+    ld      (hl),0                  ;LF starts a new line
     ret
 
 outcon:
-    ld      a,c
-    cp      TAB
-    jp      nz,outchar
+    ld      a,c                     ;character
+    cp      TAB                     ;TAB expands
+    jp      nz,outchar              ;anything else is one byte
 outcon1:
-    ld      c,' '
-    call    outchar
-    ld      a,(curpos)
-    and     $07
-    jp      nz,outcon1
+    ld      c,' '                   ;one space of the tab
+    call    outchar                 ;print it and move curpos
+    ld      a,(curpos)              ;column after that space
+    and     $07                     ;tabs end on a multiple of 8
+    jp      nz,outcon1              ;not there yet
     ret
 
 prtmesg:
-    ld      a,(bc)
-    cp      '$'
-    ret     z
-    inc     bc
-    push    bc
-    ld      c,a
-    call    outcon
-    pop     bc
-    jp      prtmesg
+    ld      a,(bc)                  ;next byte of the string at BC
+    cp      '$'                     ;CP/M strings end at $
+    ret     z                       ;stop on the dollar
+    inc     bc                      ;next address
+    push    bc                      ;BC across the print
+    ld      c,a                     ;character in C
+    call    outcon                  ;print, expanding tabs
+    pop     bc                      ;BC back
+    jp      prtmesg                 ;continue until $
 
 getcon:
-    call    getecho
-    jp      setstat
+    call    getecho                 ;read and echo
+    jp      setstat                 ;status byte is that character
 
 getrdr:
-    call    reader
-    jp      setstat
+    call    reader                  ;BIOS reader
+    jp      setstat                 ;status is the byte read
 
 dircio:
-    ld      a,c
-    inc     a
-    jp      z,dirc_in
-    jp      conout
+    ld      a,c                     ;E, copied into C at fbase
+    inc     a                       ;FF is the input request
+    jp      z,dirc_in               ;E was FF
+    jp      conout                  ;any other E is output
 
 dirc_in:
-    call    const
-    or      a
-    jp      z,goback
-    call    conin
-    jp      setstat
+    call    const                   ;console status
+    or      a                       ;0 means no key
+    jp      z,goback                ;no key: return the zero status
+    call    conin                   ;waiting character
+    jp      setstat                 ;return it in A and L
 
 getiob:
-    ld      a,(_cpm_iobyte)
-    jp      setstat
+    ld      a,(_cpm_iobyte)         ;BIOS IOBYTE
+    jp      setstat                 ;return it as the status
 
 setiob:
-    ld      hl,_cpm_iobyte
-    ld      (hl),c
+    ld      hl,_cpm_iobyte          ;IOBYTE lives in the BIOS page
+    ld      (hl),c                  ;C is the new IOBYTE
     ret
 
 prtstr:
-    ex      de,hl
-    ld      bc,hl
-    jp      prtmesg
+    ex      de,hl                   ;DE points at the string
+    ld      bc,hl                   ;prtmesg walks BC
+    jp      prtmesg                 ;print until $
 
 getcsts:
-    call    ckconsol
-    jp      setstat
+    call    ckconsol                ;00h or FFh
+    jp      setstat                 ;that value is the status
 
 setstat:
-    ld      (status),a
+    ld      (status),a              ;A is also the low byte of the result
 rtn:
-    ret
+    ret                             ;38 and 39 return 0; others already stored status
 
 getver:
-    ld      hl,$0022
-    ld      (status),hl
+    ld      hl,$0022                ;version 2.2, machine type 0
+    ld      (status),hl             ;HL status, not a single byte
     ret
 
 getcrnt:
-    ld      a,(bdos_drive)
-    jp      setstat
+    ld      a,(bdos_drive)          ;current drive, 0 = A
+    jp      setstat                 ;return it
 
 putdma:
-    ld      hl,(params)
-    ld      (bdos_dma),hl
+    ld      hl,(params)             ;DE from the caller
+    ld      (bdos_dma),hl           ;DMA for the next read or write
     ret
 
 getuser:
-    ld      a,(eparam)
-    cp      $FF
-    jp      nz,setuser
-    ld      a,(bdos_user)
-    jp      setstat
+    ld      a,(eparam)              ;E from the caller
+    cp      $FF                     ;FF asks for the current user
+    jp      nz,setuser              ;any other E sets the user
+    ld      a,(bdos_user)           ;current user 0..15
+    jp      setstat                 ;return it
 setuser:
-    and     $1F
-    ld      (bdos_user),a
+    and     $1F                     ;user numbers are 0..31
+    ld      (bdos_user),a           ;new current user
     ret
 
 goback:
-    ld      hl,(bdos_usrstack)
-    ld      sp,hl
-    ld      hl,(status)
-    ld      a,l
-    ld      b,h
+    ld      hl,(bdos_usrstack)      ;SP saved at entry
+    ld      sp,hl                   ;back on the caller's stack
+    ld      hl,(status)             ;function result
+    ld      a,l                     ;A = L = status low
+    ld      b,h                     ;B = H = status high
     ret
 
 IFNDEF BDOS_STUB_ORG
@@ -606,16 +606,16 @@ bdos_dma:   defw    $0080
 ; EXM 0 and DSM 4095 is the 2 KB / 8 MB disk. (DSM/8)+1 is 512 bytes.
 ;
 bdos_dpb:
-    defw    128
-    defb    4
-    defb    15
-    defb    0
-    defw    4095
-    defw    511
-    defb    0
-    defb    0
-    defw    0
-    defw    0
+    defw    128                     ;SPT: 128 sectors of 128 bytes
+    defb    4                       ;BSH 4: 2 KB blocks
+    defb    15                      ;BLM 15
+    defb    0                       ;EXM 0: 128 records per extent
+    defw    4095                    ;DSM 4095: 8 MB
+    defw    511                     ;DRM 511 directory entries
+    defb    0                       ;AL0: no reserved directory blocks
+    defb    0                       ;AL1
+    defw    0                       ;CKS 0: no checksum vector
+    defw    0                       ;OFF 0: track offset
 
 IFDEF BDOS_STUB_ORG
 PUBLIC  _bdos_stub_data_tail
@@ -654,7 +654,7 @@ outflag:            defs    1
 starting:           defs    1
 charbuf:            defs    1
 
-                    defs    160        ;disk BDOS, mini-FAT, and the ACIA frame
+                    defs    160     ;disk BDOS, mini-FAT, and the ACIA frame
 bdos_stack:
 
 ; Bit 1 set: open_name is the FCB name whose io_sclust, io_size, and
@@ -677,7 +677,7 @@ badsctr:
 badslct:
 rodisk:
 rofile:
-    ret
+    ret                             ;bad sector, select, and R/O have no body in this build
 ENDIF
 
 IFNDEF BDOS_ROM_OMIT
@@ -738,25 +738,25 @@ romfns:
 ; wboot calls bdos_warm; the host test's wboot does the same.
 ;
 bdos_warm:
-    ld      hl,0
-    ld      (bdos_login),hl
-    ld      (bdos_ro),hl
-    xor     a
-    ld      (bdos_drive),a
-    call    open_void
-    ld      hl,clst_cache_sclust
-    ld      (hl+),a
-    ld      (hl+),a
-    ld      (hl+),a
-    ld      (hl),a
-    ret
+    ld      hl,0                    ;login vector, both bytes
+    ld      (bdos_login),hl         ;clear logged-in drives
+    ld      (bdos_ro),hl            ;read-only vector
+    xor     a                       ;every drive read/write
+    ld      (bdos_drive),a          ;current drive is A
+    call    open_void               ;A:
+    ld      hl,clst_cache_sclust    ;forget the open file
+    ld      (hl+),a                 ;cluster-walk cache, four bytes
+    ld      (hl+),a                 ;cache cluster byte 0
+    ld      (hl+),a                 ;byte 1
+    ld      (hl),a                  ;byte 2
+    ret                             ;byte 3
 
 ;
 ; Drop the remembered read/write file. The next io_go scans from offset 0.
 ;
 open_void:
-    xor     a
-    ld      (open_ok),a
+    xor     a                       ;bit 1 clear: open_name is stale
+    ld      (open_ok),a             ;next read scans the directory
     ret
 
 ;
@@ -764,85 +764,85 @@ open_void:
 ; '?' on a file call prints Select. Search treats '?' as the current drive.
 
 eff_num:
-    ld      a,(bdos_fcb)
-    and     $1F
-    jp      z,en_cur
-    dec     a
-    cp      16
-    ret
+    ld      a,(bdos_fcb)            ;FCB drive byte
+    and     $1F                     ;drop attribute bits; 0 means current
+    jp      z,en_cur                ;drive 0: use bdos_drive
+    dec     a                       ;1 = A becomes 0
+    cp      16                      ;16 is past P
+    ret                             ;carry set when the drive was 1..16
 en_cur:
-    ld      a,(bdos_drive)
-    scf
+    ld      a,(bdos_drive)          ;current drive 0..15
+    scf                             ;proceed
     ret
 
 ; A = drive 0..15. Carry set and A kept when the cluster is nonzero.
 ; BCDE is that cluster.
 drv_mounted:
-    push    af
-    add     a,a
-    add     a,a
-    ld      l,a
-    ld      h,0
-    ld      de,_cpm_dir_sclust
-    add     hl,de
-    ld      e,(hl+)
-    ld      d,(hl+)
-    ld      c,(hl+)
-    ld      b,(hl)
-    ld      a,e
-    or      d
-    or      c
-    or      b
-    jp      z,dm_no
-    pop     af
-    scf
+    push    af                      ;drive 0..15
+    add     a,a                     ;times 2
+    add     a,a                     ;times 4: one cluster per letter
+    ld      l,a                     ;low byte of the index
+    ld      h,0                     ;index fits in one byte
+    ld      de,_cpm_dir_sclust      ;A: at the base, four bytes each
+    add     hl,de                   ;address of this drive's cluster
+    ld      e,(hl+)                 ;cluster, low byte
+    ld      d,(hl+)                 ;second byte
+    ld      c,(hl+)                 ;third byte
+    ld      b,(hl)                  ;high byte
+    ld      a,e                     ;zero cluster is not mounted
+    or      d                       ;fold the four bytes
+    or      c                       ;still zero?
+    or      b                       ;still zero?
+    jp      z,dm_no                 ;not mounted
+    pop     af                      ;drive number back
+    scf                             ;mounted: carry set, A kept
     ret
 dm_no:
-    pop     af
-    or      a
+    pop     af                      ;drive number, carry will clear
+    or      a                       ;clear carry
     ret
 
 ; HL = login or R/O word. A = drive. Returns A = mask, HL = byte.
 drv_ref:
-    cp      8
-    jp      c,dr_lo
-    sub     8
-    inc     hl
+    cp      8                       ;drives 0..7 live in the low byte
+    jp      c,dr_lo                 ;low byte
+    sub     8                       ;drives 8..15
+    inc     hl                      ;high byte of the vector
 dr_lo:
-    push    hl
-    ld      hl,bit01
-    add     a,l
-    ld      l,a
-    ld      a,h
-    adc     a,0
-    ld      h,a
-    ld      a,(hl)
-    pop     hl
+    push    hl                      ;byte address
+    ld      hl,bit01                ;masks for bit 0..7
+    add     a,l                     ;bit01 + bit number
+    ld      l,a                     ;low byte of the mask address
+    ld      a,h                     ;high byte, plus carry
+    adc     a,0                     ;carry into the high byte
+    ld      h,a                     ;mask address
+    ld      a,(hl)                  ;bit mask for this drive
+    pop     hl                      ;HL = vector byte again
     ret
 
 drv_test:
-    call    drv_ref
-    and     (hl)
+    call    drv_ref                 ;A = mask, HL = byte
+    and     (hl)                    ;Z when this drive's bit is clear
     ret
 
 drv_set:
-    call    drv_ref
-    or      (hl)
-    ld      (hl),a
+    call    drv_ref                 ;A = mask, HL = byte
+    or      (hl)                    ;set this drive's bit
+    ld      (hl),a                  ;store the vector byte
     ret
 
 bit01:
-    defb    1,2,4,8,16,32,64,128
+    defb    1,2,4,8,16,32,64,128    ;bit 0 .. bit 7
 
 vol_ready:
-    ld      a,(_cpm_fat_vol)
-    or      a
-    jp      z,vr_mount
-    scf
+    ld      a,(_cpm_fat_vol)        ;fs_type, 0 means not mounted
+    or      a                       ;need a mount
+    jp      z,vr_mount              ;fs_type is still 0
+    scf                             ;already mounted
     ret
 vr_mount:
-    call    open_void
-    call    fat_mount
+    call    open_void               ;a new mount drops the open file
+    call    fat_mount               ;carry is the mount result
     ret
 
 ;
@@ -851,21 +851,21 @@ vr_mount:
 ; print Select and warm-boot.
 ;
 gate:
-    call    vol_ready
-    ret     nc
-    ld      a,(bdos_user)
-    or      a
-    ret     nz
-    ld      a,(bdos_fcb)
-    cp      '?'
-    jp      z,fatal_sel
-    call    eff_num
-    jp      nc,fatal_sel
-    call    drv_mounted
-    jp      nc,fatal_sel
-    ld      hl,bdos_login
-    call    drv_set
-    scf
+    call    vol_ready               ;carry clear when the card is not mounted
+    ret     nc                      ;cannot proceed
+    ld      a,(bdos_user)           ;only user 0 has files
+    or      a                       ;nonzero user: miss, carry clear
+    ret     nz                      ;not user 0
+    ld      a,(bdos_fcb)            ;FCB drive
+    cp      '?'                     ;'?' is not legal on a file call
+    jp      z,fatal_sel             ;Select, then warm boot
+    call    eff_num                 ;0 = current, 1 = A, through 16 = P
+    jp      nc,fatal_sel            ;drive past P
+    call    drv_mounted             ;cluster must be nonzero
+    jp      nc,fatal_sel            ;empty letter
+    ld      hl,bdos_login           ;login vector
+    call    drv_set                 ;log this drive in
+    scf                             ;gate passed
     ret
 
 ;
@@ -874,52 +874,52 @@ gate:
 ; Select.
 ;
 srch_gate:
-    call    vol_ready
-    ret     nc
-    ld      a,(bdos_fcb)
-    cp      '?'
-    jp      nz,sg_num
-    ld      a,(bdos_drive)
-    call    drv_mounted
-    ret     nc
-    ld      hl,bdos_login
-    call    drv_set
-    scf
+    call    vol_ready               ;volume must be mounted
+    ret     nc                      ;search miss, carry clear
+    ld      a,(bdos_fcb)            ;FCB drive
+    cp      '?'                     ;'?' means the current drive, any user
+    jp      nz,sg_num               ;a numbered drive
+    ld      a,(bdos_drive)          ;current drive 0..15
+    call    drv_mounted             ;unmounted '?': miss, no Select
+    ret     nc                      ;not mounted
+    ld      hl,bdos_login           ;login vector
+    call    drv_set                 ;log the current drive in
+    scf                             ;proceed
     ret
 sg_num:
-    ld      a,(bdos_user)
-    or      a
-    ret     nz
-    call    eff_num
-    jp      nc,fatal_sel
-    call    drv_mounted
-    jp      nc,fatal_sel
-    ld      hl,bdos_login
-    call    drv_set
-    scf
+    ld      a,(bdos_user)           ;numbered drive: user 0 only
+    or      a                       ;another user misses
+    ret     nz                      ;not user 0
+    call    eff_num                 ;resolve 0 and '?' is already handled
+    jp      nc,fatal_sel            ;drive number past P
+    call    drv_mounted             ;letter must be mounted
+    jp      nc,fatal_sel            ;empty letter prints Select
+    ld      hl,bdos_login           ;login vector
+    call    drv_set                 ;log it in
+    scf                             ;proceed
     ret
 
 ret_ff:
-    ld      hl,$00FF
+    ld      hl,$00FF                ;failure value FF in L
     ret
 
 ;
 ; (dir_ofs / 32) & 3. Five rotates leave the old bits 6 and 5 in 1 and 0.
 ;
 slot_index:
-    ld      a,(dir_ofs)
+    ld      a,(dir_ofs)             ;directory byte offset, low
+    rrca                            ;first of five rotates: bits 6..5 land in 1..0
     rrca
     rrca
     rrca
-    rrca
-    rrca
+    rrca                            ;two low bits are the slot in the 128-byte record
     and     3
     ret
 
 ret_index:
-    call    slot_index
-    ld      l,a
-    ld      h,0
+    call    slot_index              ;(dir_ofs/32) & 3
+    ld      l,a                     ;0..3, the search return
+    ld      h,0                     ;high byte stays 0
     ret
 
 ;
@@ -927,23 +927,23 @@ ret_index:
 ; reaches dir_sdi as the offset and BCDE as the directory cluster.
 ;
 root_at:
-    push    hl
-    ld      a,(bdos_fcb)
-    cp      '?'
-    jp      nz,ra_num
-    ld      a,(bdos_drive)
-    jp      ra_go
+    push    hl                      ;offset, restored for dir_sdi
+    ld      a,(bdos_fcb)            ;FCB drive
+    cp      '?'                     ;'?' uses the current drive
+    jp      nz,ra_num               ;a number, or 0 for current
+    ld      a,(bdos_drive)          ;current drive
+    jp      ra_go                   ;test that cluster
 ra_num:
-    call    eff_num
-    jp      nc,ra_none
+    call    eff_num                 ;0 = current; carry clear if past P
+    jp      nc,ra_none              ;bad drive: carry clear
 ra_go:
-    call    drv_mounted
-    jp      nc,ra_none
-    pop     hl
-    jp      dir_sdi
+    call    drv_mounted             ;BCDE = directory cluster
+    jp      nc,ra_none              ;not mounted
+    pop     hl                      ;offset back; BCDE is the cluster
+    jp      dir_sdi                 ;dir_sdi keeps HL and BCDE
 ra_none:
-    pop     hl
-    or      a
+    pop     hl                      ;drop the offset
+    or      a                       ;clear carry: root_at failed
     ret
 
 ;
@@ -951,18 +951,18 @@ ra_none:
 ; Z80: ldir. 8085: nested ld a,(hl+) / ld (de+),a.
 ;
 bdos_move:
-    ldir
+    ldir                            ;HL to DE, BC bytes
     ret
 
 ;
 ; A is folded to A-Z. Other bytes stay as they are.
 ;
 fold:
-    cp      'a'
-    ret     c
-    cp      'z'+1
-    ret     nc
-    sub     32
+    cp      'a'                     ;below 'a' stays as it is
+    ret     c                       ;carry: not a letter
+    cp      'z'+1                   ;above 'z' stays as it is
+    ret     nc                      ;carry clear: not lower case
+    sub     32                      ;A-Z is 32 below a-z
     ret
 
 ;
@@ -970,196 +970,196 @@ fold:
 ; '?' matches any byte. Bit 7 is ignored. A leading 05 compares as E5.
 ;
 name_match:
-    ld      hl,bdos_fcb+1
-    jp      name_cmp
+    ld      hl,bdos_fcb+1           ;FCB name, eleven bytes
+    jp      name_cmp                ;wild match against dir_ptr
 
 ;
 ; Carry set when ent_buf matches. '?' is a literal byte here.
 ;
 name_eq_ent:
-    ld      hl,ent_buf
-    jp      name_cmp_raw
+    ld      hl,ent_buf              ;new name, '?' is literal
+    jp      name_cmp_raw            ;raw compare, no wildcards
 
 name_cmp:
-    jp      name_cmp_wild
+    jp      name_cmp_wild           ;the FCB name uses '?'
 
 name_cmp_wild:
-    ld      a,1
-    ld      (wild_on),a
-    jp      nm_go
+    ld      a,1                     ;wildcards are active
+    ld      (wild_on),a             ;remember it for the eleven bytes
+    jp      nm_go                   ;compare
 
 name_cmp_raw:
-    xor     a
-    ld      (wild_on),a
+    xor     a                       ;no wildcards
+    ld      (wild_on),a             ;literal compare
 
 nm_go:
-    ex      de,hl
-    ld      hl,(dir_ptr)
-    ld      a,(hl)
-    cp      $05
-    jp      nz,nm_m
-    ld      a,$E5
+    ex      de,hl                   ;DE = candidate name
+    ld      hl,(dir_ptr)            ;directory entry
+    ld      a,(hl)                  ;first byte
+    cp      $05                     ;FAT stores a leading E5 as 05
+    jp      nz,nm_m                 ;not the escaped deleted mark
+    ld      a,$E5                   ;compare it as E5
 nm_m:
-    and     $7F
-    call    fold
-    ld      c,a
-    ld      a,(de)
-    and     $7F
-    ld      b,a
-    ld      a,(wild_on)
-    or      a
-    jp      z,nm_lit0
-    ld      a,b
-    cp      '?'
-    jp      z,nm_n0
+    and     $7F                     ;ignore the attribute bit
+    call    fold                    ;directory byte to A-Z
+    ld      c,a                     ;folded directory byte
+    ld      a,(de)                  ;candidate byte
+    and     $7F                     ;attribute bit off
+    ld      b,a                     ;candidate
+    ld      a,(wild_on)             ;0 means a literal compare
+    or      a                       ;wildcards off
+    jp      z,nm_lit0               ;literal path
+    ld      a,b                     ;candidate again
+    cp      '?'                     ;'?' matches any first byte
+    jp      z,nm_n0                 ;first byte matched by '?'
 nm_lit0:
-    ld      a,b
-    call    fold
-    cp      c
-    jp      nz,nm_fail
+    ld      a,b                     ;candidate, folded
+    call    fold                    ;same case as the directory
+    cp      c                       ;equal to the directory byte?
+    jp      nz,nm_fail              ;first byte differs
 nm_n0:
-    inc     hl
-    inc     de
-    ld      b,10
-    ld      a,(wild_on)
-    or      a
-    jp      z,nmr_lp
+    inc     hl                      ;second byte of the entry
+    inc     de                      ;second byte of the name
+    ld      b,10                    ;ten bytes left
+    ld      a,(wild_on)             ;wildcard flag again
+    or      a                       ;which loop
+    jp      z,nmr_lp                ;literal loop
 nmw_lp:
-    ld      a,(hl)
-    and     $7F
-    call    fold
-    ld      c,a
-    ld      a,(de)
-    and     $7F
-    cp      '?'
-    jp      z,nmw_n
-    call    fold
-    cp      c
-    jp      nz,nm_fail
+    ld      a,(hl)                  ;directory byte
+    and     $7F                     ;attribute bit off
+    call    fold                    ;fold
+    ld      c,a                     ;directory
+    ld      a,(de)                  ;candidate
+    and     $7F                     ;attribute bit off
+    cp      '?'                     ;'?' matches
+    jp      z,nmw_n                 ;this byte is wild
+    call    fold                    ;fold a literal candidate
+    cp      c                       ;same byte?
+    jp      nz,nm_fail              ;name does not match
 nmw_n:
-    inc     hl
-    inc     de
-    dec     b
-    jp      nz,nmw_lp
-    scf
+    inc     hl                      ;next directory byte
+    inc     de                      ;next candidate
+    dec     b                       ;one fewer
+    jp      nz,nmw_lp               ;more of the ten
+    scf                             ;all 11 matched
     ret
 
 nmr_lp:
-    ld      a,(hl)
-    and     $7F
-    call    fold
-    ld      c,a
-    ld      a,(de)
-    and     $7F
-    call    fold
-    cp      c
-    jp      nz,nm_fail
-    inc     hl
-    inc     de
-    dec     b
-    jp      nz,nmr_lp
-    scf
+    ld      a,(hl)                  ;directory byte
+    and     $7F                     ;attribute bit off
+    call    fold                    ;fold
+    ld      c,a                     ;directory
+    ld      a,(de)                  ;candidate
+    and     $7F                     ;attribute bit off
+    call    fold                    ;fold
+    cp      c                       ;same byte?
+    jp      nz,nm_fail              ;literal name differs
+    inc     hl                      ;next directory byte
+    inc     de                      ;next candidate
+    dec     b                       ;one fewer
+    jp      nz,nmr_lp               ;more of the ten
+    scf                             ;all 11 matched
     ret
 nm_fail:
-    or      a
+    or      a                       ;clear carry: not a match
     ret
 
 ;
 ; Carry set when attr & 18h (label, directory, or LFN).
 ;
 attr_skip:
-    ld      hl,(dir_ptr)
-    ld      de,11
-    add     hl,de
-    ld      a,(hl)
-    and     $18
-    ret     z
-    scf
+    ld      hl,(dir_ptr)            ;directory entry
+    ld      de,11                   ;FAT attribute is byte 11
+    add     hl,de                   ;point at it
+    ld      a,(hl)                  ;attribute
+    and     $18                     ;label, directory, or LFN
+    ret     z                       ;ordinary file: carry clear
+    scf                             ;skip this entry
     ret
 
 ;
 ; First file whose name matches, from offset 0. Carry set on a hit.
 ;
 find_name:
-    ld      hl,0
+    ld      hl,0                    ;first match, from the start of the directory
 
 ;
 ; IN HL = first directory offset. Carry set, dir_ptr at the match.
 ;
 next_match:
 nx_lp:
-    push    hl
-    call    root_at
-    pop     hl
-    ret     nc
-    ld      hl,(dir_ptr)
-    ld      a,(hl)
-    or      a
-    jp      z,nx_no
-    cp      $E5
-    jp      z,nx_adv
-    call    attr_skip
-    jp      c,nx_adv
-    call    name_match
-    ret     c
+    push    hl                      ;offset to try
+    call    root_at                 ;dir_ptr at that entry, or carry clear
+    pop     hl                      ;offset
+    ret     nc                      ;root_at failed, or the letter is empty
+    ld      hl,(dir_ptr)            ;entry
+    ld      a,(hl)                  ;first byte
+    or      a                       ;00h ends the directory
+    jp      z,nx_no                 ;no match
+    cp      $E5                     ;E5 is a deleted slot
+    jp      z,nx_adv                ;try the next entry
+    call    attr_skip               ;label, directory, LFN
+    jp      c,nx_adv                ;carry: not a file
+    call    name_match              ;FCB name against this entry
+    ret     c                       ;carry: hit, dir_ptr stays
 nx_adv:
-    ld      hl,(dir_ofs)
-    ld      de,32
-    add     hl,de
-    jp      c,nx_no
-    jp      nx_lp
+    ld      hl,(dir_ofs)            ;byte offset of this entry
+    ld      de,32                   ;next directory slot
+    add     hl,de                   ;advance 32
+    jp      c,nx_no                 ;past 64 KB: no more entries
+    jp      nx_lp                   ;keep scanning
 nx_no:
-    or      a
+    or      a                       ;clear carry: miss
     ret
 
 ;
 ; BCDE = start cluster. High word forced 0 unless the volume is FAT32.
 ;
 load_clst:
-    ld      hl,(dir_ptr)
-    ld      de,26
-    add     hl,de
-    ld      e,(hl+)
-    ld      d,(hl)
-    ld      hl,(dir_ptr)
-    ld      bc,20
-    add     hl,bc
-    ld      c,(hl+)
-    ld      b,(hl)
-    ld      a,(_cpm_fat_vol)
-    cp      3
-    ret     z
-    ld      bc,0
+    ld      hl,(dir_ptr)            ;this directory entry
+    ld      de,26                   ;low cluster is at byte 26
+    add     hl,de                   ;point at it
+    ld      e,(hl+)                 ;cluster low
+    ld      d,(hl)                  ;cluster second byte
+    ld      hl,(dir_ptr)            ;same entry
+    ld      bc,20                   ;high cluster is at byte 20
+    add     hl,bc                   ;point at it
+    ld      c,(hl+)                 ;cluster third byte
+    ld      b,(hl)                  ;cluster high
+    ld      a,(_cpm_fat_vol)        ;fs_type
+    cp      3                       ;3 is FAT32
+    ret     z                       ;FAT32 keeps the high word
+    ld      bc,0                    ;FAT12/16: high word is 0
     ret
 
 ;
 ; Free BCDE when the cluster is 2 or more. Cluster 0 returns immediately.
 ;
 maybe_free:
-    ld      a,b
-    or      c
-    jp      nz,remove_chain
-    ld      a,d
-    or      a
-    jp      nz,remove_chain
-    ld      a,e
-    cp      2
-    ret     c
-    jp      remove_chain
+    ld      a,b                     ;high word of the cluster
+    or      c                       ;nonzero is a real cluster
+    jp      nz,remove_chain         ;free the chain
+    ld      a,d                     ;second byte
+    or      a                       ;nonzero: free it
+    jp      nz,remove_chain         ;free it
+    ld      a,e                     ;low byte
+    cp      2                       ;0 and 1 are not file clusters
+    ret     c                       ;carry: nothing to free
+    jp      remove_chain            ;cluster 2 or more
 
 zero_clst:
-    ld      hl,(dir_ptr)
-    ld      de,20
-    add     hl,de
-    xor     a
-    ld      (hl+),a
-    ld      (hl),a
-    ld      hl,(dir_ptr)
-    ld      de,26
-    add     hl,de
-    xor     a
-    ld      (hl+),a
-    ld      (hl),a
+    ld      hl,(dir_ptr)            ;entry
+    ld      de,20                   ;high cluster word
+    add     hl,de                   ;byte 20
+    xor     a                       ;clear
+    ld      (hl+),a                 ;high byte
+    ld      (hl),a                  ;second byte
+    ld      hl,(dir_ptr)            ;entry again
+    ld      de,26                   ;low cluster word
+    add     hl,de                   ;byte 26
+    xor     a                       ;clear
+    ld      (hl+),a                 ;low byte
+    ld      (hl),a                  ;second byte
     ret
 
 ;
@@ -1167,38 +1167,38 @@ zero_clst:
 ;
 shr5:
     push    bc
-    ld      a,c
+    ld      a,c                     ;BC comes back unchanged
+    rrca                            ;low byte of the extent
+    rrca                            ;first of five: BC >> 5, result 0..15
     rrca
     rrca
     rrca
-    rrca
-    rrca
-    and     7
-    ld      c,a
-    ld      a,b
+    and     7                       ;keep three bits of that rotate
+    ld      c,a                     ;low part of extent >> 5
+    ld      a,b                     ;high byte
+    add     a,a                     ;first of three: B << 3
     add     a,a
     add     a,a
-    add     a,a
-    or      c
-    pop     bc
+    or      c                       ;join the two halves
+    pop     bc                      ;BC restored
     ret
 
 ;
 ; BC >> 7 in DE. Used for the last extent: (nrec-1) >> 7, which is 0..511.
 ;
 shr7:
-    ld      a,c
-    rlca
-    and     1
-    ld      e,a
-    ld      a,b
-    add     a,a
-    ld      d,0
-    jp      nc,shr7_lo
-    inc     d
+    ld      a,c                     ;low byte
+    rlca                            ;its top bit becomes bit 0
+    and     1                       ;that bit
+    ld      e,a                     ;bit 0 of BC >> 7
+    ld      a,b                     ;high byte
+    add     a,a                     ;B << 1 is the rest of >> 7
+    ld      d,0                     ;high byte of the result starts at 0
+    jp      nc,shr7_lo              ;B << 1 did not overflow
+    inc     d                       ;bit 8 of the shifted value
 shr7_lo:
-    or      e
-    ld      e,a
+    or      e                       ;join bit 0
+    ld      e,a                     ;DE = BC >> 7
     ret
 
 ;
@@ -1207,93 +1207,93 @@ shr7_lo:
 ; A size at or above 8 MB, or 65536 records, is extents 0..511 RC 128.
 ;
 ext_rc:
-    push    bc
-    ld      hl,(dir_ptr)
-    ld      de,28
-    add     hl,de
-    ld      c,(hl+)
-    ld      b,(hl+)
-    ld      e,(hl+)
-    ld      d,(hl)
-    ld      a,d
-    or      a
-    jp      nz,erc_full
-    ld      a,e
-    cp      $80
-    jp      nc,erc_full
-    ld      a,d
-    or      e
-    or      b
-    or      c
-    jp      z,erc_zero
-    ld      a,c
-    and     $7F
-    push    af
-    ld      l,7
+    push    bc                      ;extent number the caller asked for
+    ld      hl,(dir_ptr)            ;matched directory entry
+    ld      de,28                   ;file size is at byte 28
+    add     hl,de                   ;point at the size
+    ld      c,(hl+)                 ;size byte 0, LSB
+    ld      b,(hl+)                 ;size byte 1
+    ld      e,(hl+)                 ;size byte 2
+    ld      d,(hl)                  ;size byte 3, MSB in D
+    ld      a,d                     ;above 16 MB is the 8 MB cap
+    or      a                       ;D nonzero means size >= 16 MB
+    jp      nz,erc_full             ;treat as every extent full
+    ld      a,e                     ;size byte 2
+    cp      $80                     ;8 MB is 00800000h
+    jp      nc,erc_full             ;size >= 8 MB: every extent full
+    ld      a,d                     ;zero-length test
+    or      e                       ;all four size bytes
+    or      b                       ;still zero?
+    or      c                       ;still zero?
+    jp      z,erc_zero              ;size 0 is extent 0, RC 0
+    ld      a,c                     ;low 7 bits are a partial last record
+    and     $7F                     ;bytes past a 128-byte boundary
+    push    af                      ;NZ later means nrec needs +1
+    ld      l,7                     ;shift the size right 7 times
 erc_sh:
-    srl     d               ;DEBC >> 1. 8085: rra through A
+    srl     d                       ;DEBC >> 1. 8085: rra through A
     rr      e
     rr      b
     rr      c
-    dec     l
-    jp      nz,erc_sh
-    pop     af
-    or      a
-    jp      z,erc_nrec
-    inc     bc
-    ld      a,b
-    or      c
-    jp      z,erc_full
+    dec     l                       ;seven shifts
+    jp      nz,erc_sh               ;DEBC >> 7 is the record count
+    pop     af                      ;partial-record flag
+    or      a                       ;Z when size is a multiple of 128
+    jp      z,erc_nrec              ;exact multiple: nrec is the shift
+    inc     bc                      ;a leftover byte is one more record
+    ld      a,b                     ;65536 records overflows BC
+    or      c                       ;BC wrapped to 0
+    jp      z,erc_full              ;that is the 8 MB cap
 erc_nrec:
-    ld      a,c
-    and     $7F
-    jp      nz,erc_rcl
-    ld      a,128
+    ld      a,c                     ;low byte of the record count
+    and     $7F                     ;records in the last extent, mod 128
+    jp      nz,erc_rcl              ;1..127 is the RC of the last extent
+    ld      a,128                   ;a multiple of 128 records fills the extent
 erc_rcl:
-    push    af
-    dec     bc
-    call    shr7
-    pop     af
-    pop     hl
-    push    af
-    ld      a,h
-    cp      d
-    jp      nz,erc_cmp
-    ld      a,l
-    cp      e
+    push    af                      ;RC of the last extent
+    dec     bc                      ;last extent is nrec-1
+    call    shr7                    ;DE = that extent, 0..511
+    pop     af                      ;RC
+    pop     hl                      ;HL = extent the caller asked for
+    push    af                      ;RC across the compare
+    ld      a,h                     ;asked extent, high byte
+    cp      d                       ;against the last extent
+    jp      nz,erc_cmp              ;high bytes differ: flags already decide
+    ld      a,l                     ;asked extent, low byte
+    cp      e                       ;against the last extent
 erc_cmp:
-    pop     bc
-    jp      z,erc_eq
-    jp      c,erc_lo
-    xor     a
-    ret
+    pop     bc                      ;B = RC; flags are the compare
+    jp      z,erc_eq                ;asked extent is the last one
+    jp      c,erc_lo                ;asked extent is earlier: RC 128
+    xor     a                       ;asked extent is past the end
+    ret                             ;A = 0, carry clear: no such extent
 erc_lo:
-    ld      a,128
-    scf
+    ld      a,128                   ;an earlier extent is full
+    scf                             ;extent exists
     ret
 erc_eq:
-    ld      a,b
-    scf
+    ld      a,b                     ;RC saved from the last extent
+    scf                             ;extent exists
     ret
 erc_full:
-    pop     bc
-    ld      a,b
-    cp      2
-    jp      nc,erc_miss
-    ld      a,128
-    scf
+    pop     bc                      ;extent the caller asked for
+    ld      a,b                     ;high byte
+    cp      2                       ;512 and above is past the 8 MB map
+    jp      nc,erc_miss             ;extent does not exist
+    ld      a,128                   ;every extent through 511 is full
+    scf                             ;extent exists
     ret
 erc_zero:
-    pop     bc
-    ld      a,b
-    or      c
-    jp      nz,erc_miss
-    xor     a
-    scf
+    pop     bc                      ;extent the caller asked for
+    ld      a,b                     ;only extent 0 exists
+    or      c                       ;any other extent
+    jp      nz,erc_miss             ;past a zero-length file
+    xor     a                       ;RC 0
+    scf                             ;extent 0 exists
     ret
 erc_miss:
-    xor     a
-    ret
+    xor     a                       ;no extent
+    ret                             ;carry clear
 
 ;
 ; Carry set when the FCB extent filter accepts BC.
@@ -1302,36 +1302,36 @@ erc_miss:
 ; Any other ex accepts only that extent in module 0. S2 was cleared.
 ;
 want_ext:
-    ld      a,(bdos_fcb+12)
-    cp      '?'
-    jp      nz,want_ex
-    ld      a,(bdos_fcb+14)
-    cp      '?'
-    jp      nz,want_s2
-    scf
+    ld      a,(bdos_fcb+12)         ;FCB extent
+    cp      '?'                     ;'?' selects more than one extent
+    jp      nz,want_ex              ;a real extent number
+    ld      a,(bdos_fcb+14)         ;FCB module
+    cp      '?'                     ;both wild: every existing extent
+    jp      nz,want_s2              ;EX wild, S2 is a module filter
+    scf                             ;accept this extent
     ret
 want_s2:
-    ld      l,a
-    call    shr5
-    cp      l
-    scf
-    ret     z
-    or      a
+    ld      l,a                     ;S2, bit 7 included
+    call    shr5                    ;A = extent >> 5
+    cp      l                       ;module must equal S2
+    scf                             ;match, if Z
+    ret     z                       ;Z: this extent is in that module
+    or      a                       ;not this module
     ret
 want_ex:
-    ld      a,b
-    or      a
-    jp      nz,want_no
-    ld      a,c
-    and     $E0
-    jp      nz,want_no
-    ld      a,(bdos_fcb+12)
-    and     $1F
-    cp      c
-    scf
-    ret     z
+    ld      a,b                     ;extent high byte
+    or      a                       ;module 0 is extents 0..31
+    jp      nz,want_no              ;256 or above is not module 0
+    ld      a,c                     ;extent low byte
+    and     $E0                     ;bits 5..7 are the module
+    jp      nz,want_no              ;extent 32..255 is not module 0
+    ld      a,(bdos_fcb+12)         ;FCB extent
+    and     $1F                     ;EX, attribute bits off
+    cp      c                       ;only that extent number
+    scf                             ;Z: accept
+    ret     z                       ;this is the requested extent
 want_no:
-    or      a
+    or      a                       ;reject
     ret
 
 ;
@@ -1339,83 +1339,83 @@ want_no:
 ; RC is 0 when the extent is past the end of the file.
 ;
 synth:
-    push    de
-    push    bc
-    call    ext_rc
-    pop     bc
-    pop     de
-    push    af
-    push    bc
-    push    de
-    ld      hl,ent_buf
-    ld      (hl),0
-    ld      de,ent_buf+1
-    ld      bc,31
-    ldir
-    ld      hl,(dir_ptr)
-    ld      de,ent_buf+1
-    ld      b,11
+    push    de                      ;destination for the 32-byte image
+    push    bc                      ;extent to synthesize
+    call    ext_rc                  ;A = RC, carry clear if past EOF
+    pop     bc                      ;extent
+    pop     de                      ;destination
+    push    af                      ;RC and the flags
+    push    bc                      ;extent
+    push    de                      ;destination
+    ld      hl,ent_buf              ;scratch directory image
+    ld      (hl),0                  ;drive byte 0
+    ld      de,ent_buf+1            ;rest of the 32 bytes
+    ld      bc,31                   ;31 bytes
+    ldir                            ;clear EX, S2, RC and the map
+    ld      hl,(dir_ptr)            ;the real directory entry
+    ld      de,ent_buf+1            ;name starts at byte 1
+    ld      b,11                    ;eleven name bytes
 sy_nm:
-    ld      a,(hl)
-    ld      c,b
-    ld      b,a
-    ld      a,c
-    cp      11
-    ld      a,b
-    ld      b,c
-    jp      nz,sy_bit
-    cp      $05
-    jp      nz,sy_bit
-    ld      a,$E5
-    jp      sy_st
+    ld      a,(hl)                  ;directory name byte
+    ld      c,b                     ;count aside
+    ld      b,a                     ;name byte aside
+    ld      a,c                     ;count back
+    cp      11                      ;the first byte is special
+    ld      a,b                     ;name byte
+    ld      b,c                     ;count back
+    jp      nz,sy_bit               ;bytes 2..11 go to the bit strip
+    cp      $05                     ;leading 05 is a stored E5
+    jp      nz,sy_bit               ;not the deleted-mark escape
+    ld      a,$E5                   ;show it as E5
+    jp      sy_st                   ;store that first byte
 sy_bit:
-    and     $7F
+    and     $7F                     ;attribute bit off the name
 sy_st:
-    ld      (de+),a
-    inc     hl
-    dec     b
-    jp      nz,sy_nm
+    ld      (de+),a                 ;name byte into the image
+    inc     hl                      ;next directory byte
+    dec     b                       ;eleven name bytes
+    jp      nz,sy_nm                ;more of the name
 sy_attr:
-    ld      hl,(dir_ptr)
-    ld      de,11
-    add     hl,de
-    ld      a,(hl)
-    rrca
-    jp      nc,sy_t2
-    ld      a,(ent_buf+9)
-    or      $80
-    ld      (ent_buf+9),a
+    ld      hl,(dir_ptr)            ;directory entry
+    ld      de,11                   ;attribute byte
+    add     hl,de                   ;point at it
+    ld      a,(hl)                  ;FAT attribute
+    rrca                            ;bit 0 is T1'
+    jp      nc,sy_t2                ;bit 0 clear: no T1'
+    ld      a,(ent_buf+9)           ;first type byte in the image
+    or      $80                     ;T1' set
+    ld      (ent_buf+9),a           ;store it on the type
 sy_t2:
-    ld      a,(hl)
+    ld      a,(hl)                  ;attribute again
+    rrca                            ;two rotates put bit 1 in carry
     rrca
-    rrca
-    jp      nc,sy_ex
-    ld      a,(ent_buf+10)
-    or      $80
-    ld      (ent_buf+10),a
+    jp      nc,sy_ex                ;bit 1 clear: no T2'
+    ld      a,(ent_buf+10)          ;second type byte
+    or      $80                     ;T2' set
+    ld      (ent_buf+10),a          ;store it
 sy_ex:
-    pop     de
-    pop     bc
-    pop     af
-    push    de
-    ld      (ent_buf+15),a
-    ld      a,c
-    and     $1F
-    ld      (ent_buf+12),a
-    call    shr5
-    and     $7F
-    ld      (ent_buf+14),a
-    pop     de
-    ld      hl,ent_buf
-    ld      bc,32
-    jp      bdos_move
+    pop     de                      ;destination
+    pop     bc                      ;extent number
+    pop     af                      ;RC, or 0 when this extent is past EOF
+    push    de                      ;destination stays
+    ld      (ent_buf+15),a          ;RC into the image
+    ld      a,c                     ;extent low byte
+    and     $1F                     ;EX is the low 5 bits
+    ld      (ent_buf+12),a          ;image EX
+    call    shr5                    ;A = extent >> 5, the module
+    and     $7F                     ;S2 bit 7 stays clear in the image
+    ld      (ent_buf+14),a          ;image S2
+    pop     de                      ;destination
+    ld      hl,ent_buf              ;image
+    ld      bc,32                   ;32-byte extent
+    jp      bdos_move               ;copy it to DE
 
 fill_rec:
-    ld      hl,bdos_rec
-    ld      (hl),$E5
-    ld      de,bdos_rec+1
-    ld      bc,127
-    ldir
+    ld      hl,bdos_rec             ;directory record image
+    ld      (hl),$E5                ;empty slot marker
+    ld      de,bdos_rec+1           ;rest of the record
+    ld      bc,127                  ;127 more E5 bytes
+    ldir                            ;a blank directory record
     ret
 
 ;
@@ -1423,172 +1423,172 @@ fill_rec:
 ; still match. Otherwise step to the next directory slot.
 ;
 cursor_after:
-    ld      a,(bdos_fcb)
-    cp      '?'
-    jp      z,curs_slot
-    ld      a,(bdos_fcb+12)
-    cp      '?'
-    jp      nz,curs_slot
-    inc     bc
-    push    bc
-    call    ext_rc
-    pop     bc
-    jp      nc,curs_slot
-    push    bc
-    call    want_ext
-    pop     bc
-    jp      nc,curs_slot
-    ld      hl,bc
-    ld      (srch_ext),hl
+    ld      a,(bdos_fcb)            ;FCB drive
+    cp      '?'                     ;'?' lists every slot, then moves on
+    jp      z,curs_slot             ;one slot, no further extent
+    ld      a,(bdos_fcb+12)         ;FCB extent
+    cp      '?'                     ;only a wild extent stays on this slot
+    jp      nz,curs_slot            ;exact extent: next directory slot
+    inc     bc                      ;the extent just emitted
+    push    bc                      ;ask about the next one
+    call    ext_rc                  ;carry clear: that extent is past EOF
+    pop     bc                      ;extent
+    jp      nc,curs_slot            ;no more extents in this file
+    push    bc                      ;extent
+    call    want_ext                ;does the FCB filter want it?
+    pop     bc                      ;extent
+    jp      nc,curs_slot            ;filter rejected it
+    ld      hl,bc                   ;stay on this directory slot
+    ld      (srch_ext),hl           ;next extent to try
     ret
 curs_slot:
-    ld      hl,(srch_ofs)
-    ld      de,32
-    add     hl,de
-    ld      (srch_ofs),hl
-    ld      hl,0
-    ld      (srch_ext),hl
+    ld      hl,(srch_ofs)           ;slot just emitted
+    ld      de,32                   ;next directory entry
+    add     hl,de                   ;advance
+    ld      (srch_ofs),hl           ;next search starts there
+    ld      hl,0                    ;extent 0 of that entry
+    ld      (srch_ext),hl           ;reset the extent cursor
     ret
 
 hit_index:
-    ld      a,(srch_idx)
-    and     3
-    ld      l,a
-    ld      h,0
-    ld      a,(srch_idx)
-    inc     a
-    and     3
-    ld      (srch_idx),a
+    ld      a,(srch_idx)            ;slot counter
+    and     3                       ;0..3 in this 128-byte record
+    ld      l,a                     ;return that index
+    ld      h,0                     ;high byte 0
+    ld      a,(srch_idx)            ;same counter
+    inc     a                       ;next hit uses the next slot
+    and     3                       ;wrap 0..3
+    ld      (srch_idx),a            ;stored for the next emit
     ret
 
 ;
 ; One search hit into bdos_rec, then HL = 0..3.
 ;
 sf_emit:
-    push    bc
-    call    fill_rec
-    ld      a,(srch_idx)
-    and     3
-    ld      l,a
-    ld      h,0
+    push    bc                      ;extent to emit
+    call    fill_rec                ;record starts as all E5
+    ld      a,(srch_idx)            ;which slot in the record
+    and     3                       ;0..3
+    ld      l,a                     ;index
+    ld      h,0                     ;high byte 0
+    add     hl,hl                   ;times 2; five adds make slot*32
     add     hl,hl
     add     hl,hl
     add     hl,hl
     add     hl,hl
-    add     hl,hl
-    ld      de,bdos_rec
-    add     hl,de
-    ex      de,hl
-    pop     bc
-    push    bc
-    call    synth
-    pop     bc
-    call    cursor_after
-    jp      hit_index
+    ld      de,bdos_rec             ;record base
+    add     hl,de                   ;address of this 32-byte slot
+    ex      de,hl                   ;DE = where synth should write
+    pop     bc                      ;extent
+    push    bc                      ;extent across synth
+    call    synth                   ;build the extent at that slot
+    pop     bc                      ;extent
+    call    cursor_after            ;advance the cursor or the slot
+    jp      hit_index               ;HL = 0..3
 
 sf_hole:
-    call    fill_rec
-    call    curs_slot
-    jp      hit_index
+    call    fill_rec                ;deleted entry shows as an empty record
+    call    curs_slot               ;this slot is consumed
+    jp      hit_index               ;HL = 0..3
 
 srch_done:
-    xor     a
-    ld      (srch_on),a
-    jp      ret_ff
+    xor     a                       ;search is finished
+    ld      (srch_on),a             ;fn 18 will not continue
+    jp      ret_ff                  ;return FF
 
 srch_from:
 sf_slot:
-    ld      hl,(srch_ofs)
-    call    root_at
-    jp      nc,srch_done
-    ld      hl,(dir_ptr)
-    ld      a,(hl)
-    or      a
-    jp      z,srch_done
-    ld      c,a
-    ld      a,(bdos_fcb)
-    cp      '?'
-    jp      z,sf_raw
-    ld      a,c
-    cp      $E5
-    jp      z,sf_adv
-    call    attr_skip
-    jp      c,sf_adv
-    call    name_match
-    jp      nc,sf_adv
+    ld      hl,(srch_ofs)           ;directory offset
+    call    root_at                 ;entry, or carry clear at end
+    jp      nc,srch_done            ;no more directory
+    ld      hl,(dir_ptr)            ;entry
+    ld      a,(hl)                  ;first byte
+    or      a                       ;00h ends the directory
+    jp      z,srch_done             ;search is over
+    ld      c,a                     ;first byte, maybe E5
+    ld      a,(bdos_fcb)            ;FCB drive
+    cp      '?'                     ;'?' returns every slot, names included
+    jp      z,sf_raw                ;raw directory listing
+    ld      a,c                     ;first byte
+    cp      $E5                     ;deleted slot
+    jp      z,sf_adv                ;skip it
+    call    attr_skip               ;label, directory, LFN
+    jp      c,sf_adv                ;not a file
+    call    name_match              ;FCB name, '?' wild
+    jp      nc,sf_adv               ;different name
 sf_ex:
-    ld      hl,(srch_ext)
-    ld      bc,hl
-    push    bc
-    call    ext_rc
-    pop     bc
-    jp      nc,sf_adv
-    push    bc
-    call    want_ext
-    pop     bc
-    jp      c,sf_emit
-    ld      a,(bdos_fcb+12)
-    cp      '?'
-    jp      nz,sf_adv
-    ld      hl,(srch_ext)
-    inc     hl
-    ld      (srch_ext),hl
-    jp      sf_ex
+    ld      hl,(srch_ext)           ;extent cursor for this slot
+    ld      bc,hl                   ;BC = extent to test
+    push    bc                      ;extent
+    call    ext_rc                  ;carry clear: past the file
+    pop     bc                      ;extent
+    jp      nc,sf_adv               ;try the next directory slot
+    push    bc                      ;extent
+    call    want_ext                ;FCB filter
+    pop     bc                      ;extent
+    jp      c,sf_emit               ;filter accepts it
+    ld      a,(bdos_fcb+12)         ;FCB extent
+    cp      '?'                     ;a fixed extent does not walk further
+    jp      nz,sf_adv               ;not this extent: next slot
+    ld      hl,(srch_ext)           ;extent cursor
+    inc     hl                      ;next extent of the same file
+    ld      (srch_ext),hl           ;stay on this slot
+    jp      sf_ex                   ;test that extent
 sf_raw:
-    ld      a,c
-    cp      $E5
-    jp      z,sf_hole
-    call    attr_skip
-    jp      c,sf_adv
-    ld      bc,0
-    jp      sf_emit
+    ld      a,c                     ;first byte
+    cp      $E5                     ;deleted slot is a hole in a '?' listing
+    jp      z,sf_hole               ;emit an E5 record
+    call    attr_skip               ;label, directory, LFN
+    jp      c,sf_adv                ;skip it
+    ld      bc,0                    ;a '?' listing emits extent 0 only
+    jp      sf_emit                 ;one directory image
 sf_adv:
-    ld      hl,(srch_ofs)
-    ld      de,32
-    add     hl,de
-    jp      c,srch_done
-    ld      (srch_ofs),hl
-    ld      hl,0
-    ld      (srch_ext),hl
-    jp      sf_slot
+    ld      hl,(srch_ofs)           ;slot just rejected
+    ld      de,32                   ;next entry
+    add     hl,de                   ;advance
+    jp      c,srch_done             ;wrapped past 64 KB
+    ld      (srch_ofs),hl           ;next offset
+    ld      hl,0                    ;extent 0 there
+    ld      (srch_ext),hl           ;clear the extent cursor
+    jp      sf_slot                 ;continue
 
 fn_search:
-    xor     a
-    ld      (srch_on),a
-    call    srch_gate
-    jp      nc,ret_ff
-    ld      a,(bdos_fcb)
-    cp      '?'
-    jp      z,fn17_save
-    ld      a,(bdos_fcb+12)
-    cp      '?'
-    jp      z,fn17_save
-    xor     a
-    ld      (bdos_fcb+14),a
+    xor     a                       ;a new search drops the old one
+    ld      (srch_on),a             ;inactive until the FCB is saved
+    call    srch_gate               ;'?' or user checks
+    jp      nc,ret_ff               ;search miss
+    ld      a,(bdos_fcb)            ;FCB drive
+    cp      '?'                     ;'?' must not clear S2
+    jp      z,fn17_save             ;keep S2 for a '?' drive
+    ld      a,(bdos_fcb+12)         ;FCB extent
+    cp      '?'                     ;a wild extent must not clear S2
+    jp      z,fn17_save             ;keep S2
+    xor     a                       ;an exact search starts at module 0
+    ld      (bdos_fcb+14),a         ;S2 cleared
 fn17_save:
-    ld      hl,bdos_fcb
-    ld      de,srch_fcb
-    ld      bc,36
-    call    bdos_move
-    xor     a
-    ld      h,a
-    ld      l,a
-    ld      (srch_ofs),hl
-    ld      (srch_ext),hl
-    ld      (srch_idx),a
-    inc     a
-    ld      (srch_on),a
-    jp      srch_from
+    ld      hl,bdos_fcb             ;staged FCB, including the cleared S2
+    ld      de,srch_fcb             ;remembered for fn 18
+    ld      bc,36                   ;36 bytes, drive through r2
+    call    bdos_move               ;save the search FCB
+    xor     a                       ;zero
+    ld      h,a                     ;high byte
+    ld      l,a                     ;low byte
+    ld      (srch_ofs),hl           ;directory offset 0
+    ld      (srch_ext),hl           ;extent 0
+    ld      (srch_idx),a            ;slot counter
+    inc     a                       ;search is active
+    ld      (srch_on),a             ;srch_on set
+    jp      srch_from               ;first hit, or FF
 
 fn_next:
-    ld      a,(srch_on)
-    or      a
-    jp      z,ret_ff
-    ld      hl,srch_fcb
-    ld      de,bdos_fcb
-    ld      bc,36
-    call    bdos_move
-    jp      srch_from
+    ld      a,(srch_on)             ;set by fn 17
+    or      a                       ;no search in progress
+    jp      z,ret_ff                ;fn 18 fails
+    ld      hl,srch_fcb             ;FCB saved by fn 17
+    ld      de,bdos_fcb             ;staged FCB fn 18 will search
+    ld      bc,36                   ;36 bytes; the caller's DE is not used
+    call    bdos_move               ;restore the search FCB
+    jp      srch_from               ;continue from srch_ofs
 
 ;
 ; Open. S2 is cleared first. The name may contain '?'. ex='?' activates
@@ -1596,36 +1596,36 @@ fn_next:
 ; Bytes 32..35 are left alone. The caller's drive and extent are put back.
 ;
 fn_open:
-    call    gate
-    jp      nc,ret_ff
-    xor     a
-    ld      (bdos_fcb+14),a
-    call    find_name
-    jp      nc,ret_ff
-    ld      a,(bdos_fcb)
-    ld      c,a
-    ld      a,(bdos_fcb+12)
-    ld      b,a
-    push    bc
-    cp      '?'
-    jp      z,op_z
-    and     $1F
-    ld      c,a
-    ld      b,0
-    jp      op_sy
+    call    gate                    ;mounted drive, user 0
+    jp      nc,ret_ff               ;open fails
+    xor     a                       ;search module 0 first
+    ld      (bdos_fcb+14),a         ;S2 cleared before the name match
+    call    find_name               ;first matching name
+    jp      nc,ret_ff               ;no such name
+    ld      a,(bdos_fcb)            ;caller's drive byte
+    ld      c,a                     ;saved across synth
+    ld      a,(bdos_fcb+12)         ;caller's EX, which may be '?'
+    ld      b,a                     ;saved with the drive
+    push    bc                      ;drive and EX
+    cp      '?'                     ;EX wild means extent 0
+    jp      z,op_z                  ;extent 0 of the first match
+    and     $1F                     ;EX, low 5 bits
+    ld      c,a                     ;that extent number
+    ld      b,0                     ;high byte 0: extents 0..31
+    jp      op_sy                   ;synthesize that extent
 op_z:
-    ld      bc,0
+    ld      bc,0                    ;ex='?': extent 0
 op_sy:
-    ld      de,bdos_fcb
-    call    synth
-    pop     bc
-    ld      a,c
-    ld      (bdos_fcb),a
-    ld      a,b
-    ld      (bdos_fcb+12),a
-    ld      a,$80
-    ld      (bdos_fcb+14),a
-    jp      ret_index
+    ld      de,bdos_fcb             ;staged FCB receives the image
+    call    synth                   ;overwrite bytes 0..31
+    pop     bc                      ;drive and the original EX
+    ld      a,c                     ;drive byte
+    ld      (bdos_fcb),a            ;put the caller's drive back
+    ld      a,b                     ;original EX, including '?'
+    ld      (bdos_fcb+12),a         ;put EX back; bytes 32..35 stay
+    ld      a,$80                   ;open sets S2 bit 7
+    ld      (bdos_fcb+14),a         ;interface bit, not the module
+    jp      ret_index               ;HL = directory slot 0..3
 
 ;
 ; Close. Bit 7 of S2 looks the name up and does not write. Bit 7 clear
@@ -1634,53 +1634,53 @@ op_sy:
 ; chain. The directory write is not marked archive.
 ;
 fn_close:
-    call    gate
-    jp      nc,ret_ff
-    call    open_void
-    ld      a,(bdos_fcb+14)
-    and     $80
-    jp      z,cl_wr
-    call    find_name
-    jp      nc,ret_ff
-    jp      ret_index
+    call    gate                    ;mounted, user 0
+    jp      nc,ret_ff               ;close fails
+    call    open_void               ;directory write must not reuse the cache
+    ld      a,(bdos_fcb+14)         ;S2
+    and     $80                     ;bit 7 set: look up, do not write
+    jp      z,cl_wr                 ;bit 7 clear: store the size
+    call    find_name               ;the name must exist
+    jp      nc,ret_ff               ;close fails
+    jp      ret_index               ;return the slot
 cl_wr:
-    call    disk_ro
-    call    find_name
-    jp      nc,ret_ff
-    call    slot_index
-    ld      (srch_idx),a
-    call    load_clst
-    ld      hl,de
-    ld      (ent_buf),hl
-    ld      hl,bc
-    ld      (ent_buf+2),hl
-    call    store_size
-    ld      a,0
-    jp      nz,cl_flg
-    inc     a
+    call    disk_ro                 ;disk R/O vector
+    call    find_name               ;name must exist
+    jp      nc,ret_ff               ;no such file
+    call    slot_index              ;slot 0..3
+    ld      (srch_idx),a            ;returned if the write succeeds
+    call    load_clst               ;BCDE = old start cluster
+    ld      hl,de                   ;low word
+    ld      (ent_buf),hl            ;saved for a possible free
+    ld      hl,bc                   ;high word
+    ld      (ent_buf+2),hl          ;saved
+    call    store_size              ;Z when the FCB length is zero
+    ld      a,0                     ;A = 0 means keep the chain
+    jp      nz,cl_flg               ;NZ: file is not empty
+    inc     a                       ;A = 1 means free
 cl_flg:
-    ld      (ent_buf+4),a
-    or      a
-    jp      z,cl_at
-    call    zero_clst
+    ld      (ent_buf+4),a           ;1 frees, 0 keeps the chain
+    or      a                       ;0 keeps it
+    jp      z,cl_at                 ;nonzero size: attributes only
+    call    zero_clst               ;size 0: clear the cluster in the entry
 cl_at:
-    call    apply_attr
-    call    fat_sync_window
-    jp      nc,ret_ff
-    ld      a,(ent_buf+4)
-    or      a
-    jp      z,cl_ret
-    ld      hl,(ent_buf+2)
-    ld      bc,hl
-    ld      hl,(ent_buf)
-    ex      de,hl
-    call    maybe_free
-    call    fat_sync_window
-    jp      nc,ret_ff
+    call    apply_attr              ;T1' and T2' into the FAT attribute
+    call    fat_sync_window         ;write the directory sector
+    jp      nc,ret_ff               ;sync failed
+    ld      a,(ent_buf+4)           ;free flag
+    or      a                       ;0: chain stays
+    jp      z,cl_ret                ;nothing to free
+    ld      hl,(ent_buf+2)          ;old cluster, high word
+    ld      bc,hl                   ;BC = high
+    ld      hl,(ent_buf)            ;old cluster, low word
+    ex      de,hl                   ;DE = low, BCDE = cluster
+    call    maybe_free              ;free only when the cluster is 2 or more
+    call    fat_sync_window         ;FAT too
+    jp      nc,ret_ff               ;sync failed
 cl_ret:
-    ld      a,(srch_idx)
-    ld      l,a
-    ld      h,0
+    ld      a,(srch_idx)            ;slot saved before the write
+    ld      l,a                     ;return 0..3
+    ld      h,0                     ;high byte 0
     ret
 
 ;
@@ -1688,87 +1688,87 @@ cl_ret:
 ; either way. 65536 records is the 8 MB cap.
 ;
 store_size:
-    ld      a,(bdos_fcb+14)
-    and     $0F
-    ld      l,a
-    ld      h,0
+    ld      a,(bdos_fcb+14)         ;S2
+    and     $0F                     ;module, bit 7 off
+    ld      l,a                     ;module
+    ld      h,0                     ;high byte 0
+    add     hl,hl                   ;module << 1, five times is << 5
     add     hl,hl
     add     hl,hl
     add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    ld      a,(bdos_fcb+12)
-    and     $1F
-    ld      e,a
-    ld      d,0
-    add     hl,de
-    ld      a,(bdos_fcb+15)
-    ld      c,a
-    ld      a,h
-    or      l
-    or      c
-    jp      z,ss_zero
-    ld      b,7
-    ex      de,hl
+    add     hl,hl                   ;HL = first extent of this module
+    ld      a,(bdos_fcb+12)         ;EX
+    and     $1F                     ;extent within the module
+    ld      e,a                     ;EX
+    ld      d,0                     ;high byte 0
+    add     hl,de                   ;HL = extent number
+    ld      a,(bdos_fcb+15)         ;RC
+    ld      c,a                     ;record count
+    ld      a,h                     ;extent 0 and RC 0 is empty
+    or      l                       ;either extent or RC is nonzero
+    or      c                       ;both zero?
+    jp      z,ss_zero               ;write a zero size, return Z
+    ld      b,7                     ;extent << 7 is the record number
+    ex      de,hl                   ;DE = extent
 ss_sh:
-    sla     e               ;DE << 1. 8085: rl de
+    sla     e                       ;DE << 1. 8085: rl de
     rl      d
-    dec     b
-    jp      nz,ss_sh
-    ld      a,e
-    add     a,c
-    ld      e,a
-    ld      a,d
+    dec     b                       ;seven shifts
+    jp      nz,ss_sh                ;DE = extent * 128
+    ld      a,e                     ;plus RC
+    add     a,c                     ;low byte of the record number
+    ld      e,a                     ;add RC
+    ld      a,d                     ;high byte of the record number
     adc     a,0
-    ld      d,a
-    jp      c,ss_cap
-    ld      hl,(dir_ptr)
-    ld      bc,28
-    add     hl,bc
-    ld      a,e
-    rrca
-    and     $80
-    ld      (hl+),a
-    ld      a,e
-    srl     a               ;E >> 1. 8085: or a / rra
-    ld      c,a
-    ld      a,d
-    and     1
-    jp      z,ss_s1
-    ld      a,c
-    or      $80
-    ld      c,a
+    ld      d,a                     ;high byte plus the carry
+    jp      c,ss_cap                ;too big for three size bytes
+    ld      hl,(dir_ptr)            ;directory entry
+    ld      bc,28                   ;size at byte 28
+    add     hl,bc                   ;point at it
+    ld      a,e                     ;record number, low
+    rrca                            ;bit 0 moves into bit 7: records << 7
+    and     $80                     ;size byte 0
+    ld      (hl+),a                 ;size byte 0
+    ld      a,e                     ;record number, low
+    srl     a                       ;E >> 1. 8085: or a / rra
+    ld      c,a                     ;records >> 1
+    ld      a,d                     ;bit 0 of D joins as bit 7
+    and     1                       ;that bit
+    jp      z,ss_s1                 ;D even: size byte 1 is just C
+    ld      a,c                     ;set bit 7
+    or      $80                     ;bit 8 of the record number
+    ld      c,a                     ;size byte 1
 ss_s1:
-    ld      (hl+),c
-    ld      a,d
-    srl     a               ;D >> 1. 8085: or a / rra
-    ld      (hl+),a
-    xor     a
-    ld      (hl),a
-    or      1
+    ld      (hl+),c                 ;size byte 1
+    ld      a,d                     ;record number, high
+    srl     a                       ;D >> 1. 8085: or a / rra
+    ld      (hl+),a                 ;size byte 2
+    xor     a                       ;size byte 3 is 0 below 8 MB
+    ld      (hl),a                  ;size byte 3
+    or      1                       ;NZ: the file is not empty
     ret
 ss_cap:
-    ld      hl,(dir_ptr)
-    ld      de,28
-    add     hl,de
-    xor     a
-    ld      (hl+),a
-    ld      (hl+),a
-    ld      a,$80
-    ld      (hl+),a
-    xor     a
-    ld      (hl),a
-    or      1
+    ld      hl,(dir_ptr)            ;directory entry
+    ld      de,28                   ;size at byte 28
+    add     hl,de                   ;point at it
+    xor     a                       ;8 MB cap is 00 00 80 00
+    ld      (hl+),a                 ;size byte 0
+    ld      (hl+),a                 ;size byte 1
+    ld      a,$80                   ;byte 2 = 80h
+    ld      (hl+),a                 ;size byte 2
+    xor     a                       ;size byte 3
+    ld      (hl),a                  ;size byte 3
+    or      1                       ;NZ: not a zero-length close
     ret
 ss_zero:
-    ld      hl,(dir_ptr)
-    ld      de,28
-    add     hl,de
-    xor     a
-    ld      (hl+),a
-    ld      (hl+),a
-    ld      (hl+),a
-    ld      (hl),a
+    ld      hl,(dir_ptr)            ;directory entry
+    ld      de,28                   ;size at byte 28
+    add     hl,de                   ;point at it
+    xor     a                       ;four zero size bytes
+    ld      (hl+),a                 ;byte 0
+    ld      (hl+),a                 ;byte 1
+    ld      (hl+),a                 ;byte 2
+    ld      (hl),a                  ;byte 3; Z means free the chain
     ret
 
 ;
@@ -1776,97 +1776,97 @@ ss_zero:
 ; not stored: directory byte 13 is the FAT creation-time tenths.
 ;
 apply_attr:
-    ld      hl,(dir_ptr)
-    ld      de,11
-    add     hl,de
-    ld      c,(hl)
-    ld      a,(bdos_fcb+9)
-    and     $80
-    jp      z,aa_t1c
-    ld      a,c
-    or      1
-    ld      c,a
-    jp      aa_t2
+    ld      hl,(dir_ptr)            ;directory entry
+    ld      de,11                   ;attribute at byte 11
+    add     hl,de                   ;point at it
+    ld      c,(hl)                  ;FAT attribute
+    ld      a,(bdos_fcb+9)          ;T1' is bit 7 of the first type byte
+    and     $80                     ;that bit
+    jp      z,aa_t1c                ;T1' clear
+    ld      a,c                     ;attribute
+    or      1                       ;FAT bit 0 is T1'
+    ld      c,a                     ;set
+    jp      aa_t2                   ;then T2'
 aa_t1c:
-    ld      a,c
-    and     $FE
-    ld      c,a
+    ld      a,c                     ;attribute
+    and     $FE                     ;clear bit 0
+    ld      c,a                     ;T1' off
 aa_t2:
-    ld      a,(bdos_fcb+10)
-    and     $80
-    jp      z,aa_t2c
-    ld      a,c
-    or      2
-    ld      c,a
-    jp      aa_st
+    ld      a,(bdos_fcb+10)         ;T2' is bit 7 of the second type byte
+    and     $80                     ;that bit
+    jp      z,aa_t2c                ;T2' clear
+    ld      a,c                     ;attribute
+    or      2                       ;FAT bit 1 is T2'
+    ld      c,a                     ;set
+    jp      aa_st                   ;store the attribute
 aa_t2c:
-    ld      a,c
-    and     $FD
-    ld      c,a
+    ld      a,c                     ;attribute
+    and     $FD                     ;clear bit 1
+    ld      c,a                     ;T2' off
 aa_st:
-    ld      (hl),c
-    ld      a,1
-    ld      (fat_wflag),a
+    ld      (hl),c                  ;attribute back into the entry
+    ld      a,1                     ;directory sector is dirty
+    ld      (fat_wflag),a           ;fat_sync_window will write it
     ret
 
 ;
 ; Delete. A read-only match is fatal after earlier matches are already gone.
 ;
 fn_delete:
-    call    gate
-    jp      nc,ret_ff
-    call    open_void
-    call    disk_ro
-    ld      a,$FF
-    ld      (srch_idx),a
-    ld      hl,0
+    call    gate                    ;mounted, user 0
+    jp      nc,ret_ff               ;delete fails
+    call    open_void               ;do not keep a deleted name open
+    call    disk_ro                 ;read-only disk refuses the delete
+    ld      a,$FF                   ;no hit yet
+    ld      (srch_idx),a            ;FF means return FF if nothing matches
+    ld      hl,0                    ;directory offset 0
 del_lp:
-    push    hl
-    call    next_match
-    pop     hl
-    jp      nc,del_done
-    ld      hl,(dir_ptr)
-    ld      de,11
-    add     hl,de
-    ld      a,(hl)
-    and     1
-    jp      nz,fatal_ro
-    call    load_clst
-    ld      hl,de
-    ld      (ent_buf),hl
-    ld      hl,bc
-    ld      (ent_buf+2),hl
-    ld      a,(srch_idx)
-    cp      $FF
-    jp      nz,del_zap
-    call    slot_index
-    ld      (srch_idx),a
+    push    hl                      ;offset
+    call    next_match              ;next name match
+    pop     hl                      ;offset
+    jp      nc,del_done             ;no more matches
+    ld      hl,(dir_ptr)            ;this entry
+    ld      de,11                   ;attribute byte
+    add     hl,de                   ;point at it
+    ld      a,(hl)                  ;attribute
+    and     1                       ;bit 0 is read-only
+    jp      nz,fatal_ro             ;a read-only match is fatal
+    call    load_clst               ;BCDE = start cluster
+    ld      hl,de                   ;low word
+    ld      (ent_buf),hl            ;save it
+    ld      hl,bc                   ;high word
+    ld      (ent_buf+2),hl          ;save it
+    ld      a,(srch_idx)            ;set on the first match only
+    cp      $FF                     ;already have the return slot
+    jp      nz,del_zap              ;not the first match
+    call    slot_index              ;slot of the first match
+    ld      (srch_idx),a            ;delete returns that slot
 del_zap:
-    ld      hl,(dir_ofs)
-    ld      de,32
-    add     hl,de
-    push    hl
-    call    dir_zap
-    call    fat_sync_window
-    jp      nc,del_bad
-    ld      hl,(ent_buf+2)
-    ld      bc,hl
-    ld      hl,(ent_buf)
-    ex      de,hl
-    call    maybe_free
-    call    fat_sync_window
-    jp      nc,del_bad
-    pop     hl
-    jp      del_lp
+    ld      hl,(dir_ofs)            ;offset of this entry
+    ld      de,32                   ;next slot, resumed after the zap
+    add     hl,de                   ;advance
+    push    hl                      ;resume offset
+    call    dir_zap                 ;mark the entry deleted
+    call    fat_sync_window         ;write that sector
+    jp      nc,del_bad              ;sync failed
+    ld      hl,(ent_buf+2)          ;cluster high
+    ld      bc,hl                   ;BC = high
+    ld      hl,(ent_buf)            ;cluster low
+    ex      de,hl                   ;DE = low
+    call    maybe_free              ;free the chain when it is real
+    call    fat_sync_window         ;FAT too
+    jp      nc,del_bad              ;sync failed
+    pop     hl                      ;next offset
+    jp      del_lp                  ;another match
 del_bad:
-    pop     hl
-    jp      ret_ff
+    pop     hl                      ;drop the resume offset
+    jp      ret_ff                  ;delete failed
 del_done:
-    ld      a,(srch_idx)
-    cp      $FF
-    jp      z,ret_ff
-    ld      l,a
-    ld      h,0
+    ld      a,(srch_idx)            ;FF if nothing was deleted
+    cp      $FF                     ;no match
+    jp      z,ret_ff                ;delete fails
+    ld      l,a                     ;first slot
+    ld      h,0                     ;return 0..3
     ret
 
 ;
@@ -1876,76 +1876,76 @@ del_done:
 ; returns FF and is not written.
 ;
 fn_make:
-    call    gate
-    jp      nc,ret_ff
-    call    open_void
-    call    disk_ro
-    call    mk_legal
-    jp      nc,ret_ff
-    xor     a
-    ld      (bdos_fcb+14),a
-    call    find_name
-    jp      nc,mk_new
-    ld      hl,(dir_ptr)
-    ld      de,11
-    add     hl,de
-    ld      a,(hl)
-    and     1
-    jp      nz,fatal_ro
-    call    slot_index
-    ld      (srch_idx),a
-    call    load_clst
-    ld      hl,de
-    ld      (ent_buf),hl
-    ld      hl,bc
-    ld      (ent_buf+2),hl
-    ld      hl,(dir_ptr)
-    ld      de,28
-    add     hl,de
-    xor     a
-    ld      (hl+),a
-    ld      (hl+),a
-    ld      (hl+),a
-    ld      (hl),a
-    call    zero_clst
-    ld      a,1
-    ld      (fat_wflag),a
-    call    fat_sync_window
-    jp      nc,ret_ff
-    ld      hl,(ent_buf+2)
-    ld      bc,hl
-    ld      hl,(ent_buf)
-    ex      de,hl
-    call    maybe_free
-    call    fat_sync_window
-    jp      nc,ret_ff
-    ld      a,$80
-    ld      (bdos_fcb+14),a
-    ld      a,(srch_idx)
-    ld      l,a
-    ld      h,0
+    call    gate                    ;mounted, user 0
+    jp      nc,ret_ff               ;make fails
+    call    open_void               ;a new file drops the cache
+    call    disk_ro                 ;read-only disk
+    call    mk_legal                ;8.3 bytes only
+    jp      nc,ret_ff               ;illegal name: FF, nothing written
+    xor     a                       ;search module 0
+    ld      (bdos_fcb+14),a         ;S2 cleared
+    call    find_name               ;an existing name is truncated
+    jp      nc,mk_new               ;no entry: create one
+    ld      hl,(dir_ptr)            ;existing entry
+    ld      de,11                   ;attribute
+    add     hl,de                   ;point at it
+    ld      a,(hl)                  ;attribute
+    and     1                       ;read-only file
+    jp      nz,fatal_ro             ;File R/O
+    call    slot_index              ;return slot
+    ld      (srch_idx),a            ;make returns it
+    call    load_clst               ;old cluster
+    ld      hl,de                   ;low word
+    ld      (ent_buf),hl            ;saved
+    ld      hl,bc                   ;high word
+    ld      (ent_buf+2),hl          ;saved
+    ld      hl,(dir_ptr)            ;entry
+    ld      de,28                   ;size at byte 28
+    add     hl,de                   ;point at it
+    xor     a                       ;truncate to zero
+    ld      (hl+),a                 ;byte 0
+    ld      (hl+),a                 ;byte 1
+    ld      (hl+),a                 ;byte 2
+    ld      (hl),a                  ;byte 3
+    call    zero_clst               ;cluster fields cleared
+    ld      a,1                     ;directory dirty
+    ld      (fat_wflag),a           ;directory sector is dirty
+    call    fat_sync_window         ;write the truncated entry
+    jp      nc,ret_ff               ;sync failed
+    ld      hl,(ent_buf+2)          ;old cluster, high word
+    ld      bc,hl                   ;BC = high
+    ld      hl,(ent_buf)            ;old cluster, low word
+    ex      de,hl                   ;DE = low, BCDE = cluster
+    call    maybe_free              ;free it when the cluster is 2 or more
+    call    fat_sync_window         ;write the FAT
+    jp      nc,ret_ff               ;sync failed
+    ld      a,$80                   ;S2 bit 7 means the make succeeded
+    ld      (bdos_fcb+14),a         ;FCB S2
+    ld      a,(srch_idx)            ;slot of the truncated file
+    ld      l,a                     ;return it in L
+    ld      h,0                     ;high byte 0
     ret
 mk_new:
-    ld      hl,0
-    call    root_at
-    jp      nc,ret_ff
-    ld      hl,bdos_fcb+1
-    ld      de,ent_buf
-    ld      b,11
+    ld      hl,0                    ;offset 0, to test the drive
+    call    root_at                 ;carry clear: drive not usable
+    jp      nc,ret_ff               ;make fails
+    ld      hl,bdos_fcb+1           ;FCB name
+    ld      de,ent_buf              ;create buffer
+    ld      b,11                    ;eleven bytes
 mk_nm:
-    ld      a,(hl+)
-    and     $7F
-    ld      (de+),a
-    dec     b
-    jp      nz,mk_nm
-    ld      hl,ent_buf
-    call    dir_create
-    jp      nc,ret_ff
-    call    fat_sync_window
-    jp      nc,ret_ff
-    ld      a,$80
-    ld      (bdos_fcb+14),a
-    jp      ret_index
+    ld      a,(hl+)                 ;name byte
+    and     $7F                     ;attribute bit off; FAT stores the rest
+    ld      (de+),a                 ;into the create buffer
+    dec     b                       ;eleven
+    jp      nz,mk_nm                ;more of the name
+    ld      hl,ent_buf              ;name dir_create expects
+    call    dir_create              ;new entry; carry clear if the root is full
+    jp      nc,ret_ff               ;make fails
+    call    fat_sync_window         ;write the new entry
+    jp      nc,ret_ff               ;sync failed
+    ld      a,$80                   ;S2 bit 7 set
+    ld      (bdos_fcb+14),a         ;success
+    jp      ret_index               ;slot of the new entry
 
 ;
 ; Bit 7 is a CP/M attribute. The rest must be a FAT 8.3 byte: $20..$7E
@@ -1953,102 +1953,102 @@ mk_nm:
 ;
 ; Carry set when all 11 bytes are legal. Carry clear: the caller returns FF.
 mk_legal:
-    ld      hl,bdos_fcb+1
-    ld      b,11
+    ld      hl,bdos_fcb+1           ;FCB name
+    ld      b,11                    ;eleven bytes
 mk_leg1:
-    ld      a,(hl+)
-    and     $7F
-    cp      $20
-    jp      c,mk_legno
-    cp      $7F
-    jp      nc,mk_legno
-    push    hl
-    push    bc
-    ld      hl,mk_bad
-    ld      bc,15
-    cpir
-    pop     bc
-    pop     hl
-    jp      z,mk_legno
-    djnz    mk_leg1
-    scf
+    ld      a,(hl+)                 ;name byte
+    and     $7F                     ;attribute bit is not part of the test
+    cp      $20                     ;below space is illegal
+    jp      c,mk_legno              ;reject
+    cp      $7F                     ;DEL and above are illegal
+    jp      nc,mk_legno             ;reject
+    push    hl                      ;name pointer
+    push    bc                      ;count
+    ld      hl,mk_bad               ;the fifteen illegal marks
+    ld      bc,15                   ;length of mk_bad
+    cpir                            ;Z when this byte is listed
+    pop     bc                      ;count
+    pop     hl                      ;name pointer
+    jp      z,mk_legno              ;listed: reject
+    djnz    mk_leg1                 ;next of the 11
+    scf                             ;all eleven are legal
     ret
 mk_legno:
-    or      a
+    or      a                       ;clear carry: illegal name
     ret
 
 mk_bad:
-    defb    $22,$2A,$2B,$2C,$2F,$3A,$3B,$3C,$3D,$3E,$3F,$5B,$5C,$5D,$7C
+    defb    $22,$2A,$2B,$2C,$2F,$3A,$3B,$3C,$3D,$3E,$3F,$5B,$5C,$5D,$7C ;" * + , / : ; < = > ? [ \ ] |
 
 ;
 ; Rename. Pass 1 refuses when the expanded name is already another entry.
 ; The drive byte at FCB+16 is not read. The cluster chain is not moved.
 ;
 fn_rename:
-    call    gate
-    jp      nc,ret_ff
-    call    open_void
-    call    disk_ro
-    xor     a
-    ld      (srch_on),a
-    ld      hl,0
+    call    gate                    ;mounted, user 0
+    jp      nc,ret_ff               ;rename fails
+    call    open_void               ;drop the open cache
+    call    disk_ro                 ;read-only disk
+    xor     a                       ;pass 1 has not seen a match yet
+    ld      (srch_on),a             ;0 means no source name
+    ld      hl,0                    ;directory offset 0
 rn1:
-    push    hl
-    call    next_match
-    jp      nc,rn1_end
-    ld      hl,(dir_ofs)
-    ld      (srch_ofs),hl
-    call    expand_new
-    call    collide
-    jp      c,rn_busy
-    ld      a,1
-    ld      (srch_on),a
-    ld      hl,(srch_ofs)
-    ld      de,32
-    add     hl,de
-    pop     de
-    jp      rn1
+    push    hl                      ;offset
+    call    next_match              ;next source name
+    jp      nc,rn1_end              ;no more source names
+    ld      hl,(dir_ofs)            ;this entry's offset
+    ld      (srch_ofs),hl           ;collide must not treat it as another file
+    call    expand_new              ;new name, '?' keeps the old byte
+    call    collide                 ;carry set when some other entry has it
+    jp      c,rn_busy               ;name already used
+    ld      a,1                     ;at least one rename will be written
+    ld      (srch_on),a             ;pass 2 may run
+    ld      hl,(srch_ofs)           ;entry just tested
+    ld      de,32                   ;next source
+    add     hl,de                   ;advance
+    pop     de                      ;discard the pushed offset; HL is the next one
+    jp      rn1                     ;keep scanning
 rn_busy:
-    pop     hl
-    jp      ret_ff
+    pop     hl                      ;drop the offset
+    jp      ret_ff                  ;rename fails
 rn1_end:
-    pop     hl
-    ld      a,(srch_on)
-    or      a
-    jp      z,ret_ff
-    ld      a,$FF
-    ld      (srch_idx),a
-    ld      hl,0
+    pop     hl                      ;drop the offset
+    ld      a,(srch_on)             ;set when pass 1 saw a match
+    or      a                       ;nothing to rename
+    jp      z,ret_ff                ;rename fails
+    ld      a,$FF                   ;slot not chosen yet
+    ld      (srch_idx),a            ;FF if pass 2 finds nothing
+    ld      hl,0                    ;offset 0, same search as pass 1
 rn2:
-    push    hl
-    call    next_match
-    jp      nc,rn2_end
-    call    expand_new
-    ld      hl,(dir_ptr)
-    ex      de,hl
-    ld      hl,ent_buf
-    ld      bc,11
-    call    bdos_move
-    ld      a,1
-    ld      (fat_wflag),a
-    ld      a,(srch_idx)
-    cp      $FF
-    jp      nz,rn2_next
-    call    slot_index
-    ld      (srch_idx),a
+    push    hl                      ;offset
+    call    next_match              ;next source name
+    jp      nc,rn2_end              ;pass 2 finished
+    call    expand_new              ;build the new name in ent_buf
+    ld      hl,(dir_ptr)            ;directory entry
+    ex      de,hl                   ;DE = entry name
+    ld      hl,ent_buf              ;new name
+    ld      bc,11                   ;eleven bytes
+    call    bdos_move               ;overwrite the name in the sector
+    ld      a,1                     ;directory dirty
+    ld      (fat_wflag),a           ;directory sector is dirty
+    ld      a,(srch_idx)            ;first slot only
+    cp      $FF                     ;already recorded
+    jp      nz,rn2_next             ;not the first
+    call    slot_index              ;slot of the first rename
+    ld      (srch_idx),a            ;returned at the end
 rn2_next:
-    ld      hl,(dir_ofs)
-    ld      de,32
-    add     hl,de
-    pop     de
-    jp      rn2
+    ld      hl,(dir_ofs)            ;this entry
+    ld      de,32                   ;next
+    add     hl,de                   ;advance
+    pop     de                      ;HL is the next offset
+    jp      rn2                     ;another match
 rn2_end:
-    pop     hl
-    call    fat_sync_window
-    jp      nc,ret_ff
-    ld      a,(srch_idx)
-    ld      l,a
-    ld      h,0
+    pop     hl                      ;drop the offset
+    call    fat_sync_window         ;write every renamed sector
+    jp      nc,ret_ff               ;sync failed
+    ld      a,(srch_idx)            ;first slot
+    ld      l,a                     ;return 0..3
+    ld      h,0                     ;high byte 0
     ret
 
 ;
@@ -2056,48 +2056,48 @@ rn2_end:
 ; cleared. A leading E5 is stored as 05.
 ;
 expand_new:
-    ld      hl,(dir_ptr)
-    ld      de,ent_buf
-    ld      c,11
+    ld      hl,(dir_ptr)            ;old directory entry
+    ld      de,ent_buf              ;new name, one byte at a time
+    ld      c,11                    ;11 down to 1, so the index is 11-C
 ex_lp:
-    push    hl
-    push    de
-    ld      hl,bdos_fcb+17
-    ld      a,11
-    sub     c
-    ld      e,a
-    ld      d,0
-    add     hl,de
-    ld      a,(hl)
-    and     $7F
-    cp      '?'
-    jp      nz,ex_got
-    pop     de
-    pop     hl
-    ld      a,(hl)
-    and     $7F
-    jp      ex_lead
+    push    hl                      ;entry pointer
+    push    de                      ;destination pointer
+    ld      hl,bdos_fcb+17          ;new name starts at FCB+17
+    ld      a,11                    ;eleven
+    sub     c                       ;0 for the first byte, then 1..10
+    ld      e,a                     ;index
+    ld      d,0                     ;high byte 0
+    add     hl,de                   ;FCB+17+index
+    ld      a,(hl)                  ;new name byte
+    and     $7F                     ;attribute bit off
+    cp      '?'                     ;'?' keeps the old directory byte
+    jp      nz,ex_got               ;a literal new byte
+    pop     de                      ;destination
+    pop     hl                      ;old entry
+    ld      a,(hl)                  ;old name byte
+    and     $7F                     ;attribute bit off
+    jp      ex_lead                 ;leading-byte check
 ex_got:
-    pop     de
-    pop     hl
+    pop     de                      ;destination
+    pop     hl                      ;old entry
 ex_lead:
-    push    af
-    ld      a,c
-    cp      11
-    jp      nz,ex_st
-    pop     af
-    cp      $E5
-    jp      nz,ex_put
-    ld      a,$05
-    jp      ex_put
+    push    af                      ;byte, old or new
+    ld      a,c                     ;11 means this is the first name byte
+    cp      11                      ;only the first byte rewrites E5
+    jp      nz,ex_st                ;bytes 2..11
+    pop     af                      ;first byte
+    cp      $E5                     ;a leading E5 is stored as 05
+    jp      nz,ex_put               ;store it as written
+    ld      a,$05                   ;FAT escape for a deleted mark
+    jp      ex_put                  ;store 05
 ex_st:
-    pop     af
+    pop     af                      ;byte for positions 2..11
 ex_put:
-    ld      (de),a
-    inc     hl
-    inc     de
-    dec     c
-    jp      nz,ex_lp
+    ld      (de),a                  ;store this name byte
+    inc     hl                      ;next old byte
+    inc     de                      ;next destination
+    dec     c                       ;count down from 11
+    jp      nz,ex_lp                ;more name bytes
     ret
 
 ;
@@ -2105,116 +2105,116 @@ ex_put:
 ; srch_ofs is the entry being renamed.
 ;
 collide:
-    ld      hl,0
+    ld      hl,0                    ;directory offset 0
 col_lp:
-    push    hl
-    call    root_at
-    pop     hl
-    ret     nc
-    ld      hl,(dir_ptr)
-    ld      a,(hl)
-    or      a
-    ret     z
-    cp      $E5
-    jp      z,col_next
-    call    attr_skip
-    jp      c,col_next
-    call    name_eq_ent
-    jp      nc,col_next
-    ld      hl,(srch_ofs)
-    ld      a,(dir_ofs)
-    cp      l
-    jp      nz,col_yes
-    ld      a,(dir_ofs+1)
-    cp      h
-    jp      z,col_next
+    push    hl                      ;offset
+    call    root_at                 ;entry at that offset
+    pop     hl                      ;offset
+    ret     nc                      ;end of directory: no collision
+    ld      hl,(dir_ptr)            ;entry
+    ld      a,(hl)                  ;first byte
+    or      a                       ;00h ends the directory
+    ret     z                       ;no other entry has this name
+    cp      $E5                     ;deleted slot
+    jp      z,col_next              ;skip it
+    call    attr_skip               ;label, directory, LFN
+    jp      c,col_next              ;not a file name
+    call    name_eq_ent             ;ent_buf against this entry, no wildcards
+    jp      nc,col_next             ;different name
+    ld      hl,(srch_ofs)           ;the entry being renamed
+    ld      a,(dir_ofs)             ;this entry's offset, low
+    cp      l                       ;same slot?
+    jp      nz,col_yes              ;different slot: the name is taken
+    ld      a,(dir_ofs+1)           ;offset high
+    cp      h                       ;same high byte too?
+    jp      z,col_next              ;same entry: not a collision
 col_yes:
-    scf
+    scf                             ;some other entry already has the name
     ret
 col_next:
-    ld      hl,(dir_ofs)
-    ld      de,32
-    add     hl,de
-    jp      c,col_none
-    jp      col_lp
+    ld      hl,(dir_ofs)            ;next slot
+    ld      de,32                   ;one entry
+    add     hl,de                   ;advance
+    jp      c,col_none              ;past 64 KB: no collision
+    jp      col_lp                  ;keep walking
 col_none:
-    or      a
+    or      a                       ;clear carry
     ret
 
 fn_attr:
-    call    gate
-    jp      nc,ret_ff
-    call    open_void
-    call    disk_ro
-    ld      a,$FF
-    ld      (srch_idx),a
-    ld      hl,0
+    call    gate                    ;mounted, user 0
+    jp      nc,ret_ff               ;attribute call fails
+    call    open_void               ;drop the open cache
+    call    disk_ro                 ;read-only disk
+    ld      a,$FF                   ;no hit yet
+    ld      (srch_idx),a            ;FF if nothing matches
+    ld      hl,0                    ;offset 0
 at_lp:
-    push    hl
-    call    next_match
-    jp      nc,at_end
-    call    apply_attr
-    ld      a,(srch_idx)
-    cp      $FF
-    jp      nz,at_next
-    call    slot_index
-    ld      (srch_idx),a
+    push    hl                      ;offset
+    call    next_match              ;next matching name
+    jp      nc,at_end               ;no more
+    call    apply_attr              ;T1' and T2' on this entry
+    ld      a,(srch_idx)            ;first slot only
+    cp      $FF                     ;already stored
+    jp      nz,at_next              ;not the first
+    call    slot_index              ;slot to return
+    ld      (srch_idx),a            ;0..3
 at_next:
-    ld      hl,(dir_ofs)
-    ld      de,32
-    add     hl,de
-    pop     de
-    jp      at_lp
+    ld      hl,(dir_ofs)            ;this entry
+    ld      de,32                   ;next
+    add     hl,de                   ;advance
+    pop     de                      ;HL is the next offset
+    jp      at_lp                   ;another match
 at_end:
-    pop     hl
-    ld      a,(srch_idx)
-    cp      $FF
-    jp      z,ret_ff
-    call    fat_sync_window
-    jp      nc,ret_ff
-    ld      a,(srch_idx)
-    ld      l,a
-    ld      h,0
+    pop     hl                      ;drop the offset
+    ld      a,(srch_idx)            ;FF if nothing was updated
+    cp      $FF                     ;no match
+    jp      z,ret_ff                ;attribute call fails
+    call    fat_sync_window         ;write the directory
+    jp      nc,ret_ff               ;sync failed
+    ld      a,(srch_idx)            ;first slot
+    ld      l,a                     ;return 0..3
+    ld      h,0                     ;high byte 0
     ret
 
 ;
 ; File R/O and Select. The drive letter is printed, not patched into ROM.
 ;
 disk_ro:
-    call    eff_num
-    jp      nc,rodisk
-    ld      hl,bdos_ro
-    call    drv_test
-    ret     z
-    jp      rodisk
+    call    eff_num                 ;drive in the FCB, or the current one
+    jp      nc,rodisk               ;an illegal drive is R/O
+    ld      hl,bdos_ro              ;read-only vector
+    call    drv_test                ;Z: this drive is still read/write
+    ret     z                       ;Z: this drive is still read/write
+    jp      rodisk                  ;bit set: Disk R/O
 rodisk:
-    ld      hl,msg_dsk
-    jp      fatal_go
+    ld      hl,msg_dsk              ;"R/O$"
+    jp      fatal_go                ;print, then warm boot
 rofile:
 fatal_ro:
-    ld      hl,msg_ro
-    jp      fatal_go
+    ld      hl,msg_ro               ;"File R/O$"
+    jp      fatal_go                ;print, then warm boot
 badslct:
 fatal_sel:
-    ld      hl,msg_sel
+    ld      hl,msg_sel              ;"Select$"
 fatal_go:
-    push    hl
-    ld      c,CR
-    call    outchar
-    ld      c,LF
-    call    outchar
-    ld      bc,msg_on
-    call    ed_mesg
-    ld      a,(bdos_drive)
-    add     a,'A'
-    ld      c,a
-    call    outchar
-    ld      bc,msg_sp
-    call    ed_mesg
-    pop     bc
-    call    ed_mesg
-    call    getchar
-    jp      wboot
+    push    hl                      ;message
+    ld      c,CR                    ;CR
+    call    outchar                 ;start of the error line
+    ld      c,LF                    ;LF
+    call    outchar                 ;new line
+    ld      bc,msg_on               ;"Bdos Err On $"
+    call    ed_mesg                 ;that prefix
+    ld      a,(bdos_drive)          ;current drive, 0 = A
+    add     a,'A'                   ;letter
+    ld      c,a                     ;C for CONOUT
+    call    outchar                 ;the drive letter
+    ld      bc,msg_sp               ;" : $"
+    call    ed_mesg                 ;separator
+    pop     bc                      ;which error
+    call    ed_mesg                 ;the message
+    call    getchar                 ;wait so the line can be read
+    jp      wboot                   ;warm boot, like CP/M
 
 msg_on:
     defm    "Bdos Err On $"
@@ -2233,198 +2233,198 @@ msg_sel:
 ; CR and LF end the line and are not stored. A leading CTRL-C warm-boots.
 ;
 ed_line:
-    ld      a,(curpos)
-    ld      (starting),a
-    ld      hl,bdos_line
-    ld      c,(hl+)
-    push    hl
-    ld      b,0
+    ld      a,(curpos)              ;column where this prompt started
+    ld      (starting),a            ;remember it for CTRL-U and CTRL-X
+    ld      hl,bdos_line            ;staged line
+    ld      c,(hl+)                 ;C = mx
+    push    hl                      ;HL = the count byte
+    ld      b,0                     ;B will be the number stored
 ed_loop:
-    push    bc
-    push    hl
+    push    bc                      ;mx in C, count in B
+    push    hl                      ;line pointer
 ed_get:
-    call    getchar
-    and     $7F
-    pop     hl
-    pop     bc
-    cp      CR
-    jp      z,ed_end
-    cp      LF
-    jp      z,ed_end
-    cp      BS
-    jp      nz,ed_ndel
+    call    getchar                 ;next key
+    and     $7F                     ;strip parity
+    pop     hl                      ;line pointer
+    pop     bc                      ;mx and count
+    cp      CR                      ;CR ends the line and is not stored
+    jp      z,ed_end                ;finish
+    cp      LF                      ;LF ends it too
+    jp      z,ed_end                ;finish
+    cp      BS                      ;backspace
+    jp      nz,ed_ndel              ;not a delete
 ed_bs:
-    ld      a,b
-    or      a
-    jp      z,ed_loop
-    dec     b
-    ld      a,(curpos)
-    ld      (outflag),a
-    jp      ed_r
+    ld      a,b                     ;characters stored so far
+    or      a                       ;empty line: nothing to delete
+    jp      z,ed_loop               ;ignore BS at the start
+    dec     b                       ;drop the last stored byte
+    ld      a,(curpos)              ;column of the text still on screen
+    ld      (outflag),a             ;reprint will not paint; the tail is erased later
+    jp      ed_r                    ;redraw the shorter line
 ed_ndel:
-    cp      DEL
-    jp      z,ed_bs
-    cp      CNTRLE
-    jp      nz,ed_np
-    push    bc
-    push    hl
-    call    ed_crlf
-    xor     a
-    ld      (starting),a
-    jp      ed_get
+    cp      DEL                     ;DEL is the same as BS
+    jp      z,ed_bs                 ;RUBOUT deletes
+    cp      CNTRLE                  ;CTRL-E
+    jp      nz,ed_np                ;not a physical newline
+    push    bc                      ;mx and count
+    push    hl                      ;line pointer
+    call    ed_crlf                 ;CR LF on screen
+    xor     a                       ;the next physical line starts at column 0
+    ld      (starting),a            ;column 0
+    jp      ed_get                  ;read another key; BC and HL are stacked
 ed_np:
-    cp      CNTRLP
-    jp      nz,ed_nx
-    push    hl
-    ld      hl,prtflag
-    ld      a,1
-    sub     (hl)
-    ld      (hl),a
-    pop     hl
-    jp      ed_loop
+    cp      CNTRLP                  ;CTRL-P
+    jp      nz,ed_nx                ;not the printer toggle
+    push    hl                      ;line pointer
+    ld      hl,prtflag              ;list-echo flag
+    ld      a,1                     ;1 minus the flag toggles it
+    sub     (hl)                    ;old flag
+    ld      (hl),a                  ;0 or 1
+    pop     hl                      ;line pointer back
+    jp      ed_loop                 ;stay in the line
 ed_nx:
-    cp      CNTRLX
-    jp      nz,ed_nu
-    pop     hl
+    cp      CNTRLX                  ;CTRL-X
+    jp      nz,ed_nu                ;not erase-to-start
+    pop     hl                      ;drop the saved line pointer; ed_line restarts
 ed_x:
-    ld      a,(starting)
-    ld      hl,curpos
-    cp      (hl)
-    jp      nc,ed_line
-    dec     (hl)
-    call    ed_backup
-    jp      ed_x
+    ld      a,(starting)            ;column at the start of the line
+    ld      hl,curpos               ;current column
+    cp      (hl)                    ;back to the start yet?
+    jp      nc,ed_line              ;yes: edit again from an empty count
+    dec     (hl)                    ;one column left
+    call    ed_backup               ;BS, space, BS
+    jp      ed_x                    ;keep backing up
 ed_nu:
-    cp      CNTRLU
-    jp      nz,ed_nr
-    call    ed_newline
-    pop     hl
-    jp      ed_line
+    cp      CNTRLU                  ;CTRL-U
+    jp      nz,ed_nr                ;not cancel-line
+    call    ed_newline              ;# and a fresh physical line
+    pop     hl                      ;drop the old line pointer
+    jp      ed_line                 ;edit starts over
 ed_nr:
-    cp      CNTRLR
-    jp      nz,ed_ch
+    cp      CNTRLR                  ;CTRL-R
+    jp      nz,ed_ch                ;an ordinary character
 ed_r:
-    push    bc
-    call    ed_newline
-    pop     bc
-    pop     hl
-    push    hl
-    push    bc
+    push    bc                      ;mx and count
+    call    ed_newline              ;# plus newline, then spaces up to starting
+    pop     bc                      ;count
+    pop     hl                      ;the count byte
+    push    hl                      ;keep it
+    push    bc                      ;count for the replay
 ed_rlp:
-    ld      a,b
-    or      a
-    jp      z,ed_rdn
-    inc     hl
-    ld      c,(hl)
-    dec     b
-    push    bc
-    push    hl
-    call    ed_show
-    pop     hl
-    pop     bc
-    jp      ed_rlp
+    ld      a,b                     ;characters still to replay
+    or      a                       ;none left
+    jp      z,ed_rdn                ;replay done
+    inc     hl                      ;next stored character
+    ld      c,(hl)                  ;that character
+    dec     b                       ;one fewer
+    push    bc                      ;count
+    push    hl                      ;line pointer
+    call    ed_show                 ;print it, controls as caret
+    pop     hl                      ;line pointer
+    pop     bc                      ;count
+    jp      ed_rlp                  ;next stored character
 ed_rdn:
-    push    hl
-    ld      a,(outflag)
-    or      a
-    jp      z,ed_get
-    ld      hl,curpos
-    sub     (hl)
-    ld      (outflag),a
+    push    hl                      ;line pointer
+    ld      a,(outflag)             ;column saved by BS, or 0
+    or      a                       ;0: the replay was a real CTRL-R
+    jp      z,ed_get                ;read the next key
+    ld      hl,curpos               ;column after the invisible replay
+    sub     (hl)                    ;how many columns to erase
+    ld      (outflag),a             ;that many real backspaces
 ed_rbk:
-    call    ed_backup
-    ld      hl,outflag
-    dec     (hl)
-    jp      nz,ed_rbk
-    jp      ed_get
+    call    ed_backup               ;BS, space, BS on the console
+    ld      hl,outflag              ;backspace count
+    dec     (hl)                    ;one fewer
+    jp      nz,ed_rbk               ;more to erase
+    jp      ed_get                  ;then another key
 ed_ch:
-    inc     hl
-    ld      (hl),a
-    inc     b
-    push    bc
-    push    hl
-    ld      c,a
-    call    ed_show
-    pop     hl
-    pop     bc
-    ld      a,(hl)
-    cp      CNTRLC
-    ld      a,b
-    jp      nz,ed_full
-    cp      1
-    jp      z,wboot
+    inc     hl                      ;next free slot after the count byte
+    ld      (hl),a                  ;store the character
+    inc     b                       ;one more stored
+    push    bc                      ;count
+    push    hl                      ;line pointer
+    ld      c,a                     ;character for ed_show
+    call    ed_show                 ;echo it
+    pop     hl                      ;line pointer
+    pop     bc                      ;count
+    ld      a,(hl)                  ;byte just stored
+    cp      CNTRLC                  ;a leading CTRL-C warm-boots
+    ld      a,b                     ;B = how many are stored
+    jp      nz,ed_full              ;not CTRL-C
+    cp      1                       ;only the first character
+    jp      z,wboot                 ;CTRL-C at the start reboots
 ed_full:
-    cp      c
-    jp      c,ed_loop
+    cp      c                       ;count against mx
+    jp      c,ed_loop               ;room for another
 ed_end:
-    pop     hl
-    ld      (hl),b
-    ld      c,CR
-    call    outchar
-    ld      hl,0
+    pop     hl                      ;count byte
+    ld      (hl),b                  ;n = characters stored
+    ld      c,CR                    ;echo CR; it is not stored
+    call    outchar                 ;CR
+    ld      hl,0                    ;function 10 returns 0
     ret
 
 ed_show:
-    ld      a,c
-    call    ed_chk
-    jp      nc,outcon
-    push    af
-    ld      c,'^'
-    call    outchar
-    pop     af
-    or      '@'
-    ld      c,a
-    jp      outcon
+    ld      a,c                     ;character
+    call    ed_chk                  ;carry set: show it as ^X
+    jp      nc,outcon               ;printable, CR, LF, TAB or BS
+    push    af                      ;character
+    ld      c,'^'                   ;caret
+    call    outchar                 ;the caret
+    pop     af                      ;character
+    or      '@'                     ;CTRL-A is 'A', and so on
+    ld      c,a                     ;the letter
+    jp      outcon                  ;print the letter
 
 ed_chk:
-    cp      CR
-    ret     z
-    cp      LF
-    ret     z
-    cp      TAB
-    ret     z
-    cp      BS
-    ret     z
-    cp      ' '
-    ret
+    cp      CR                      ;CR is not a caret
+    ret     z                       ;carry clear
+    cp      LF                      ;LF is not a caret
+    ret     z                       ;carry clear
+    cp      TAB                     ;TAB is not a caret
+    ret     z                       ;carry clear
+    cp      BS                      ;BS is not a caret
+    ret     z                       ;carry clear
+    cp      ' '                     ;space and above
+    ret                             ;carry set below space
 
 ed_backup:
-    call    ed_bk1
-    ld      c,' '
-    call    conout
+    call    ed_bk1                  ;BS, space, BS
+    ld      c,' '                   ;the space
+    call    conout                  ;paint over the character
 ed_bk1:
-    ld      c,BS
-    jp      conout
+    ld      c,BS                    ;back up onto that space
+    jp      conout                  ;BIOS, not the column tracker
 
 ed_newline:
-    ld      c,'#'
-    call    outchar
-    call    ed_crlf
+    ld      c,'#'                   ;the cancel mark
+    call    outchar                 ;print #
+    call    ed_crlf                 ;then a real new line
 ed_nl1:
-    ld      a,(curpos)
-    ld      hl,starting
-    cp      (hl)
-    ret     nc
-    ld      c,' '
-    call    outchar
-    jp      ed_nl1
+    ld      a,(curpos)              ;column after the CR LF
+    ld      hl,starting             ;where the old line started
+    cp      (hl)                    ;caught up to that column?
+    ret     nc                      ;yes: the cursor is under the text
+    ld      c,' '                   ;pad
+    call    outchar                 ;one space
+    jp      ed_nl1                  ;until curpos reaches starting
 
 ed_crlf:
-    ld      c,CR
-    call    outchar
-    ld      c,LF
-    jp      outchar
+    ld      c,CR                    ;CR
+    call    outchar                 ;column tracker sees it
+    ld      c,LF                    ;LF
+    jp      outchar                 ;LF zeros curpos
 
 ed_mesg:
-    ld      a,(bc)
-    cp      '$'
-    ret     z
-    inc     bc
-    push    bc
-    ld      c,a
-    call    outcon
-    pop     bc
-    jp      ed_mesg
+    ld      a,(bc)                  ;next message byte
+    cp      '$'                     ;messages end at $
+    ret     z                       ;stop
+    inc     bc                      ;next
+    push    bc                      ;BC
+    ld      c,a                     ;character
+    call    outcon                  ;console, with tab expansion
+    pop     bc                      ;BC
+    jp      ed_mesg                 ;until $
 
 ;
 ; Functions 20, 21, 33, 34, 35, 36, and 40.
@@ -2433,156 +2433,156 @@ ed_mesg:
 ;
 
 fn_read:
-    ld      a,1
-    ld      (io_mode),a
-    xor     a
-    ld      (io_alloc),a
-    jp      io_go
+    ld      a,1                     ;sequential read
+    ld      (io_mode),a             ;io_mode nonzero is sequential
+    xor     a                       ;do not allocate
+    ld      (io_alloc),a            ;read
+    jp      io_go                   ;the common read/write path
 
 fn_rread:
-    xor     a
-    ld      (io_mode),a
-    ld      (io_alloc),a
-    jp      io_go
+    xor     a                       ;random read
+    ld      (io_mode),a             ;io_mode 0
+    ld      (io_alloc),a            ;do not extend the file
+    jp      io_go                   ;same path
 
 fn_write:
-    ld      a,1
-    ld      (io_mode),a
-    ld      (io_alloc),a
-    jp      io_go
+    ld      a,1                     ;sequential write
+    ld      (io_mode),a             ;sequential
+    ld      (io_alloc),a            ;allocate and zero the gap
+    jp      io_go                   ;same path
 
 fn_rwrite:
-    xor     a
-    ld      (io_mode),a
-    ld      a,1
-    ld      (io_alloc),a
+    xor     a                       ;random write, and fn 40
+    ld      (io_mode),a             ;random
+    ld      a,1                     ;write
+    ld      (io_alloc),a            ;io_alloc set: zero-fill is allowed
 
 io_go:
-    call    gate
-    jp      nc,ret_ff
-    call    prep_pos
-    jp      nc,ret_al
-    call    open_hit
-    jp      nc,io_find
-    ld      a,(io_alloc)
-    or      a
-    jp      z,io_body
-    call    disk_ro
-    ld      a,(open_ok)
-    and     1
-    jp      nz,fatal_ro
-    jp      io_body
+    call    gate                    ;mounted, user 0
+    jp      nc,ret_ff               ;not ready: return FF
+    call    prep_pos                ;CR, EX, S2 or the random field
+    jp      nc,ret_al               ;A is 1 or 6
+    call    open_hit                ;bit 1 set and the same name and drive
+    jp      nc,io_find              ;not the file already open
+    ld      a,(io_alloc)            ;write allocates; read does not
+    or      a                       ;a cached read skips the directory
+    jp      z,io_body               ;cached info is enough
+    call    disk_ro                 ;writes still honour disk R/O
+    ld      a,(open_ok)             ;bit 0 is the directory read-only bit
+    and     1                       ;that bit
+    jp      nz,fatal_ro             ;File R/O
+    jp      io_body                 ;read or a writable file
 io_find:
-    call    find_name
-    jp      nc,io_miss
-    ld      a,(io_alloc)
-    or      a
-    jp      z,io_info
-    call    disk_ro
-    ld      hl,(dir_ptr)
-    ld      de,11
-    add     hl,de
-    ld      a,(hl)
-    and     1
-    jp      nz,fatal_ro
+    call    find_name               ;from the start of the directory
+    jp      nc,io_miss              ;no entry
+    ld      a,(io_alloc)            ;writing a missing file?
+    or      a                       ;read: remember it and continue
+    jp      z,io_info               ;no directory entry
+    call    disk_ro                 ;disk R/O
+    ld      hl,(dir_ptr)            ;the entry just found
+    ld      de,11                   ;attribute byte
+    add     hl,de                   ;point at it
+    ld      a,(hl)                  ;attribute
+    and     1                       ;bit 0 is read-only
+    jp      nz,fatal_ro             ;File R/O
 io_info:
-    call    load_info
-    call    open_save
+    call    load_info               ;cluster, size, directory offset
+    call    open_save               ;name, drive, and the read-only bit
 io_body:
-    call    set_fptr
-    ld      a,(io_alloc)
-    or      a
-    jp      z,io_read
-    call    zero_gap
-    jp      nc,ret_al
-    call    xfer_write
-    jp      nc,ret_al
-    call    dir_update
-    jp      nc,ret_a3
-    jp      seq_place
+    call    set_fptr                ;byte offset of this record
+    ld      a,(io_alloc)            ;0 is a read
+    or      a                       ;read path
+    jp      z,io_read               ;reads do not zero a hole
+    call    zero_gap                ;bytes from the old size up to this record
+    jp      nc,ret_al               ;A is 1 or 2 from map_sector
+    call    xfer_write              ;copy bdos_rec into the sector
+    jp      nc,ret_al               ;A from map_sector
+    call    dir_update              ;size, cluster, archive bit
+    jp      nc,ret_a3               ;sync failed: return 3
+    jp      seq_place               ;then advance CR or the random fields
 
 io_read:
-    ld      hl,io_fptr
-    ld      de,io_size
-    call    cmp4
-    jp      nc,ret_a1
-    call    xfer_read
-    jp      nc,ret_al
-    jp      seq_place
+    ld      hl,io_fptr              ;record cursor
+    ld      de,io_size              ;file size
+    call    cmp4                    ;carry when the cursor is still inside the file
+    jp      nc,ret_a1               ;cursor at or past the size: return 1
+    call    xfer_read               ;fill bdos_rec, padding a short tail with 0
+    jp      nc,ret_al               ;A from map_sector
+    jp      seq_place               ;advance CR, or EX and S2
 
 ;
 ; Carry set when the FCB position is legal. Carry clear: A is 1 or 6.
 ; The FCB itself is not written here.
 ;
 prep_pos:
-    ld      a,(io_mode)
-    or      a
-    jp      z,pos_ran
-    ld      a,(bdos_fcb+32)
-    cp      128
-    jp      nc,pos_eof
-    ld      (io_cr),a
-    ld      a,(bdos_fcb+12)
-    and     $1F
-    ld      (io_ex),a
-    ld      a,(bdos_fcb+14)
-    and     $0F
-    ld      (io_s2),a
-    jp      pos_ok
+    ld      a,(io_mode)             ;0 means random
+    or      a                       ;random record
+    jp      z,pos_ran               ;sequential
+    ld      a,(bdos_fcb+32)         ;FCB current record
+    cp      128                     ;128 means the next extent, which is EOF here
+    jp      nc,pos_eof              ;return 1
+    ld      (io_cr),a               ;CR for this transfer
+    ld      a,(bdos_fcb+12)         ;EX
+    and     $1F                     ;low 5 bits, '?' is not sequential
+    ld      (io_ex),a               ;extent within the module
+    ld      a,(bdos_fcb+14)         ;S2
+    and     $0F                     ;module, bit 7 off
+    ld      (io_s2),a               ;module
+    jp      pos_ok                  ;position is legal
 
 pos_ran:
-    ld      a,(bdos_fcb+35)
-    or      a
-    jp      nz,pos_r2
-    ld      a,(bdos_fcb+33)
-    ld      c,a
-    ld      a,(bdos_fcb+34)
-    ld      b,a
-    ld      a,c
-    and     $7F
-    ld      (io_cr),a
-    ld      a,c
-    rlca
-    and     1
-    ld      l,a
-    ld      a,b
-    add     a,a
-    ld      e,a
-    ld      d,0
-    jp      nc,pos_hi0
-    inc     d
+    ld      a,(bdos_fcb+35)         ;r2
+    or      a                       ;nonzero is past the 8 MB record number
+    jp      nz,pos_r2               ;return 6
+    ld      a,(bdos_fcb+33)         ;r0
+    ld      c,a                     ;low byte of the record number
+    ld      a,(bdos_fcb+34)         ;r1
+    ld      b,a                     ;high byte
+    ld      a,c                     ;r0
+    and     $7F                     ;CR is the low 7 bits
+    ld      (io_cr),a               ;CR
+    ld      a,c                     ;r0
+    rlca                            ;its top bit is bit 0 of record>>7
+    and     1                       ;that bit
+    ld      l,a                     ;bit
+    ld      a,b                     ;r1
+    add     a,a                     ;r1 << 1 is the rest of record>>7
+    ld      e,a                     ;low part of the extent
+    ld      d,0                     ;high byte starts at 0
+    jp      nc,pos_hi0              ;no carry out of r1<<1
+    inc     d                       ;bit 8 of the extent number
 pos_hi0:
-    ld      a,e
-    or      l
-    ld      e,a
-    ld      bc,de
-    ld      a,e
-    and     $1F
-    ld      (io_ex),a
-    call    shr5
-    and     $0F
-    ld      c,a
-    ld      a,(io_alloc)
-    or      a
-    jp      nz,pos_s2w
-    ld      a,(bdos_fcb+14)
-    and     $80
-    or      c
-    ld      (io_s2),a
+    ld      a,e                     ;join bit 0
+    or      l                       ;DE = record >> 7, the extent
+    ld      e,a                     ;BC = extent too
+    ld      bc,de                   ;extent low
+    ld      a,e                     ;EX is the low 5 bits
+    and     $1F                     ;extent within the module
+    ld      (io_ex),a               ;A = extent >> 5
+    call    shr5                    ;module, low 4 bits
+    and     $0F                     ;module
+    ld      c,a                     ;writes force S2 bit 7 off
+    ld      a,(io_alloc)            ;a write
+    or      a                       ;reads keep the caller's S2 bit 7
+    jp      nz,pos_s2w              ;FCB S2
+    ld      a,(bdos_fcb+14)         ;the interface bit
+    and     $80                     ;module plus that bit
+    or      c                       ;S2 seen by the extent walk
+    ld      (io_s2),a               ;legal
     jp      pos_ok
 pos_s2w:
-    ld      a,c
-    ld      (io_s2),a
+    ld      a,c                     ;module only; bit 7 clear so close will write
+    ld      (io_s2),a               ;S2
 pos_ok:
-    scf
+    scf                             ;legal position
     ret
 pos_eof:
-    ld      a,1
-    or      a
+    ld      a,1                     ;sequential EOF
+    or      a                       ;carry clear, A = 1
     ret
 pos_r2:
-    ld      a,6
-    or      a
+    ld      a,6                     ;random record does not fit r0..r1
+    or      a                       ;carry clear, A = 6
     ret
 
 ;
@@ -2590,42 +2590,42 @@ pos_r2:
 ; CR is 0..127, so the offset is 128-byte aligned and at most 0x7FFF80.
 ;
 set_fptr:
-    ld      hl,io_fptr
-    xor     a
-    ld      (hl+),a
-    ld      (hl+),a
-    ld      (hl+),a
-    ld      (hl),a
-    ld      a,(io_cr)
-    rrca
-    and     $80
-    ld      (io_fptr),a
-    ld      a,(io_cr)
-    srl     a               ;CR >> 1. 8085: or a / rra
-    ld      (io_fptr+1),a
-    ld      a,(io_ex)
-    and     3
+    ld      hl,io_fptr              ;four-byte cursor
+    xor     a                       ;clear
+    ld      (hl+),a                 ;byte 0
+    ld      (hl+),a                 ;byte 1
+    ld      (hl+),a                 ;byte 2
+    ld      (hl),a                  ;byte 3
+    ld      a,(io_cr)               ;CR 0..127
+    rrca                            ;bit 0 into bit 7: CR << 7
+    and     $80                     ;low byte of the byte offset
+    ld      (io_fptr),a             ;byte 0 of the cursor
+    ld      a,(io_cr)               ;CR
+    srl     a                       ;CR >> 1. 8085: or a / rra
+    ld      (io_fptr+1),a           ;byte 1 of the cursor
+    ld      a,(io_ex)               ;EX
+    and     3                       ;low two bits select the 16 KB piece
+    add     a,a                     ;first of six: those bits << 6
     add     a,a
     add     a,a
     add     a,a
     add     a,a
+    add     a,a                     ;EX & 3, shifted
+    ld      hl,io_fptr+1            ;byte 1
+    or      (hl)                    ;OR in CR>>1
+    ld      (hl),a                  ;byte 1 complete
+    ld      a,(io_s2)               ;module
+    and     $0F                     ;low 4 bits
+    add     a,a                     ;first of three: module << 3
     add     a,a
     add     a,a
-    ld      hl,io_fptr+1
-    or      (hl)
-    ld      (hl),a
-    ld      a,(io_s2)
-    and     $0F
-    add     a,a
-    add     a,a
-    add     a,a
-    ld      c,a
-    ld      a,(io_ex)
-    srl     a               ;EX >> 2. 8085: or a / rra, twice
+    ld      c,a                     ;module << 3
+    ld      a,(io_ex)               ;EX
+    srl     a                       ;EX >> 2. 8085: or a / rra, twice
     srl     a
-    and     7
-    or      c
-    ld      (io_fptr+2),a
+    and     7                       ;three bits
+    or      c                       ;OR the module
+    ld      (io_fptr+2),a           ;byte 2 of the cursor; byte 3 stays 0
     ret
 
 ;
@@ -2634,19 +2634,19 @@ set_fptr:
 ; bdos_warm and fat_mount are what clear it.
 ;
 load_info:
-    ld      hl,(dir_ofs)
-    ld      (io_ofs),hl
-    call    load_clst
-    ld      hl,io_sclust
-    call    io_st
-    ld      hl,(dir_ptr)
-    ld      de,28
-    add     hl,de
-    ld      de,io_size
-    ld      bc,4
-    call    bdos_move
-    xor     a
-    ld      (io_new),a
+    ld      hl,(dir_ofs)            ;directory slot of the open file
+    ld      (io_ofs),hl             ;kept so close and write can find it
+    call    load_clst               ;BCDE = start cluster
+    ld      hl,io_sclust            ;io_sclust, little-endian
+    call    io_st                   ;store the cluster
+    ld      hl,(dir_ptr)            ;entry
+    ld      de,28                   ;size at byte 28
+    add     hl,de                   ;point at it
+    ld      de,io_size              ;io_size
+    ld      bc,4                    ;four bytes
+    call    bdos_move               ;size follows the file
+    xor     a                       ;cluster is the one already in the entry
+    ld      (io_new),a              ;io_new set only when create_chain runs
     ret
 
 ;
@@ -2654,45 +2654,45 @@ load_info:
 ; Bit 7 is ignored. Both sides are folded.
 ;
 open_hit:
-    ld      a,(open_ok)
-    and     2
-    ret     z
-    call    eff_num
-    jp      nc,oh_no
-    ld      hl,open_drv
-    cp      (hl)
-    jp      nz,oh_no
-    ld      hl,bdos_fcb+1
-    ld      de,open_name
-    ld      a,(hl)
-    cp      $05
-    jp      nz,oh_a
-    ld      a,$E5
+    ld      a,(open_ok)             ;bit 1 means the name is valid
+    and     2                       ;that bit
+    ret     z                       ;Z: nothing remembered
+    call    eff_num                 ;drive 0..15, or carry clear
+    jp      nc,oh_no                ;not a real drive
+    ld      hl,open_drv             ;drive whose name is stored
+    cp      (hl)                    ;same drive?
+    jp      nz,oh_no                ;a different letter
+    ld      hl,bdos_fcb+1           ;FCB name
+    ld      de,open_name            ;remembered name, already folded
+    ld      a,(hl)                  ;first byte
+    cp      $05                     ;05 is a stored E5
+    jp      nz,oh_a                 ;compare as stored
+    ld      a,$E5                   ;compare it as E5
 oh_a:
-    and     $7F
-    call    fold
-    ld      c,a
-    ld      a,(de)
-    cp      c
-    jp      nz,oh_no
-    inc     hl
-    inc     de
-    ld      b,10
+    and     $7F                     ;attribute bit off
+    call    fold                    ;fold
+    ld      c,a                     ;FCB byte
+    ld      a,(de)                  ;remembered byte
+    cp      c                       ;same first byte?
+    jp      nz,oh_no                ;different file
+    inc     hl                      ;rest of the FCB name
+    inc     de                      ;rest of the remembered name
+    ld      b,10                    ;ten bytes
 oh_lp:
-    ld      a,(hl)
-    and     $7F
-    call    fold
-    ld      c,a
-    ld      a,(de+)
-    cp      c
-    jp      nz,oh_no
-    inc     hl
-    dec     b
-    jp      nz,oh_lp
-    scf
+    ld      a,(hl)                  ;FCB byte
+    and     $7F                     ;attribute bit off
+    call    fold                    ;fold
+    ld      c,a                     ;FCB
+    ld      a,(de+)                 ;remembered byte, and step
+    cp      c                       ;same?
+    jp      nz,oh_no                ;different file
+    inc     hl                      ;next FCB byte
+    dec     b                       ;ten
+    jp      nz,oh_lp                ;more
+    scf                             ;same file: use io_sclust and io_size
     ret
 oh_no:
-    or      a
+    or      a                       ;clear carry
     ret
 
 ;
@@ -2700,137 +2700,137 @@ oh_no:
 ; io_sclust, io_size, and io_ofs stay in place across later reads.
 ;
 open_save:
-    ld      hl,(dir_ptr)
-    ld      de,11
-    add     hl,de
-    ld      a,(hl)
-    and     1
-    or      2
-    ld      (open_ok),a
-    call    eff_num
-    ld      (open_drv),a
-    ld      hl,bdos_fcb+1
-    ld      de,open_name
-    ld      a,(hl)
-    cp      $05
-    jp      nz,os_a
-    ld      a,$E5
+    ld      hl,(dir_ptr)            ;entry just found
+    ld      de,11                   ;attribute byte
+    add     hl,de                   ;point at it
+    ld      a,(hl)                  ;attribute
+    and     1                       ;bit 0 is read-only
+    or      2                       ;OR bit 1: the name is valid
+    ld      (open_ok),a             ;cache marker
+    call    eff_num                 ;drive, carry clear if the FCB drive is bad
+    ld      (open_drv),a            ;which letter this name belongs to
+    ld      hl,bdos_fcb+1           ;FCB name
+    ld      de,open_name            ;remembered name
+    ld      a,(hl)                  ;first byte
+    cp      $05                     ;leading 05 compares as E5
+    jp      nz,os_a                 ;not the escape
+    ld      a,$E5                   ;store E5
 os_a:
-    and     $7F
-    call    fold
-    ld      (de),a
-    inc     hl
-    inc     de
-    ld      b,10
+    and     $7F                     ;attribute bit off
+    call    fold                    ;fold
+    ld      (de),a                  ;first remembered byte
+    inc     hl                      ;next FCB byte
+    inc     de                      ;next remembered byte
+    ld      b,10                    ;ten left
 os_lp:
-    ld      a,(hl)
-    and     $7F
-    call    fold
-    ld      (de),a
-    inc     hl
-    inc     de
-    dec     b
-    jp      nz,os_lp
+    ld      a,(hl)                  ;FCB byte
+    and     $7F                     ;attribute bit off
+    call    fold                    ;fold
+    ld      (de),a                  ;store the folded byte
+    inc     hl                      ;next FCB byte
+    inc     de                      ;next remembered byte
+    dec     b                       ;ten
+    jp      nz,os_lp                ;more of the name
     ret
 
 io_miss:
-    call    open_void
-    jp      ret_a1
+    call    open_void               ;a miss is not an open file
+    jp      ret_a1                  ;read returns 1; write of a missing name does too
 
 ;
 ; HL = left, DE = right, four bytes, MSB first.
 ; Carry when left < right. Zero when equal. Carry means left < right.
 ;
 cmp4:
-    ld      bc,3
-    add     hl,bc
-    ex      de,hl
-    add     hl,bc
-    ex      de,hl
-    ld      b,4
+    ld      bc,3                    ;point at the MSB
+    add     hl,bc                   ;DE now addresses the left MSB
+    ex      de,hl                   ;right operand
+    add     hl,bc                   ;point at the right MSB
+    ex      de,hl                   ;DE = right MSB, HL = left MSB
+    ld      b,4                     ;four bytes, MSB first
 c4lp:
-    ld      a,(de)
-    ld      c,a
-    ld      a,(hl)
-    cp      c
-    jp      nz,c4ret
-    dec     b
-    jp      z,c4ret
-    dec     hl
-    dec     de
-    jp      c4lp
+    ld      a,(de)                  ;right byte
+    ld      c,a                     ;aside
+    ld      a,(hl)                  ;left byte
+    cp      c                       ;left ? right
+    jp      nz,c4ret                ;not equal: flags stand
+    dec     b                       ;bytes left
+    jp      z,c4ret                 ;all four matched
+    dec     hl                      ;next lower byte
+    dec     de                      ;next lower byte
+    jp      c4lp                    ;continue
 c4ret:
-    ret
+    ret                             ;carry if left < right, Z if equal
 
 ;
 ; io_end = io_fptr + 128.
 ;
 end128:
-    ld      hl,io_fptr
-    ld      de,io_end
-    ld      bc,4
-    call    bdos_move
-    ld      hl,io_end
-    ld      a,(hl)
-    add     a,128
-    ld      (hl+),a
-    ld      a,(hl)
+    ld      hl,io_fptr              ;cursor
+    ld      de,io_end               ;io_end
+    ld      bc,4                    ;four bytes
+    call    bdos_move               ;end starts as a copy of the cursor
+    ld      hl,io_end               ;that copy
+    ld      a,(hl)                  ;low byte
+    add     a,128                   ;plus one record
+    ld      (hl+),a                 ;store, and step
+    ld      a,(hl)                  ;next byte
     adc     a,0
-    ld      (hl+),a
-    ld      a,(hl)
+    ld      (hl+),a                 ;byte 1 of the end
+    ld      a,(hl)                  ;third byte
     adc     a,0
-    ld      (hl+),a
-    ld      a,(hl)
+    ld      (hl+),a                 ;byte 2 of the end
+    ld      a,(hl)                  ;high byte
     adc     a,0
-    ld      (hl),a
+    ld      (hl),a                  ;io_end = cursor + 128
     ret
 
 ;
 ; BCDE <-> (HL). E is the LSB. BCDE is kept by the store.
 ;
 io_ld:
-    ld      e,(hl+)
-    ld      d,(hl+)
-    ld      c,(hl+)
-    ld      b,(hl)
+    ld      e,(hl+)                 ;E = LSB
+    ld      d,(hl+)                 ;D
+    ld      c,(hl+)                 ;C
+    ld      b,(hl)                  ;B = MSB; HL is left on the last byte
     ret
 
 io_st:
-    ld      (hl+),e
-    ld      (hl+),d
-    ld      (hl+),c
-    ld      (hl),b
+    ld      (hl+),e                 ;E stored, HL steps
+    ld      (hl+),d                 ;D
+    ld      (hl+),c                 ;C
+    ld      (hl),b                  ;B; BCDE is not changed
     ret
 
 ;
 ; HL = fatwin + the byte offset of this record in its sector.
 ;
 add_offb:
-    ld      hl,fatwin
-    ld      a,(io_offb)
-    ld      e,a
-    ld      a,(io_offb+1)
-    ld      d,a
-    add     hl,de
+    ld      hl,fatwin               ;sector window
+    ld      a,(io_offb)             ;low byte of the offset in the sector
+    ld      e,a                     ;into DE
+    ld      a,(io_offb+1)           ;high byte, 0 or 1
+    ld      d,a                     ;DE = offset in the 512-byte sector
+    add     hl,de                   ;HL = fatwin + that offset
     ret
 
 ;
 ; Add BC (a sector count, at most 512) to the 4-byte cursor at HL.
 ;
 add_fptr_bc:
-    ld      hl,io_fptr
-    ld      a,(hl)
-    add     a,c
-    ld      (hl+),a
-    ld      a,(hl)
+    ld      hl,io_fptr              ;byte cursor
+    ld      a,(hl)                  ;low byte
+    add     a,c                     ;add the low count
+    ld      (hl+),a                 ;store and step
+    ld      a,(hl)                  ;next byte
     adc     a,b
-    ld      (hl+),a
-    ld      a,(hl)
+    ld      (hl+),a                 ;byte 1 of the cursor
+    ld      a,(hl)                  ;third byte
     adc     a,0
-    ld      (hl+),a
-    ld      a,(hl)
+    ld      (hl+),a                 ;byte 2 of the cursor
+    ld      a,(hl)                  ;high byte
     adc     a,0
-    ld      (hl),a
+    ld      (hl),a                  ;cursor += BC
     ret
 
 ;
@@ -2838,18 +2838,18 @@ add_fptr_bc:
 ;
 fptr_plus_bc:
     ld      hl,io_fptr
-    ld      a,(hl+)
-    add     a,c
-    ld      (io_end),a
-    ld      a,(hl+)
+    ld      a,(hl+)                 ;low byte of the cursor
+    add     a,c                     ;plus BC, low
+    ld      (io_end),a              ;io_end low
+    ld      a,(hl+)                 ;next cursor byte
     adc     a,b
-    ld      (io_end+1),a
-    ld      a,(hl+)
+    ld      (io_end+1),a            ;io_end byte 1
+    ld      a,(hl+)                 ;third cursor byte
     adc     a,0
-    ld      (io_end+2),a
-    ld      a,(hl)
+    ld      (io_end+2),a            ;io_end byte 2
+    ld      a,(hl)                  ;high cursor byte
     adc     a,0
-    ld      (io_end+3),a
+    ld      (io_end+3),a            ;io_end = cursor + BC
     ret
 
 ;
@@ -2858,55 +2858,55 @@ fptr_plus_bc:
 ; A cycle never reaches end-of-chain. The walk stops at n_fatent.
 ;
 extend_one:
-    ld      hl,0
-    ld      (fat_work),hl
-    ld      (fat_work+2),hl
-    ld      hl,io_sclust
-    call    io_ld
+    ld      hl,0                    ;step count for the cluster walk
+    ld      (fat_work),hl           ;low word
+    ld      (fat_work+2),hl         ;high word
+    ld      hl,io_sclust            ;start cluster
+    call    io_ld                   ;BCDE = io_sclust
 ex1_lp:
-    push    bc
-    push    de
-    ld      hl,(fat_work)
-    inc     hl
-    ld      (fat_work),hl
-    ld      a,h
-    or      l
-    jr      nz,ex1_cmp
-    ld      hl,(fat_work+2)
-    inc     hl
-    ld      (fat_work+2),hl
+    push    bc                      ;cluster low word
+    push    de                      ;cluster high word
+    ld      hl,(fat_work)           ;steps so far, low
+    inc     hl                      ;one more cluster visited
+    ld      (fat_work),hl           ;low word of the step
+    ld      a,h                     ;did the low word wrap?
+    or      l                       ;nonzero: high word stays
+    jr      nz,ex1_cmp              ;compare with n_fatent
+    ld      hl,(fat_work+2)         ;high word of the step
+    inc     hl                      ;carry into the high half
+    ld      (fat_work+2),hl         ;high word
 ex1_cmp:
-    ld      hl,_cpm_fat_vol+4
-    ld      a,(fat_work)
-    sub     (hl+)
-    ld      a,(fat_work+1)
+    ld      hl,_cpm_fat_vol+4       ;n_fatent, little-endian
+    ld      a,(fat_work)            ;step low byte
+    sub     (hl+)                   ;step - n_fatent, byte 0
+    ld      a,(fat_work+1)          ;step byte 1
     sbc     a,(hl+)
-    ld      a,(fat_work+2)
+    ld      a,(fat_work+2)          ;step byte 2
     sbc     a,(hl+)
-    ld      a,(fat_work+3)
+    ld      a,(fat_work+3)          ;step byte 3
     sbc     a,(hl)
-    jp      nc,ex_bad            ;step >= n_fatent
-    call    get_fat
-    jp      nc,ex_bad
-    ld      a,b
-    cp      $0F
-    jp      nz,ex_step
-    ld      a,c
-    and     d
-    and     e
-    cp      $FF
-    jp      nz,ex_step
-    pop     de
-    pop     bc
-    jp      create_chain
+    jp      nc,ex_bad               ;step >= n_fatent
+    call    get_fat                 ;next cluster, or carry clear on a bad FAT
+    jp      nc,ex_bad               ;walk stops
+    ld      a,b                     ;high byte of the next cluster
+    cp      $0F                     ;0x0F...... is the FAT end mark
+    jp      nz,ex_step              ;not end of chain
+    ld      a,c                     ;next byte
+    and     d                       ;AND the middle bytes
+    and     e                       ;AND the low byte
+    cp      $FF                     ;all three FF: cluster is 0x0FFFFFFF
+    jp      nz,ex_step              ;not end of chain
+    pop     de                      ;cluster that ended the chain
+    pop     bc                      ;BCDE = that cluster
+    jp      create_chain            ;link one new cluster; carry from create_chain
 ex_step:
-    pop     hl
-    pop     hl
-    jp      ex1_lp
+    pop     hl                      ;drop the cluster
+    pop     hl                      ;both halves
+    jp      ex1_lp                  ;follow the chain
 ex_bad:
-    pop     de
-    pop     bc
-    or      a
+    pop     de                      ;cluster
+    pop     bc                      ;restore BCDE
+    or      a                       ;carry clear: not extended
     ret
 
 ;
@@ -2915,51 +2915,51 @@ ex_bad:
 ; A failed data read is Bad Sector, then the same LBA is tried again.
 ;
 map_sector:
-    ld      a,(io_sclust)
-    ld      hl,io_sclust+1
-    or      (hl+)
-    or      (hl+)
-    or      (hl)
-    jp      nz,map_walk
-    ld      a,(io_alloc)
-    or      a
-    jp      z,map_eof
-    ld      bc,0
-    ld      de,bc
-    call    create_chain
-    jp      nc,map_full
-    ld      hl,io_sclust
-    call    io_st
-    ld      a,1
-    ld      (io_new),a
+    ld      a,(io_sclust)           ;start cluster, low
+    ld      hl,io_sclust+1          ;the other three bytes
+    or      (hl+)                   ;fold them
+    or      (hl+)                   ;fold
+    or      (hl)                    ;zero only when the file has no cluster
+    jp      nz,map_walk             ;the chain exists
+    ld      a,(io_alloc)            ;writes may allocate
+    or      a                       ;a read of an empty file is EOF
+    jp      z,map_eof               ;return 1
+    ld      bc,0                    ;create_chain(0) starts a chain
+    ld      de,bc                   ;BCDE = 0
+    call    create_chain            ;new cluster; carry clear if the FAT is full
+    jp      nc,map_full             ;return 2
+    ld      hl,io_sclust            ;store it as the start cluster
+    call    io_st                   ;io_sclust = BCDE
+    ld      a,1                     ;directory still has cluster 0
+    ld      (io_new),a              ;dir_update must write the new cluster
 map_walk:
-    ld      hl,io_sclust
-    call    clst_from_off
-    jp      c,map_have
-    ld      a,(io_alloc)
-    or      a
-    jp      z,map_eof
-    call    extend_one
-    jp      nc,map_full
-    jp      map_walk
+    ld      hl,io_sclust            ;clst_from_off wants the start here
+    call    clst_from_off           ;cluster that holds io_fptr
+    jp      c,map_have              ;carry: BCDE is that cluster
+    ld      a,(io_alloc)            ;past the chain: extend only on a write
+    or      a                       ;read
+    jp      z,map_eof               ;return 1
+    call    extend_one              ;one more cluster, then walk again
+    jp      nc,map_full             ;allocate failed: return 2
+    jp      map_walk                ;the new cluster is on the chain
 map_have:
-    ld      a,(_cpm_fat_vol+1)
-    dec     a
-    ld      h,a
-    ld      a,(io_fptr+1)
-    srl     a               ;(fptr+1) >> 1. 8085: or a / rra
-    and     h
-    ld      (io_sec),a
-    ld      a,(io_fptr)
-    ld      (io_offb),a
-    ld      a,(io_fptr+1)
-    and     1
-    ld      (io_offb+1),a
-    call    clst2sect
-    jp      nc,map_logic
-    ld      a,(io_sec)
-    add     a,e
-    ld      e,a
+    ld      a,(_cpm_fat_vol+1)      ;csize, a power of two
+    dec     a                       ;csize-1 masks the sector in the cluster
+    ld      h,a                     ;mask
+    ld      a,(io_fptr+1)           ;cursor byte 1
+    srl     a                       ;(fptr+1) >> 1. 8085: or a / rra
+    and     h                       ;sector within the cluster
+    ld      (io_sec),a              ;added to the cluster's first LBA
+    ld      a,(io_fptr)             ;cursor low byte
+    ld      (io_offb),a             ;low 8 bits of the offset in the sector
+    ld      a,(io_fptr+1)           ;cursor byte 1
+    and     1                       ;bit 0 is bit 8 of the byte offset
+    ld      (io_offb+1),a           ;offset in the 512-byte sector
+    call    clst2sect               ;LBA of the first sector of this cluster
+    jp      nc,map_logic            ;cluster number was illegal
+    ld      a,(io_sec)              ;sector within the cluster
+    add     a,e                     ;add it to the LBA
+    ld      e,a                     ;LBA low
     ld      a,d
     adc     a,0
     ld      d,a
@@ -2970,59 +2970,59 @@ map_have:
     adc     a,0
     ld      b,a
 map_do:
-    ld      hl,io_lba
-    call    io_st
-    call    fat_move_window
-    jp      c,map_ok
-    call    badsctr
-    ld      hl,io_lba
-    call    io_ld
-    jp      map_do
+    ld      hl,io_lba               ;full LBA
+    call    io_st                   ;io_lba = BCDE
+    call    fat_move_window         ;fatwin is that sector
+    jp      c,map_ok                ;carry: the sector is in fatwin
+    call    badsctr                 ;print Bad Sector; CTRL-C reboots, else retry
+    ld      hl,io_lba               ;same LBA
+    call    io_ld                   ;BCDE = io_lba again
+    jp      map_do                  ;try the same sector
 map_ok:
-    scf
+    scf                             ;mapped
     ret
 map_eof:
-    ld      a,1
-    or      a
+    ld      a,1                     ;read past the end, or a hole on a read
+    or      a                       ;carry clear, A = 1
     ret
 map_full:
-    ld      a,2
-    or      a
+    ld      a,2                     ;allocate failed, or the cluster was illegal on a write
+    or      a                       ;carry clear, A = 2
     ret
 map_logic:
-    ld      a,(io_alloc)
-    or      a
-    jp      z,map_eof
-    jp      map_full
+    ld      a,(io_alloc)            ;clst2sect failed
+    or      a                       ;a read reports EOF
+    jp      z,map_eof               ;return 1
+    jp      map_full                ;a write reports the disk full
 
 ;
 ; Bad sector vector. Print, reboot on CTRL-C, else return to retry.
 ; bad_wait returns the console character in A.
 ;
 badsctr:
-    call    bad_wait
-    cp      CNTRLC
-    jp      z,wboot
-    ret
+    call    bad_wait                ;message, then the console byte in A
+    cp      CNTRLC                  ;CTRL-C
+    jp      z,wboot                 ;warm boot
+    ret                             ;any other key retries the sector
 
 bad_wait:
-    ld      hl,msg_bad
-    push    hl
-    ld      c,CR
-    call    outchar
-    ld      c,LF
-    call    outchar
-    ld      bc,msg_on
-    call    ed_mesg
-    ld      a,(bdos_drive)
-    add     a,'A'
-    ld      c,a
-    call    outchar
-    ld      bc,msg_sp
-    call    ed_mesg
-    pop     bc
-    call    ed_mesg
-    jp      getchar
+    ld      hl,msg_bad              ;"Bad Sector$"
+    push    hl                      ;message
+    ld      c,CR                    ;CR
+    call    outchar                 ;start of the line
+    ld      c,LF                    ;LF
+    call    outchar                 ;new line
+    ld      bc,msg_on               ;"Bdos Err On $"
+    call    ed_mesg                 ;that prefix
+    ld      a,(bdos_drive)          ;current drive
+    add     a,'A'                   ;letter
+    ld      c,a                     ;C for CONOUT
+    call    outchar                 ;the drive letter
+    ld      bc,msg_sp               ;" : $"
+    call    ed_mesg                 ;separator
+    pop     bc                      ;"Bad Sector$"
+    call    ed_mesg                 ;the message
+    jp      getchar                 ;console byte comes back in A
 
 msg_bad:
     defm    "Bad Sector$"
@@ -3034,154 +3034,154 @@ msg_bad:
 ; length. Carry clear returns A from map_sector (disk full is 2).
 ;
 zero_gap:
-    ld      hl,io_size
-    ld      de,io_fptr
-    call    cmp4
-    jp      nc,zg_ok
-    ld      hl,io_fptr
-    ld      de,io_mark
-    ld      bc,4
-    call    bdos_move
-    ld      hl,io_size
-    ld      de,io_fptr
-    ld      bc,4
-    call    bdos_move
+    ld      hl,io_size              ;file size
+    ld      de,io_fptr              ;cursor
+    call    cmp4                    ;carry when the size is still below the cursor
+    jp      nc,zg_ok                ;size already reaches the cursor: no hole
+    ld      hl,io_fptr              ;cursor we must reach
+    ld      de,io_mark              ;saved end of the record
+    ld      bc,4                    ;four bytes
+    call    bdos_move               ;io_mark = cursor
+    ld      hl,io_size              ;old size
+    ld      de,io_fptr              ;fill starts at the old EOF
+    ld      bc,4                    ;four bytes
+    call    bdos_move               ;cursor = size
 zg_lp:
-    ld      hl,io_fptr
-    ld      de,io_mark
-    call    cmp4
-    jp      nc,zg_restore
-    call    map_sector
-    jp      nc,zg_err
-    ld      a,(io_offb)
-    ld      c,a
-    ld      a,(io_offb+1)
-    ld      b,a
-    xor     a
-    sub     c
-    ld      c,a
-    ld      a,2
+    ld      hl,io_fptr              ;fill cursor
+    ld      de,io_mark              ;saved end
+    call    cmp4                    ;caught up when the cursor reaches the mark
+    jp      nc,zg_restore           ;put the mark back and succeed
+    call    map_sector              ;sector that holds this byte
+    jp      nc,zg_err               ;A is 1 or 2
+    ld      a,(io_offb)             ;offset in the sector, low
+    ld      c,a                     ;C
+    ld      a,(io_offb+1)           ;high bit of that offset
+    ld      b,a                     ;BC = offset
+    xor     a                       ;0 minus that offset
+    sub     c                       ;low byte of 512 - offset
+    ld      c,a                     ;low byte
+    ld      a,2                     ;high byte of 512
     sbc     a,b
-    ld      b,a
-    push    bc
-    call    fptr_plus_bc
-    ld      hl,io_end
-    ld      de,io_mark
-    call    cmp4
-    pop     bc
-    jp      c,zg_have
-    ld      hl,io_fptr
-    ld      a,(io_mark)
-    sub     (hl+)
-    ld      c,a
-    ld      a,(io_mark+1)
+    ld      b,a                     ;BC = bytes left in this sector
+    push    bc                      ;that length
+    call    fptr_plus_bc            ;io_end = cursor + those bytes
+    ld      hl,io_end               ;end of this sector
+    ld      de,io_mark              ;the record we must reach
+    call    cmp4                    ;carry when the sector ends before the mark
+    pop     bc                      ;sector length, or replaced below
+    jp      c,zg_have               ;zero through the end of the sector
+    ld      hl,io_fptr              ;cursor
+    ld      a,(io_mark)             ;mark, low
+    sub     (hl+)                   ;bytes still to the mark
+    ld      c,a                     ;low byte
+    ld      a,(io_mark+1)           ;mark, byte 1
     sbc     a,(hl)
-    ld      b,a
+    ld      b,a                     ;BC = mark - cursor
 zg_have:
-    ld      a,b
-    or      c
-    jp      z,zg_lp
-    push    bc
-    call    add_offb
-    pop     bc
-    push    bc
-    xor     a
+    ld      a,b                     ;nothing in this slice
+    or      c                       ;both bytes zero
+    jp      z,zg_lp                 ;map the next byte
+    push    bc                      ;byte count
+    call    add_offb                ;HL = fatwin + offset
+    pop     bc                      ;count
+    push    bc                      ;count across the fill
+    xor     a                       ;zero
 zg_z:
-    ld      (hl+),a
-    dec     bc
-    ld      a,b
-    or      c
-    ld      a,0
-    jp      nz,zg_z
-    ld      a,1
-    ld      (fat_wflag),a
-    pop     bc
-    call    add_fptr_bc
-    jp      zg_lp
+    ld      (hl+),a                 ;clear one byte and step
+    dec     bc                      ;one fewer
+    ld      a,b                     ;bytes left
+    or      c                       ;Z when the slice is done
+    ld      a,0                     ;A stays 0; flags stay from the OR
+    jp      nz,zg_z                 ;more of this slice
+    ld      a,1                     ;sector is dirty
+    ld      (fat_wflag),a           ;written with the file
+    pop     bc                      ;byte count
+    call    add_fptr_bc             ;cursor moves past the bytes just cleared
+    jp      zg_lp                   ;next slice
 
 zg_restore:
-    ld      hl,io_mark
-    ld      de,io_fptr
-    ld      bc,4
-    call    bdos_move
+    ld      hl,io_mark              ;saved end of the record
+    ld      de,io_fptr              ;cursor
+    ld      bc,4                    ;four bytes
+    call    bdos_move               ;cursor is back where the write starts
 zg_ok:
-    scf
+    scf                             ;gap closed
     ret
 zg_err:
-    or      a
-    ret
+    or      a                       ;carry clear
+    ret                             ;A is still 1 or 2
 
 xfer_read:
-    call    map_sector
-    ret     nc
-    call    end128
-    ld      hl,io_size
-    ld      de,io_end
-    call    cmp4
-    jp      c,xr_short
-    ld      bc,128
-    jp      xr_cp
+    call    map_sector              ;sector in fatwin; carry clear returns A
+    ret     nc                      ;EOF or full
+    call    end128                  ;io_end = cursor + 128
+    ld      hl,io_size              ;file size
+    ld      de,io_end               ;end of this record
+    call    cmp4                    ;carry when the file ends inside the record
+    jp      c,xr_short              ;copy a short tail
+    ld      bc,128                  ;a full record
+    jp      xr_cp                   ;copy it
 xr_short:
-    ld      hl,io_fptr
-    ld      a,(io_size)
-    sub     (hl+)
-    ld      c,a
-    ld      a,(io_size+1)
+    ld      hl,io_fptr              ;cursor
+    ld      a,(io_size)             ;size low
+    sub     (hl+)                   ;bytes left in the file
+    ld      c,a                     ;low byte
+    ld      a,(io_size+1)           ;size byte 1
     sbc     a,(hl)
-    or      a
-    jp      z,xr_b0
-    ld      bc,128
-    jp      xr_cp
+    or      a                       ;nonzero: 256 or more bytes remain
+    jp      z,xr_b0                 ;the low byte is the whole tail
+    ld      bc,128                  ;more than a record remains: copy 128
+    jp      xr_cp                   ;copy a full record
 xr_b0:
-    ld      b,0
+    ld      b,0                     ;high byte of a short tail is 0
 xr_cp:
-    ld      a,b
-    or      c
-    jp      z,xr_z128
-    push    bc
-    call    add_offb
-    pop     bc
-    push    bc
-    ld      de,bdos_rec
-    call    bdos_move
-    pop     bc
-    ld      a,b
-    or      a
-    jp      nz,xr_ok
-    ld      a,128
-    sub     c
-    jp      z,xr_ok
-    ld      hl,de
-    ld      (hl),0
-    dec     a
-    jp      z,xr_ok
-    ld      c,a
-    ld      b,0
-    inc     de
-    ldir
-    jp      xr_ok
+    ld      a,b                     ;count
+    or      c                       ;zero bytes
+    jp      z,xr_z128               ;nothing to copy: a zero record
+    push    bc                      ;count
+    call    add_offb                ;HL = fatwin + offset
+    pop     bc                      ;count
+    push    bc                      ;count
+    ld      de,bdos_rec             ;staged record
+    call    bdos_move               ;that many bytes into bdos_rec
+    pop     bc                      ;count
+    ld      a,b                     ;128 has B = 0
+    or      a                       ;B set only if the count did not fit in C
+    jp      nz,xr_ok                ;no zero pad
+    ld      a,128                   ;record length
+    sub     c                       ;bytes not copied
+    jp      z,xr_ok                 ;a full 128 needs no pad
+    ld      hl,de                   ;DE is just past the copied bytes
+    ld      (hl),0                  ;first pad byte
+    dec     a                       ;one fewer still to pad
+    jp      z,xr_ok                 ;that single zero was enough
+    ld      c,a                     ;remaining zeros
+    ld      b,0                     ;high byte 0
+    inc     de                      ;past the first pad byte
+    ldir                            ;the rest of the record
+    jp      xr_ok                   ;done
 xr_z128:
-    ld      hl,bdos_rec
-    ld      (hl),0
-    ld      de,hl
-    inc     de
-    ld      bc,127
-    ldir
+    ld      hl,bdos_rec             ;staged record
+    ld      (hl),0                  ;a zero record
+    ld      de,hl                   ;source is the zero just stored
+    inc     de                      ;rest of the record
+    ld      bc,127                  ;127 more zeros
+    ldir                            ;clear the record
 xr_ok:
-    scf
+    scf                             ;read assembled
     ret
 
 xfer_write:
-    call    map_sector
-    ret     nc
-    call    add_offb
-    ex      de,hl
-    ld      hl,bdos_rec
-    ld      bc,128
-    call    bdos_move
-    ld      a,1
-    ld      (fat_wflag),a
-    scf
+    call    map_sector              ;sector of this record
+    ret     nc                      ;carry clear: A is 1 or 2
+    call    add_offb                ;HL = fatwin + offset
+    ex      de,hl                   ;DE = that address
+    ld      hl,bdos_rec             ;staged record
+    ld      bc,128                  ;one record
+    call    bdos_move               ;bdos_rec into the sector
+    ld      a,1                     ;sector dirty
+    ld      (fat_wflag),a           ;written by dir_update or a later sync
+    scf                             ;write landed
     ret
 
 ;
@@ -3189,65 +3189,65 @@ xfer_write:
 ; The directory is written back at the saved offset. Sync failure is A = 3.
 ;
 dir_update:
-    call    end128
-    ld      hl,io_size
-    ld      de,io_end
-    call    cmp4
-    jp      nc,du_keep
-    ld      hl,io_end
-    ld      de,io_size
-    ld      bc,4
-    call    bdos_move
+    call    end128                  ;io_end = cursor + 128
+    ld      hl,io_size              ;old size
+    ld      de,io_end               ;end of this record
+    call    cmp4                    ;carry when the record ends past the size
+    jp      nc,du_keep              ;size already covers this record
+    ld      hl,io_end               ;new size
+    ld      de,io_size              ;io_size
+    ld      bc,4                    ;four bytes
+    call    bdos_move               ;size becomes the end of this record
 du_keep:
-    ld      hl,(io_ofs)
-    call    root_at
-    jp      nc,du_fail
-    ld      a,(io_new)
-    or      a
-    jp      z,du_sz
-    ld      hl,(dir_ptr)
-    ld      de,26
-    add     hl,de
-    ld      a,(io_sclust)
-    ld      (hl+),a
-    ld      a,(io_sclust+1)
-    ld      (hl),a
-    ld      hl,(dir_ptr)
-    ld      de,20
-    add     hl,de
-    ld      a,(_cpm_fat_vol)
-    cp      3
-    jp      nz,du_zhi
-    ld      a,(io_sclust+2)
-    ld      (hl+),a
-    ld      a,(io_sclust+3)
-    ld      (hl),a
-    jp      du_sz
+    ld      hl,(io_ofs)             ;directory offset saved at open
+    call    root_at                 ;that entry
+    jp      nc,du_fail              ;cannot see the entry: return 3
+    ld      a,(io_new)              ;set when the start cluster was allocated
+    or      a                       ;cluster already in the entry
+    jp      z,du_sz                 ;size only
+    ld      hl,(dir_ptr)            ;entry
+    ld      de,26                   ;low cluster at byte 26
+    add     hl,de                   ;point at it
+    ld      a,(io_sclust)           ;new cluster, low
+    ld      (hl+),a                 ;store, and step
+    ld      a,(io_sclust+1)         ;second byte
+    ld      (hl),a                  ;store
+    ld      hl,(dir_ptr)            ;entry
+    ld      de,20                   ;high cluster at byte 20
+    add     hl,de                   ;point at it
+    ld      a,(_cpm_fat_vol)        ;fs_type
+    cp      3                       ;3 is FAT32
+    jp      nz,du_zhi               ;FAT12/16 stores zeros there
+    ld      a,(io_sclust+2)         ;cluster byte 2
+    ld      (hl+),a                 ;store, and step
+    ld      a,(io_sclust+3)         ;cluster byte 3
+    ld      (hl),a                  ;store
+    jp      du_sz                   ;then the size
 du_zhi:
-    xor     a
-    ld      (hl+),a
-    ld      (hl),a
+    xor     a                       ;not FAT32
+    ld      (hl+),a                 ;clear byte 20
+    ld      (hl),a                  ;clear byte 21
 du_sz:
-    ld      hl,(dir_ptr)
-    ld      de,28
-    add     hl,de
-    ex      de,hl
-    ld      hl,io_size
-    ld      bc,4
-    call    bdos_move
-    ld      hl,(dir_ptr)
-    ld      de,11
-    add     hl,de
-    ld      a,(hl)
-    or      $20
-    ld      (hl),a
-    ld      a,1
-    ld      (fat_wflag),a
-    call    fat_sync_window
-    ret     c
+    ld      hl,(dir_ptr)            ;entry
+    ld      de,28                   ;size at byte 28
+    add     hl,de                   ;point at it
+    ex      de,hl                   ;DE = size field
+    ld      hl,io_size              ;io_size
+    ld      bc,4                    ;four bytes
+    call    bdos_move               ;size into the entry
+    ld      hl,(dir_ptr)            ;entry
+    ld      de,11                   ;attribute byte
+    add     hl,de                   ;point at it
+    ld      a,(hl)                  ;attribute
+    or      $20                     ;archive bit
+    ld      (hl),a                  ;set
+    ld      a,1                     ;directory dirty
+    ld      (fat_wflag),a           ;one dirty sector
+    call    fat_sync_window         ;sync
+    ret     c                       ;carry: directory is on the card
 du_fail:
-    ld      a,3
-    or      a
+    ld      a,3                     ;sync or directory failure
+    or      a                       ;carry clear, A = 3
     ret
 
 ;
@@ -3256,207 +3256,207 @@ du_fail:
 ; Random success stores CR, EX, and S2 and does not touch R0..R2.
 ;
 seq_place:
-    ld      a,(io_mode)
-    or      a
-    jp      z,ran_place
-    ld      a,(io_cr)
-    cp      127
-    jp      z,seq_ext
-    ld      a,(io_alloc)
-    or      a
-    jp      z,seq_incr
-    ld      a,(io_cr)
-    ld      hl,bdos_fcb+15
-    cp      (hl)
-    jp      c,seq_clr
-    inc     a
-    ld      (hl),a
+    ld      a,(io_mode)             ;0 is random
+    or      a                       ;random fields, not CR
+    jp      z,ran_place             ;a random write or read
+    ld      a,(io_cr)               ;sequential CR
+    cp      127                     ;127 is the last record of this extent
+    jp      z,seq_ext               ;open the next extent
+    ld      a,(io_alloc)            ;writes extend RC
+    or      a                       ;a read only steps CR
+    jp      z,seq_incr              ;do not touch RC
+    ld      a,(io_cr)               ;CR
+    ld      hl,bdos_fcb+15          ;RC
+    cp      (hl)                    ;CR against RC
+    jp      c,seq_clr               ;CR is below RC, so RC already covers it
+    inc     a                       ;CR+1
+    ld      (hl),a                  ;RC grows to include this record
 seq_clr:
-    ld      a,(bdos_fcb+14)
-    and     $7F
-    ld      (bdos_fcb+14),a
+    ld      a,(bdos_fcb+14)         ;S2
+    and     $7F                     ;drop bit 7: close will write
+    ld      (bdos_fcb+14),a         ;S2 without the interface bit
 seq_incr:
-    ld      hl,bdos_fcb+32
-    inc     (hl)
-    ld      hl,0
-    ret
+    ld      hl,bdos_fcb+32          ;CR
+    inc     (hl)                    ;next record in this extent
+    ld      hl,0                    ;success
+    ret                             ;return 0
 
 seq_ext:
-    ld      a,(io_alloc)
-    or      a
-    jp      z,seq_ext2
-    ld      a,128
-    ld      (bdos_fcb+15),a
-    ld      a,(bdos_fcb+14)
-    and     $7F
-    ld      (bdos_fcb+14),a
+    ld      a,(io_alloc)            ;writes fill RC at the end of an extent
+    or      a                       ;a read just steps
+    jp      z,seq_ext2              ;do not force RC
+    ld      a,128                   ;the extent is full
+    ld      (bdos_fcb+15),a         ;RC = 128
+    ld      a,(bdos_fcb+14)         ;S2
+    and     $7F                     ;bit 7 off
+    ld      (bdos_fcb+14),a         ;close may write
 seq_ext2:
-    call    extent_bc
-    ld      a,b
-    cp      1
-    jp      nz,seq_adv
-    ld      a,c
-    cp      $FF
-    jp      nz,seq_adv
-    ld      a,(io_alloc)
-    or      a
-    jp      z,seq_last
-    ld      a,(bdos_fcb+14)
-    and     $7F
-    ld      (bdos_fcb+14),a
-    ld      a,128
-    ld      (bdos_fcb+15),a
+    call    extent_bc               ;BC = this extent, 0..511
+    ld      a,b                     ;high byte
+    cp      1                       ;extent 511 is 01FFh
+    jp      nz,seq_adv              ;not the last extent of the 8 MB disk
+    ld      a,c                     ;low byte
+    cp      $FF                     ;FFh is the other half of 511
+    jp      nz,seq_adv              ;not the last extent
+    ld      a,(io_alloc)            ;a write at the cap still sets RC
+    or      a                       ;read: leave RC, CR becomes 128
+    jp      z,seq_last              ;do not extend
+    ld      a,(bdos_fcb+14)         ;S2
+    and     $7F                     ;bit 7 off
+    ld      (bdos_fcb+14),a         ;S2
+    ld      a,128                   ;RC full
+    ld      (bdos_fcb+15),a         ;RC = 128
 seq_last:
-    ld      a,128
-    ld      (bdos_fcb+32),a
-    ld      hl,0
-    ret
+    ld      a,128                   ;CR 128: the next sequential call returns 1
+    ld      (bdos_fcb+32),a         ;CR
+    ld      hl,0                    ;success, but the next read is EOF
+    ret                             ;return 0
 
 seq_adv:
-    inc     bc
-    ld      a,c
-    and     $1F
-    ld      (bdos_fcb+12),a
-    ld      (io_ex),a
-    call    shr5
-    or      $80
-    ld      (bdos_fcb+14),a
-    ld      (io_s2),a
-    push    bc
-    ld      hl,(io_ofs)
-    call    root_at
-    pop     bc
-    jp      nc,seq_rc0
-    call    ext_rc
-    jp      c,seq_rcst
+    inc     bc                      ;next extent
+    ld      a,c                     ;its low byte
+    and     $1F                     ;EX is five bits
+    ld      (bdos_fcb+12),a         ;FCB EX
+    ld      (io_ex),a               ;same value for a later extent_bc
+    call    shr5                    ;A = extent >> 5
+    or      $80                     ;bit 7 set: this open is for write-back
+    ld      (bdos_fcb+14),a         ;FCB S2
+    ld      (io_s2),a               ;io_s2 matches
+    push    bc                      ;extent, the directory lookup does not need it
+    ld      hl,(io_ofs)             ;where this file's entry was
+    call    root_at                 ;that entry
+    pop     bc                      ;extent
+    jp      nc,seq_rc0              ;entry is gone
+    call    ext_rc                  ;A = RC; carry clear if this extent is past EOF
+    jp      c,seq_rcst              ;carry: A is the RC of this extent
 seq_rc0:
-    xor     a
+    xor     a                       ;no entry, or past EOF: RC 0
 seq_rcst:
-    ld      (bdos_fcb+15),a
-    xor     a
-    ld      (bdos_fcb+32),a
-    ld      hl,0
-    ret
+    ld      (bdos_fcb+15),a         ;RC of the extent just opened
+    xor     a                       ;CR starts at 0
+    ld      (bdos_fcb+32),a         ;FCB CR
+    ld      hl,0                    ;success
+    ret                             ;return 0
 
 ran_place:
-    ld      a,(io_cr)
-    ld      (bdos_fcb+32),a
-    ld      a,(io_ex)
-    ld      (bdos_fcb+12),a
-    ld      a,(io_s2)
-    ld      (bdos_fcb+14),a
-    ld      a,(io_alloc)
-    or      a
-    jp      z,ran_ok
-    ld      hl,(io_ofs)
-    call    root_at
-    jp      nc,ran_miss
-    call    extent_bc
-    call    ext_rc
-    jp      c,ran_have
+    ld      a,(io_cr)               ;CR that prep_pos decoded
+    ld      (bdos_fcb+32),a         ;FCB CR
+    ld      a,(io_ex)               ;EX
+    ld      (bdos_fcb+12),a         ;FCB EX
+    ld      a,(io_s2)               ;S2, bit 7 as prep_pos left it
+    ld      (bdos_fcb+14),a         ;FCB S2; r0..r2 stay
+    ld      a,(io_alloc)            ;writes refresh RC
+    or      a                       ;a read is done
+    jp      z,ran_ok                ;return 0
+    ld      hl,(io_ofs)             ;directory offset
+    call    root_at                 ;the entry
+    jp      nc,ran_miss             ;missing: RC 0
+    call    extent_bc               ;BC = extent
+    call    ext_rc                  ;A = RC of that extent
+    jp      c,ran_have              ;extent exists: A is its RC
 ran_miss:
-    xor     a
+    xor     a                       ;no extent: RC 0
 ran_have:
-    ld      hl,bdos_fcb+15
-    ld      (hl),a
-    ld      a,(io_cr)
-    cp      (hl)
-    jp      c,ran_ok
-    inc     a
-    ld      (hl),a
+    ld      hl,bdos_fcb+15          ;RC
+    ld      (hl),a                  ;store it
+    ld      a,(io_cr)               ;CR
+    cp      (hl)                    ;still below the old RC?
+    jp      c,ran_ok                ;RC already covers CR
+    inc     a                       ;CR+1
+    ld      (hl),a                  ;RC includes this record
 ran_ok:
-    ld      hl,0
-    ret
+    ld      hl,0                    ;success
+    ret                             ;return 0
 
 ;
 ; BC = current extent, 0..511. Bit 7 of io_s2 is not part of the number.
 ;
 extent_bc:
-    ld      a,(io_s2)
-    and     $0F
-    ld      l,a
-    ld      h,0
+    ld      a,(io_s2)               ;S2
+    and     $0F                     ;module, bit 7 is not part of the number
+    ld      l,a                     ;module
+    ld      h,0                     ;high byte 0
+    add     hl,hl                   ;module << 1; five adds make << 5
     add     hl,hl
     add     hl,hl
     add     hl,hl
     add     hl,hl
-    add     hl,hl
-    ld      a,(io_ex)
-    or      l
-    ld      c,a
-    ld      b,h
+    ld      a,(io_ex)               ;EX
+    or      l                       ;OR into the low five bits
+    ld      c,a                     ;extent 0..511, low
+    ld      b,h                     ;high byte is 0 or 1
     ret
 
 ret_al:
-    ld      l,a
-    ld      h,0
+    ld      l,a                     ;L = A, the code from map_sector or prep_pos
+    ld      h,0                     ;a one-byte result
     ret
 
 ret_a1:
-    ld      hl,1
+    ld      hl,1                    ;EOF, or no directory entry
     ret
 
 ret_a3:
-    ld      hl,3
+    ld      hl,3                    ;directory sync failed
     ret
 
 ;
 sz_bad:
-    pop     af
-    jp      fatal_sel
+    pop     af                      ;drop the drive
+    jp      fatal_sel               ;Select
 sz_novol:
 sz_nouser:
-    pop     af
-    jp      sz_zero
+    pop     af                      ;drop the drive
+    jp      sz_zero                 ;return a zero random field
 
 ;
 ; Function 35. A is 0 for a hit, a miss, an empty file, another user,
 ; and a volume that is not mounted. An unmounted drive still fatals.
 ;
 fn_size:
-    ld      a,(bdos_fcb)
-    cp      '?'
-    jp      z,fatal_sel
-    call    eff_num
-    jp      nc,fatal_sel
-    push    af
-    call    drv_mounted
-    jp      nc,sz_bad
-    call    vol_ready
-    jp      nc,sz_novol
-    ld      a,(bdos_user)
-    or      a
-    jp      nz,sz_nouser
-    pop     af
-    ld      hl,bdos_login
-    call    drv_set
-    call    find_name
-    jp      nc,sz_zero
-    ld      hl,(dir_ptr)
-    ld      de,28
-    add     hl,de
-    ld      e,(hl+)
-    ld      d,(hl+)
-    ld      c,(hl+)
-    ld      b,(hl)
-    ld      a,e
-    and     $7F
-    ld      l,a
-    ld      h,7
+    ld      a,(bdos_fcb)            ;FCB drive
+    cp      '?'                     ;'?' is not a file
+    jp      z,fatal_sel             ;Select
+    call    eff_num                 ;0 = current, else 1..16
+    jp      nc,fatal_sel            ;past P
+    push    af                      ;drive
+    call    drv_mounted             ;cluster must be set
+    jp      nc,sz_bad               ;empty letter
+    call    vol_ready               ;mount if fs_type is still 0
+    jp      nc,sz_novol             ;not mounted: size 0, not an error
+    ld      a,(bdos_user)           ;only user 0
+    or      a                       ;another user: size 0
+    jp      nz,sz_nouser            ;not user 0
+    pop     af                      ;drive
+    ld      hl,bdos_login           ;login vector
+    call    drv_set                 ;log the drive in
+    call    find_name               ;first matching name
+    jp      nc,sz_zero              ;no file: zero records
+    ld      hl,(dir_ptr)            ;entry
+    ld      de,28                   ;size at byte 28
+    add     hl,de                   ;point at it
+    ld      e,(hl+)                 ;size byte 0
+    ld      d,(hl+)                 ;byte 1
+    ld      c,(hl+)                 ;byte 2
+    ld      b,(hl)                  ;byte 3; BCDE = size, E is LSB
+    ld      a,e                     ;low byte
+    and     $7F                     ;a partial last record
+    ld      l,a                     ;saved across the shift
+    ld      h,7                     ;shift the size right 7
 sz_sh:
-    srl     b               ;BCDE >> 1. 8085: rra through A
+    srl     b                       ;BCDE >> 1. 8085: rra through A
     rr      c
     rr      d
     rr      e
-    dec     h
-    jp      nz,sz_sh
-    ld      a,l
-    or      a
-    jp      z,sz_chk
-    ld      a,e
-    add     a,1
-    ld      e,a
-    ld      a,d
+    dec     h                       ;seven shifts
+    jp      nz,sz_sh                ;DEBC >>= 7 again
+    ld      a,l                     ;partial-record flag
+    or      a                       ;Z when those low bits were 0
+    jp      z,sz_chk                ;an exact multiple of 128
+    ld      a,e                     ;record count, low byte
+    add     a,1                     ;one more record for a partial tail
+    ld      e,a                     ;low byte
+    ld      a,d                     ;next byte of the count
     adc     a,0
     ld      d,a
     ld      a,c
@@ -3466,31 +3466,31 @@ sz_sh:
     adc     a,0
     ld      b,a
 sz_chk:
-    ld      a,b
-    or      c
-    jp      nz,sz_cap
-    ld      a,e
-    ld      (bdos_fcb+33),a
-    ld      a,d
-    ld      (bdos_fcb+34),a
-    xor     a
-    ld      (bdos_fcb+35),a
-    ld      hl,0
+    ld      a,b                     ;high word of the record count
+    or      c                       ;nonzero is 65536 records or more
+    jp      nz,sz_cap               ;cap: r2 = 1 and r0 = r1 = 0
+    ld      a,e                     ;record count, low
+    ld      (bdos_fcb+33),a         ;r0
+    ld      a,d                     ;record count, high
+    ld      (bdos_fcb+34),a         ;r1
+    xor     a                       ;r2 = 0
+    ld      (bdos_fcb+35),a         ;the count fits in two bytes
+    ld      hl,0                    ;function 35 returns 0
     ret
 sz_cap:
-    xor     a
-    ld      (bdos_fcb+33),a
-    ld      (bdos_fcb+34),a
-    ld      a,1
-    ld      (bdos_fcb+35),a
-    ld      hl,0
+    xor     a                       ;65536 records: r0 = 0
+    ld      (bdos_fcb+33),a         ;r0
+    ld      (bdos_fcb+34),a         ;r1 = 0
+    ld      a,1                     ;r2 = 1
+    ld      (bdos_fcb+35),a         ;the overflow record
+    ld      hl,0                    ;return 0
     ret
 sz_zero:
-    xor     a
-    ld      (bdos_fcb+33),a
-    ld      (bdos_fcb+34),a
-    ld      (bdos_fcb+35),a
-    ld      hl,0
+    xor     a                       ;no file, another user, or no volume
+    ld      (bdos_fcb+33),a         ;r0 = 0
+    ld      (bdos_fcb+34),a         ;r1 = 0
+    ld      (bdos_fcb+35),a         ;r2 = 0
+    ld      hl,0                    ;return 0
     ret
 
 ;
@@ -3498,44 +3498,44 @@ sz_zero:
 ; CR, EX, and S2 are left as the caller set them.
 ;
 fn_tell:
-    ld      a,(bdos_fcb+14)
-    and     $0F
-    ld      l,a
-    ld      h,0
+    ld      a,(bdos_fcb+14)         ;S2
+    and     $0F                     ;module
+    ld      l,a                     ;module
+    ld      h,0                     ;high byte 0
+    add     hl,hl                   ;module << 1; five adds make << 5
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl
+    ld      a,(bdos_fcb+12)         ;EX
+    and     $1F                     ;low 5 bits
+    or      l                       ;extent = module<<5 | EX
+    ld      l,a                     ;extent
+    add     hl,hl                   ;extent << 1; seven adds make << 7
     add     hl,hl
     add     hl,hl
     add     hl,hl
     add     hl,hl
     add     hl,hl
-    ld      a,(bdos_fcb+12)
-    and     $1F
-    or      l
-    ld      l,a
     add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    add     hl,hl
-    ld      de,hl
-    ld      c,0
-    ld      a,(bdos_fcb+32)
-    add     a,e
-    ld      e,a
-    ld      a,d
+    ld      de,hl                   ;DE = extent * 128
+    ld      c,0                     ;r2 starts at 0
+    ld      a,(bdos_fcb+32)         ;CR
+    add     a,e                     ;record = extent*128 + CR
+    ld      e,a                     ;r0
+    ld      a,d                     ;high byte
     adc     a,0
-    ld      d,a
-    ld      a,c
+    ld      d,a                     ;r1
+    ld      a,c                     ;carry into r2
     adc     a,0
-    ld      c,a
-    ld      a,e
-    ld      (bdos_fcb+33),a
-    ld      a,d
-    ld      (bdos_fcb+34),a
-    ld      a,c
-    ld      (bdos_fcb+35),a
-    ld      hl,0
+    ld      c,a                     ;r2
+    ld      a,e                     ;r0
+    ld      (bdos_fcb+33),a         ;FCB r0; CR, EX and S2 stay
+    ld      a,d                     ;r1
+    ld      (bdos_fcb+34),a         ;FCB r1
+    ld      a,c                     ;r2
+    ld      (bdos_fcb+35),a         ;FCB r2
+    ld      hl,0                    ;function 36 returns 0
     ret
 
 ;
@@ -3548,60 +3548,60 @@ fn_tell:
 ; fs_type is still 0.
 ;
 fn_reset:
-    call    bdos_warm
-    ld      hl,$0080
-    ld      (bdos_dma),hl
-    ld      a,(_cpm_fat_vol)
-    or      a
-    jp      nz,fn_reset_on
-    call    fat_mount
-    jp      nc,dol_fail
+    call    bdos_warm               ;clear login, R/O, drive, and the open file
+    ld      hl,$0080                ;default DMA
+    ld      (bdos_dma),hl           ;0080h
+    ld      a,(_cpm_fat_vol)        ;fs_type
+    or      a                       ;already mounted
+    jp      nz,fn_reset_on          ;the shell may have mounted; this is the retry
+    call    fat_mount               ;ide_init again
+    jp      nc,dol_fail             ;mount failed
 fn_reset_on:
-    xor     a
-    call    drv_mounted
-    jp      nc,dol_none
-    ld      hl,bdos_login
-    call    drv_set
-    jp      fn_dollar
+    xor     a                       ;drive 0 is A:
+    call    drv_mounted             ;carry clear: A: has no cluster
+    jp      nc,dol_none             ;return 0
+    ld      hl,bdos_login           ;login vector
+    call    drv_set                 ;log A: in
+    jp      fn_dollar               ;then look for a '$' file
 
 fn_dollar:
-    xor     a
-    ld      (bdos_fcb),a
-    ld      a,(bdos_user)
-    or      a
-    jp      nz,dol_none
-    ld      hl,0
+    xor     a                       ;drive 0: current drive, which is A:
+    ld      (bdos_fcb),a            ;FCB drive byte
+    ld      a,(bdos_user)           ;only user 0
+    or      a                       ;another user
+    jp      nz,dol_none             ;return 0
+    ld      hl,0                    ;offset 0
 dol_lp:
-    push    hl
-    call    root_at
-    pop     hl
-    jp      nc,dol_none
-    ld      hl,(dir_ptr)
-    ld      a,(hl)
-    or      a
-    jp      z,dol_none
-    cp      $E5
-    jp      z,dol_adv
-    call    attr_skip
-    jp      c,dol_adv
-    ld      hl,(dir_ptr)
-    ld      a,(hl)
-    cp      '$'
-    jp      z,dol_yes
+    push    hl                      ;offset
+    call    root_at                 ;next entry
+    pop     hl                      ;offset
+    jp      nc,dol_none             ;no directory
+    ld      hl,(dir_ptr)            ;entry
+    ld      a,(hl)                  ;first byte
+    or      a                       ;00h ends it
+    jp      z,dol_none              ;no '$' file
+    cp      $E5                     ;deleted
+    jp      z,dol_adv               ;skip
+    call    attr_skip               ;label, directory, LFN
+    jp      c,dol_adv               ;not a file
+    ld      hl,(dir_ptr)            ;entry
+    ld      a,(hl)                  ;first byte again
+    cp      '$'                     ;a submit file
+    jp      z,dol_yes               ;return 00FFh
 dol_adv:
-    ld      hl,(dir_ofs)
-    ld      de,32
-    add     hl,de
-    jp      c,dol_none
-    jp      dol_lp
+    ld      hl,(dir_ofs)            ;this entry
+    ld      de,32                   ;next
+    add     hl,de                   ;advance
+    jp      c,dol_none              ;past 64 KB
+    jp      dol_lp                  ;keep looking
 dol_yes:
-    ld      hl,$00FF
+    ld      hl,$00FF                ;a '$' name is present
     ret
 dol_none:
-    ld      hl,0
+    ld      hl,0                    ;no '$', or A: is not mounted
     ret
 dol_fail:
-    ld      hl,$FFFF
+    ld      hl,$FFFF                ;fat_mount failed
     ret
 
 ;
@@ -3609,56 +3609,56 @@ dol_fail:
 ; letter returns 00FFh and leaves the current drive selected.
 ;
 fn_select:
-    ld      a,e
-    cp      16
-    jp      nc,ret_ff
-    push    af
-    call    drv_mounted
-    jp      c,sel_have
-    pop     af
-    jp      ret_ff
+    ld      a,e                     ;E is the drive, 0 = A
+    cp      16                      ;P is 15
+    jp      nc,ret_ff               ;return FF, current drive unchanged
+    push    af                      ;drive
+    call    drv_mounted             ;cluster must be set
+    jp      c,sel_have              ;mounted
+    pop     af                      ;not mounted
+    jp      ret_ff                  ;return FF
 sel_have:
-    pop     af
-    ld      c,a
-    ld      a,(_cpm_fat_vol)
-    or      a
-    jp      nz,sel_vol
-    call    open_void
-    push    bc
-    call    fat_mount
-    pop     bc
-    jp      nc,ret_ff
+    pop     af                      ;drive
+    ld      c,a                     ;saved in C
+    ld      a,(_cpm_fat_vol)        ;fs_type
+    or      a                       ;already mounted
+    jp      nz,sel_vol              ;mount before using the letter
+    call    open_void               ;a new card drops the open file
+    push    bc                      ;drive
+    call    fat_mount               ;mount
+    pop     bc                      ;drive
+    jp      nc,ret_ff               ;not mounted
 sel_vol:
-    ld      a,(bdos_drive)
-    cp      c
-    jp      nz,sel_void
-    ld      hl,bdos_login
-    ld      a,c
-    call    drv_test
-    jp      nz,sel_store
+    ld      a,(bdos_drive)          ;current drive
+    cp      c                       ;same letter?
+    jp      nz,sel_void             ;changing drive drops the open file
+    ld      hl,bdos_login           ;login vector
+    ld      a,c                     ;the drive just selected
+    call    drv_test                ;Z: not logged in yet
+    jp      nz,sel_store            ;already in: keep the open file
 sel_void:
-    call    open_void
+    call    open_void               ;first select of this letter
 sel_store:
-    ld      a,c
-    ld      (bdos_drive),a
-    ld      hl,bdos_login
-    call    drv_set
-    ld      hl,0
+    ld      a,c                     ;drive
+    ld      (bdos_drive),a          ;current drive
+    ld      hl,bdos_login           ;login vector
+    call    drv_set                 ;log it in
+    ld      hl,0                    ;function 14 returns 0
     ret
 
 fn_logvec:
-    ld      hl,(bdos_login)
-    ret
+    ld      hl,(bdos_login)         ;login bits, bit 0 of L is A:
+    ret                             ;HL is that vector
 
 fn_rov:
-    ld      hl,(bdos_ro)
+    ld      hl,(bdos_ro)            ;read-only bits, same layout
     ret
 
 fn_wprot:
-    ld      a,(bdos_drive)
-    ld      hl,bdos_ro
-    call    drv_set
-    ld      hl,0
+    ld      a,(bdos_drive)          ;current drive 0..15
+    ld      hl,bdos_ro              ;read-only vector
+    call    drv_set                 ;set this drive's bit
+    ld      hl,0                    ;function 28 returns 0
     ret
 
 ;
@@ -3666,28 +3666,28 @@ fn_wprot:
 ;
 fn_logoff:
     ld      a,e
-    cpl
-    ld      c,a
-    ld      a,(bdos_login)
-    and     c
-    ld      (bdos_login),a
-    ld      a,(bdos_ro)
-    and     c
-    ld      (bdos_ro),a
-    ld      a,d
-    cpl
-    ld      c,a
-    ld      a,(bdos_login+1)
-    and     c
-    ld      (bdos_login+1),a
-    ld      a,(bdos_ro+1)
-    and     c
-    ld      (bdos_ro+1),a
-    ld      hl,0
+    cpl                             ;bit set in E means log that drive off
+    ld      c,a                     ;mask of drives that stay
+    ld      a,(bdos_login)          ;login, low
+    and     c                       ;clear the bits that were set in E
+    ld      (bdos_login),a          ;A: through H:
+    ld      a,(bdos_ro)             ;read-only, low
+    and     c                       ;those drives are read/write again
+    ld      (bdos_ro),a             ;store
+    ld      a,d                     ;bit set in D is I: through P:
+    cpl                             ;mask of drives that stay
+    ld      c,a                     ;high login
+    ld      a,(bdos_login+1)        ;clear those bits
+    and     c                       ;I: through P:
+    ld      (bdos_login+1),a        ;high read-only
+    ld      a,(bdos_ro+1)           ;same drives
+    and     c                       ;store
+    ld      (bdos_ro+1),a           ;I: through P:
+    ld      hl,0                    ;function 37 returns 0
     ret
 
 fn_dpb:
-    ld      hl,bdos_dpb
+    ld      hl,bdos_dpb             ;the fixed 8 MB disk parameter block
     ret
 
 ;
@@ -3697,75 +3697,75 @@ fn_dpb:
 ; the bitmap is not a sector, and the pointer dies on the next disk call.
 ;
 fn_vec:
-    ld      hl,fatwin
-    push    hl
-    ld      a,(_cpm_fat_vol)
-    or      a
-    jp      z,vec_zero
-    ld      hl,vec_free
-    call    _fat_getfree
-    jp      nc,vec_zero
-    ld      hl,vec_free
-    call    io_ld
-    ld      a,(_cpm_fat_vol+1)
+    ld      hl,fatwin               ;the bitmap is built in the sector window
+    push    hl                      ;returned at the end
+    ld      a,(_cpm_fat_vol)        ;fs_type
+    or      a                       ;0 means the volume is not mounted
+    jp      z,vec_zero              ;no free blocks
+    ld      hl,vec_free             ;four-byte free-cluster count
+    call    _fat_getfree            ;carry clear: treat free as 0
+    jp      nc,vec_zero             ;no count
+    ld      hl,vec_free             ;that count
+    call    io_ld                   ;BCDE = free clusters, E LSB
+    ld      a,(_cpm_fat_vol+1)      ;csize, sectors per cluster
 vec_mul:
-    srl     a               ;low bit of the cluster-size exponent
-    jp      c,vec_div
-    push    af
-    sla     e               ;BCDE << 1. 8085: rl de, then adc through BC
+    srl     a                       ;low bit of the cluster-size exponent
+    jp      c,vec_div               ;low bit was 1: the multiply is finished
+    push    af                      ;csize
+    sla     e                       ;BCDE << 1. 8085: rl de, then adc through BC
     rl      d
     rl      c
     rl      b
-    pop     af
-    jp      vec_mul
+    pop     af                      ;csize
+    jp      vec_mul                 ;shift once more
 vec_div:
-    call    shr32
-    call    shr32
-    ld      a,b
-    or      c
-    jp      nz,vec_cap
-    ld      a,d
-    cp      16
-    jp      c,vec_have
-    jp      nz,vec_cap
-    ld      a,e
-    or      a
-    jp      z,vec_have
+    call    shr32                   ;/2: free sectors toward 2 KB blocks
+    call    shr32                   ;/2 again, so blocks of 2 KB
+    ld      a,b                     ;high word of the block count
+    or      c                       ;nonzero is past 65535
+    jp      nz,vec_cap              ;cap at 4096
+    ld      a,d                     ;high byte
+    cp      16                      ;4096 is 1000h
+    jp      c,vec_have              ;D below 16: under the cap
+    jp      nz,vec_cap              ;D above 16
+    ld      a,e                     ;low byte
+    or      a                       ;exactly 4096 when this is 0
+    jp      z,vec_have              ;4096 stays
 vec_cap:
-    ld      de,4096
-    jp      vec_have
+    ld      de,4096                 ;more than 4096 blocks
+    jp      vec_have                ;use the capped count
 vec_zero:
-    ld      de,0
+    ld      de,0                    ;no free blocks
 vec_have:
-    pop     hl
-    push    hl
-    push    de
-    ld      (hl),$FF
-    ld      de,hl
-    inc     de
-    ld      bc,511              ;(DSM/8)+1 = 512, including the byte just stored
-    ldir
-    pop     bc
-    ld      hl,4095
+    pop     hl                      ;fatwin
+    push    hl                      ;kept as the return value
+    push    de                      ;free block count
+    ld      (hl),$FF                ;every bit starts allocated
+    ld      de,hl                   ;fill starts at the next byte
+    inc     de                      ;byte 1 of the window
+    ld      bc,511                  ;(DSM/8)+1 = 512, including the byte just stored
+    ldir                            ;512 bytes of FF, including the one stored
+    pop     bc                      ;how many blocks to mark free
+    ld      hl,4095                 ;last block of the 8 MB disk
 vec_bit:
-    ld      a,b
-    or      c
-    jp      z,vec_done
-    call    clr_bit
-    dec     hl
-    dec     bc
-    jp      vec_bit
+    ld      a,b                     ;free count, high
+    or      c                       ;both bytes zero?
+    jp      z,vec_done              ;none left
+    call    clr_bit                 ;clear block HL; HL and BC stay
+    dec     hl                      ;next lower block
+    dec     bc                      ;one fewer free block
+    jp      vec_bit                 ;down from block 4095
 vec_done:
-    ld      hl,$FFFF
-    ld      (fat_winsect),hl
-    ld      (fat_winsect+2),hl
-    xor     a
-    ld      (fat_wflag),a
-    pop     hl
+    ld      hl,$FFFF                ;winsect FFFF is not a real sector
+    ld      (fat_winsect),hl        ;low word
+    ld      (fat_winsect+2),hl      ;high word
+    xor     a                       ;do not write the bitmap as a sector
+    ld      (fat_wflag),a           ;clean
+    pop     hl                      ;fatwin, the allocation vector
     ret
 
 shr32:
-    srl     b               ;BCDE >> 1. 8085: rra through A
+    srl     b                       ;BCDE >> 1. 8085: rra through A
     rr      c
     rr      d
     rr      e
@@ -3776,36 +3776,36 @@ shr32:
 ; of that group of eight. HL and BC are kept.
 ;
 clr_bit:
-    push    hl
-    push    bc
-    ld      a,l
-    and     7
-    ld      c,a
-    srl     h               ;HL >> 3. 8085: three rra steps through A
+    push    hl                      ;block number
+    push    bc                      ;block
+    ld      a,l                     ;low three bits choose the bit
+    and     7                       ;bit number 0..7
+    ld      c,a                     ;bit within the byte
+    srl     h                       ;HL >> 3. 8085: three rra steps through A
     rr      l
     srl     h
     rr      l
     srl     h
     rr      l
-    ld      de,fatwin
-    add     hl,de
-    ld      de,bit7
-    ld      a,c
-    add     a,e
-    ld      e,a
-    jp      nc,cb_ok
-    inc     d
+    ld      de,fatwin               ;bitmap base
+    add     hl,de                   ;byte index + fatwin
+    ld      de,bit7                 ;masks, bit 7 first
+    ld      a,c                     ;bit number
+    add     a,e                     ;bit7 + bit number
+    ld      e,a                     ;low byte
+    jp      nc,cb_ok                ;no carry
+    inc     d                       ;high byte of the mask address
 cb_ok:
-    ld      a,(de)
-    cpl
-    and     (hl)
-    ld      (hl),a
-    pop     bc
-    pop     hl
+    ld      a,(de)                  ;mask with bit 7 = block 0 of this group
+    cpl                             ;a hole in that mask
+    and     (hl)                    ;clear just that bit
+    ld      (hl),a                  ;bitmap byte
+    pop     bc                      ;block count
+    pop     hl                      ;block number
     ret
 
 bit7:
-    defb    $80,$40,$20,$10,$08,$04,$02,$01
+    defb    $80,$40,$20,$10,$08,$04,$02,$01 ;bit 7 of the byte is block 0
 
 ;
 ; xget console. ROM, in code_compiler with the shell. BIOS CONST,
@@ -3823,21 +3823,21 @@ PUBLIC  _xm_conout
 EXTERN  _xm_tx
 
 _xm_const:
-    call    CONST
-    ld      l,a
-    ld      h,0
+    call    CONST                   ;BIOS console status
+    ld      l,a                     ;return the byte in L
+    ld      h,0                     ;high byte 0
     ret
 
 _xm_conin:
-    call    CONIN
-    ld      l,a
-    ld      h,0
+    call    CONIN                   ;BIOS console input
+    ld      l,a                     ;character in L
+    ld      h,0                     ;high byte 0
     ret
 
 _xm_conout:
-    ld      a,(_xm_tx)
-    ld      c,a
-    jp      CONOUT
+    ld      a,(_xm_tx)              ;byte xget wants sent
+    ld      c,a                     ;CONOUT takes C
+    jp      CONOUT                  ;BIOS console output
 
 ENDIF
 
@@ -3888,23 +3888,23 @@ ENDIF
 ;*
 ;**************************************************************
 ;
-EXTERN    cboot     ;cold start
-EXTERN    wboot     ;warm start
-EXTERN    const     ;console status
-EXTERN    conin     ;console character in
-EXTERN    conout    ;console character out
-EXTERN    list      ;list character out
-EXTERN    punch     ;punch character out
-EXTERN    reader    ;reader character out
-EXTERN    home      ;move head to home position
-EXTERN    seldsk    ;select disk
-EXTERN    settrk    ;set track number
-EXTERN    setsec    ;set sector number
-EXTERN    setdma    ;set dma address
-EXTERN    read      ;read disk
-EXTERN    write     ;write disk
-EXTERN    listst    ;return list status
-EXTERN    sectran   ;sector translate
+EXTERN    cboot                     ;cold start
+EXTERN    wboot                     ;warm start
+EXTERN    const                     ;console status
+EXTERN    conin                     ;console character in
+EXTERN    conout                    ;console character out
+EXTERN    list                      ;list character out
+EXTERN    punch                     ;punch character out
+EXTERN    reader                    ;reader character out
+EXTERN    home                      ;move head to home position
+EXTERN    seldsk                    ;select disk
+EXTERN    settrk                    ;set track number
+EXTERN    setsec                    ;set sector number
+EXTERN    setdma                    ;set dma address
+EXTERN    read                      ;read disk
+EXTERN    write                     ;write disk
+EXTERN    listst                    ;return list status
+EXTERN    sectran                   ;sector translate
 ;
 DEFC    BOOT    =   cboot
 DEFC    WBOOT   =   wboot
