@@ -151,11 +151,9 @@ PUBLIC  _fat_clusters               ;C: bytes at (HL) -> cluster count, or 0
 
 
 ; HL = src, DE = dst, BC = count. Advances HL/DE. Clobbers AF, BC.
+; BC = 0 copies 65536 bytes, the same as Z80 ldir.
 ; 16-bit trip: dec bc / inc b / inc c (Z80 dec bc; jp nz is wrong on 8085).
 fat_copy:
-    ld      a,b
-    or      c
-    ret     Z                       ;count is 0
     dec     bc
     inc     b
     inc     c

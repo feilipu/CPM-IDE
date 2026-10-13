@@ -1375,7 +1375,7 @@ UNKWN8:
 ;
 ;   Transient programs return here (or reboot).
 ;
-    LD    SP,BATCH    ;set stack first off.
+    LD    SP,CCPSTACK
     CALL    MOVECD        ;move current drive into place (TDRIVE).
     CALL    DSKSEL        ;and reselect it.
     JP    CMMND1        ;back to comand mode.

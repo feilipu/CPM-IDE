@@ -947,7 +947,7 @@ ra_none:
     ret
 
 ;
-; HL src, DE dst, BC count nonzero.
+; HL src, DE dst, BC count. BC = 0 copies 65536, as ldir does.
 ; Z80: ldir. 8085: nested ld a,(hl+) / ld (de+),a.
 ;
 bdos_move:

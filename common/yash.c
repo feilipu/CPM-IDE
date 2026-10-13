@@ -1146,6 +1146,7 @@ int8_t ya_xget(char ** args)   /* receive an XMODEM-128 checksum file */
                 put_rc(1);
             else
                 fprintf(output, "%lu bytes\n", sz);
+            fflush(output);
             return 1;
         }
         if (c == XM_CAN) {

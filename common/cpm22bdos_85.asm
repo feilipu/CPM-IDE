@@ -595,11 +595,12 @@ goback:
     ret
 
 ;
-; HL = source, DE = destination, BC = count (not zero). Forward copy.
+; HL = source, DE = destination, BC = count. Forward copy.
+; BC = 0 copies 65536 bytes, the same as Z80 ldir.
 ;
 copy_mem:
     dec     bc                      ;nested loop runs BC times
-    inc     b                       ;a zero count still copies 65536
+    inc     b                       ;a zero count copies 65536
     inc     c                       ;low half of the 16-bit count
 copy_mem_l:
     ld      a,(hl+)                 ;next source byte (Z80 ldir)
@@ -963,7 +964,7 @@ ra_none:
     ret
 
 ;
-; HL src, DE dst, BC count nonzero.
+; HL src, DE dst, BC count. BC = 0 copies 65536, the same as ldir.
 ; Z80: ldir. 8085: nested ld a,(hl+) / ld (de+),a.
 ;
 bdos_move:
