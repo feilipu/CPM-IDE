@@ -116,3 +116,56 @@ A fix that "logs the current drive harder" in `fn_select` does not restore the l
 - The silent run is `SYNERR`, Select, or a bad load. Those print `STAT?`, `Bdos Err On X : Select`, or `Bad load`. None of those strings are in the log. BIOS `read`/`write` returning `A=1` is not this path. Sector I/O is mini-FAT. A printing `stat` reports `Space: 8192k`, which is the whole volume from function 27.
 - Console `outflag` ate the lines. `dir` and `stat` both print through BDOS function 2. `dir` prints `No file` between two silent `stat`s, so function 2 was not suppressed for the whole session.
 - The open of `A:STAT.COM` is skipped and an empty login walk is the whole story. A snapshot that is already empty prints nothing, but it does not clear B: while keeping C:. The silent `C>stat` left C: logged and B: gone. Something in that run cleared bits. `drv_set` cannot do that. `bdos_warm` or function 37 can.
+
+## Investigation summary (2026-10-13)
+
+Four independent passes ran against head `c774143`: three separate investigations of both bugs, and an adversarial review of the BDOS and mini-FAT. Each ran without changing the repository. The CCP was treated as a given throughout and no pass proposes a CCP change. The passes did not see each other's conclusions.
+
+### Consensus: the leading analysis above is wrong
+
+- **The missing flush cannot be the cause.** The shell's console stream has no output buffer: it writes one character at a time to the terminal driver, and a flush on it is `STDIO_MSG_FLSH`, which that driver answers with "do nothing, report no error". `fflush(output)` here is a no-op, so its absence on the count line changes nothing, and "the give-up text is also unflushed" is wrong the same way.
+- **The SIO return-value mismatch cannot delete a byte.** It can only duplicate one, and only for a payload the success text never contains. On this image's ring addresses the retry condition is not reached by the status characters at all.
+
+### Bug 1 - three positions, no agreed fix
+
+The transfer is not at risk in any of them: the EOT ACK is sent before the commit, and every exit of the receive path prints something.
+
+- One pass found no source-level cause and proposed no patch.
+- One pass concluded the line is always emitted by the firmware and lost downstream of it, in a host-side race between the sender's teardown and the board's line, and proposed a receive-ring drain plus a settle delay before the count. It states this is defence in depth, not a proven fix, and argues against a flush, against CRC/1K/RTS changes, and against any BIOS change.
+- One pass found a genuine zero-cost defect in the Z80 SIO BIOS: in `_sioa_putc` the `ei` sits before the transmit-pointer store, leaving a one-instruction window in which an interrupt can drop exactly one byte. Moving `ei` after the store costs no bytes - and that pass then says not to ship it as this bug's fix, because nothing connects it to the reported line.
+
+No pass reproduced the missing line. None of the three patches is a proven cure.
+
+### Bug 2 - consensus verdict, trigger still open
+
+- The vector is cleared only by `bdos_warm` and function 37, and a normal selection cannot remove a letter. `STAT.COM` calls neither: two passes verified that from disassembly of the shipped binary, and one ran the shipped `STAT.COM` under `z88dk-ticks` with a logging BDOS and captured its complete call surface. The CCP is not a candidate.
+- The `{A:, current drive}` vector every printing `stat` shows is the ordinary signature of a warm boot. That half of the symptom is therefore correct warm-boot behaviour, not a defect; `bdos_warm` after `wboot` is deliberate and commented as such, and stopping it would break the documented function-13 contract. The `theory of harm` conclusion above is withdrawn on this evidence.
+- What remains real is the silence. An empty snapshot prints nothing but preserves state, so it cannot produce the shrinkage in the transcripts: the silent run must have taken a genuine warm-boot path with no visible text, and it does so on alternating runs. **The trigger was not found.** The lowest-confidence candidate is a keyboard-interrupt path; it is unproven.
+- No pass proposes a patch.
+
+### Adversarial review of the BDOS and mini-FAT
+
+One real defect, latent, plus eight examined-and-cleared areas. The host disk and character suites and the mini-FAT suite were run green on both CPUs (host-harness runs, not board runs).
+
+- **8085 `copy_mem` diverges from the Z80 `ldir` at one corner.** `BC = 0` copies nothing on Z80 and 65536 bytes on 8085, as the source comment says. Every call site passes a compile-time constant or an `mx+2` that cannot reach zero, so nothing fires today - but the invariant is written down nowhere, the 8085 mini-FAT's own `fat_copy` already guards the same corner, and the blast radius is the function-18 class: a silent overwrite of caller memory.
+- Fix: `ld a,b` / `or c` / `ret Z` in front of the 8085 `copy_mem`, so the twins share one contract. **+3 bytes per 8085 image, 0 on Z80**, inside the recorded headroom.
+- Cleared with named evidence: the seven latch shapes and their register contracts; the drive and login-vector machinery; the error and return paths; the directory walk; the mini-FAT cluster and directory routines, with an 85-twin sweep; the character path; the shell glue; and functions 27-32, 35 and 36.
+
+### Proposed changes, none applied
+
+| Change | File | Cost | Claim |
+|---|---|---|---|
+| Receive-ring drain and settle delay before the count line | `common/yash.c` | within budget | Defence in depth for a host-side race; not a root cause |
+| Move `ei` after the transmit-pointer store | `z80-pata-sio`, `z80-cf-sio` BIOS | 0 bytes | A real one-byte race; explicitly **not** this bug's fix |
+| `BC = 0` guard in `copy_mem` | `common/cpm22bdos_85.asm` | +3 bytes per 8085 image | Twin-contract repair; latent, unreachable today |
+
+### What would settle the two bugs
+
+Both need the board; neither is answerable from static analysis.
+
+1. Repeat the three observed transfer shapes with the SIOA transmit line captured from EOT to the next prompt, recording the output-driver bytes and the Tx ring counters as the count prints. A line leaving the wire but not appearing on the terminal puts the loss in the host; a line never emitted, or lost inside the driver, puts it in the firmware and selects between the three positions above.
+2. Run the shipped ROM and `STAT.COM` on the 8085 PATA board with writes to the login word traced, logging the BDOS function number at dispatch and the vector before and after each call, to catch the silent run entering the warm-boot path.
+
+### Still unestablished
+
+No board, and no Z80 ROM can be relinked on the machine these passes ran on. Bug 1 has no proven cause; bug 2 has no proven trigger; the review's finding is latent by construction and its fix is defensive rather than test-proven. The FatFs oracle harness did not run (its ChaN source tree is absent).
