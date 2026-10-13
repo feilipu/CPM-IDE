@@ -6,7 +6,7 @@ CPU opcodes, assembler, compilers, and measurement live in **z88dk** (fallback *
 
 ## z88dk / 8085-skills (mandatory lookup)
 
-Before editing assembler, choosing a compiler, measuring ticks, or linking FatFs, **read the matching skill** from the first tree that has it. Do not skip this because the host already listed the skill name. Do **not** bulk-read every skill.
+Before editing assembler, choosing a compiler, measuring ticks, or linking the mini-FAT, **read the matching skill** from the first tree that has it. Do not skip this because the host already listed the skill name. Do **not** bulk-read every skill.
 
 Resolve each `SKILL.md` with **realpath** and load it **once**.
 
@@ -31,13 +31,13 @@ Entry files in those trees (index only; do not ingest every skill they list):
 | 8085 BIOS / deblock | `cpu-8085` (pastraiser: `rl de` `-----VC`, `sra hl` `-----0C` — neither writes Z) |
 | Assembler, synthetics, listings | `tool-z80asm` |
 | `zcc` flags, subtypes, parallel cwd | `tool-zcc` |
-| sccz80 (8085 ROM, `+test`) | `compiler-sccz80` |
+| 80cc (8085 ROM) | `compiler-80cc` |
 | zsdcc / `sdcc_ix` / `sdcc_iy` (Z80 ROM) | `compiler-zsdcc` |
-| 80cc only if that compiler is in play | `compiler-80cc` |
+| sccz80 (`+test` host lines) | `compiler-sccz80` |
 | `z88dk-ticks`, TIMER A/B | `tool-ticks`, `methodology-measure` |
 | `+rc2014` CRT, serial, diskio | `target-rc2014` |
-| `z88dk-lib` / third-party `ff` | `tool-z88dk-lib` |
-| Rebuild HEX or `ff_ro` / `ff_85_ro` | this repo `.agents/skills/tool-rebuild` |
+| `z88dk-lib` | `tool-z88dk-lib` |
+| Rebuild HEX | this repo `.agents/skills/tool-rebuild` |
 
 ## Environment
 
@@ -56,7 +56,7 @@ export Z88DK=/data/z88dk
 3. **DRI CCP/BDOS.** Unmodified except `DIRBUF` `PUBLIC`, APN 02 `DEL`=BS, CCP A: `.COM` fallback, the GETNEXT resume, and BDOS `ALIGN $100` (page origin). CCP starts `$20` below the previous page so BDOS stays on a page and BDOS BSS ends at the BIOS origin. Those three addresses are per ROM: BIOS code must finish before `_cpm_dsk0_base` at `$F800`, so Z80 CF ACIA is `$DBE0` / `$E400` / `$F300`, Z80 PATA SIO and Z80 CF SIO are `$D9E0` / `$E200` / `$F100`, and the other four are `$DAE0` / `$E300` / `$F200`. A new directory entry (every 32 KB, `EXM = 1`) resumes after the closed entry and wraps once. A same-entry read searches from the front. A same-entry write reopens the entry in memory. BIOS does not call BDOS copy helpers.
 4. **Deblock.** 512-byte `hstbuf`, 4×128 CP/M records. DPH `DIRBUF` overlays `hstbuf`. Directory `READ` skips the 128-byte copy when DMA is in that window and retargets BDOS `DIRBUF`. User DMA (file copy, TPA) still copies. `WRITE` C=1 still copies then `writehst`. No CP/M 3 MULTIO/FLUSH. LBA in BCDE with E as LSB.
 5. **CF vs PATA before HEX.** `__IO_CF_8_BIT` in `$Z88DK/libsrc/target/rc2014/config/config_target.m4` selects the z88dk IDE driver the shell links. Change it, then rebuild `rc2014.lib` (newlib, `make -C libsrc/newlib rc2014-clean rc2014`) and `rc2014-8085_clib.lib` (force-remove the `.lib` first; `z80asm -d` does not rebuild on include-only change). Copy the 8085 `.lib` into `lib/clibs/`. PATA HEX needs `0` (8255 `$20`–`$23`). CF HEX needs `1` (ports `$10`–`$17`). `rebuild-hex.sh` builds both PATA ROMs with the flag at 0 and both libraries, switches the flag to 1, rebuilds both libraries, then builds all five CF ROMs. `cf` builds the three usual CF ROMs (Z80 ACIA, Z80 SIO, 8085 ACIA) and skips the library rebuild when the flag is already 1. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls` / `mount 1`.
-6. **Rebuild.** zcc lines are in `README.md`. Use `.agents/scripts/rebuild-hex.sh` and `rebuild-ff.sh` (`tool-rebuild`). `cd` into each firmware tree. Parallel `zcc` only in **different** cwds (shared `zcc_opt.def`). Copy `.ihx` → `.hex`, delete leftovers. Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `$7F81`, a BDOS tail off the BIOS origin, the wrong IDE port bytes, or a missing/empty product (`.ihx`/`.hex`/`.lib`) fails the job; job-dir `rm` is not success. `*.hex` is gitignored and often assume-unchanged (`git ls-files -v` shows lowercase **h**) → `git update-index --no-assume-unchanged` then `git add -f`. The 8085 PATA line names the sccz80 speed options and leaves `lib/z80rules.8` off so that image stays within 32 KiB. The other 8085 ROMs keep `--opt-code-speed=all`. Do not put `=all` back on the PATA line.
+6. **Rebuild.** zcc lines are in `README.md`. Use `.agents/scripts/rebuild-hex.sh` (`tool-rebuild`). `cd` into each firmware tree. Parallel `zcc` only in **different** cwds (shared `zcc_opt.def`). Copy `.ihx` → `.hex`, delete leftovers. Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `$7F81`, a BDOS tail off the BIOS origin, the wrong IDE port bytes, or a missing/empty product (`.ihx`/`.hex`/`.lib`) fails the job; job-dir `rm` is not success. `*.hex` is gitignored and often assume-unchanged (`git ls-files -v` shows lowercase **h**) → `git update-index --no-assume-unchanged` then `git add -f`. Z80 ROMs use zsdcc (`-SO3`). 8085 ROMs use `-compiler=80cc` and do not pass `--opt-code-speed`. `rebuild-ff.sh` is the old ChaN library build. The ROM does not link it.
 7. **Commit** only when asked; never push unasked. One subject line, no body, no attribution trailers.
 
 ## Local `.agents/`
