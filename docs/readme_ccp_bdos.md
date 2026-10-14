@@ -38,6 +38,8 @@ The six serial-number bytes (`PATTRN1` / `PATTRN2`) are commented out, and `UNKN
 
 The `.COM` extension is three `LDI` instructions on Z80 and `LDI_3` on 8085.
 
+A host `A>` under z88dk-ticks is `sh test/cli/a.sh`. It links the Z80 CCP, the v3 BDOS, and mini-FAT, copies them to `$E9E0` and `$F200`, and jumps with C = 0. Drive A: is a RAM-disk cluster. The product ROM still copies those images from the preamble. The recipe is in [`test/README.md`](../test/README.md).
+
 ## BDOS
 
 Function 10 (buffered console input) treats DEL (`7Fh`) as backspace. Digital Research Application Note 02 specifies that. The editor is in the ROM piece of `cpm22bdos.asm`. `ed_ndel` jumps to the same path as BS.

@@ -9,3 +9,4 @@
 *.lib
 disasm.txt
 test/fatfs/out/
+test/cli/out/

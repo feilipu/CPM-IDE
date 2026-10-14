@@ -121,6 +121,8 @@ The disk harness for this image printed `BDOS_DISK_OK` on both CPUs. Z80 `disk.b
 
 The character run checks the serial, the `C3` at offset 6, the JP target equal to head+17, `EB` at fbase, function 12 still returning A/B and HL `0022h` after the six serial bytes are overwritten with `A5`, the index encoding `21 ?? ?? 5F 16 00 19 19 5E 23 56`, and words 0, 12, 38, 39, and 40. GOBACK is checked for function 12 (`0022h`), function 11 with an empty console (0) and with a pushed key (`00FFh`), and function 41 (0). The disk run checks that the four error words are pairwise distinct and nonzero, that an open miss returns A/B and HL `00FFh`, that a successful open returns the same directory code 0..3 in A/B and HL, and that function 27 returns the `fatwin` address in both. Select, disk R/O, and file R/O messages are provoked. `badsctr` is not. The character link does not require the four error words to differ.
 
+`sh test/cli/a.sh` is the Z80 CCP session. `DIR` listed `A: HELLO    TXT` and finished at 671406 ticks. `TYPE HELLO.TXT` printed `Hello.` and returned to `A>` at 871393 ticks. The image is `test/cli/out/a.bin`, 26362 bytes, loaded at `$0100`. The recipe is in `test/README.md`. This run is Z80.
+
 Earlier tick figures live in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026-10-09 (see git history): 403717 / 313524 after the hget cut, 33926426 / 44445384 and the repair-era numbers. `test/bdos/isa/baseline.txt` was not overwritten. `test/bdos/out/*.bin` and `*.map` stay uncommitted.
 
 ## Open issues
@@ -135,11 +137,10 @@ Closed items stay here so a later edit does not reopen them. The others are stil
 3. **`badsctr` is not provoked.** The RAM disk never fails a read. Select, disk R/O, and file R/O already print their messages and take the warm-boot hook.
    Future run: a host hook that makes one `disk_read` fail, then assert the Bad Sector wait for CTRL-C and for retry. The BDOS source stays unchanged. Add the hook in the disk harness, which already requires the four error words to be distinct. The character link aliases those words under `BDOS_ROM_OMIT` and should keep doing so.
 
-4. **The CCP image is not executed.** DIR, ERA, TYPE, SAVE, REN, USER, and EXIT call BDOS functions that the disk and character suites cover one function at a time. CCP `EXTRACT` (`TBUFF + (A & 3) * 32`) is specified below and the search tests check the directory image. The CCP binary itself is not loaded.
-   Future run: after a RAM page-zero plant, load the linked CCP into ticks. Run one command that searches (`DIR`) and one that uses the line editor.
+4. **Closed. The Z80 CCP runs under ticks.** `sh test/cli/a.sh` links `common/cpm22ccp.asm`, `common/cpm22bdos.asm`, and mini-FAT. The image is `test/cli/out/a.bin`, loaded at `$0100` with `z88dk-ticks -l 0x100`. `cli_go` copies the CCP to `$E9E0` and the stub to `$F200`, then jumps with C = 0. Drive A: is cluster 2 of a 21-sector RAM disk. `HELLO.TXT` is eight bytes (`Hello.` and CR LF). `DIR` listed `A: HELLO    TXT` and finished at 671406 ticks. `TYPE HELLO.TXT` printed `Hello.` and returned to `A>` at 871393 ticks. The CCP reads each of those lines with function 10. End of input exits ticks. The search tests still check `EXTRACT` (`TBUFF + (A & 3) * 32`) on the directory image. The binary name stays `.bin`. This session is Z80.
 
-5. **A full command pass on a mounted `A>` is not recorded here.** The 8085 CF ACIA board runs this branch. The directory-search crash is closed. ticks emulates the ACIA. It does not emulate CF taskfile ports `$10`–`$17` or the ROM latch at port `$38`. Flat 64K keeps ROM visible when `cboot` writes `$01`. A ticks banner is the shell, which is a different gate from a CCP prompt.
-   Future run: a board pass in the order already written under Tests (CCP `DIR`, `ERA`, `REN`, `TYPE`, `SAVE`, `USER`, then PIP, STAT, ASM, LOAD, DDT), or a taskfile emulator that can mount. Report that pass only from the board or from that emulator.
+5. **The board command pass is still open.** The host `A>` is issue 4: a RAM disk, with the ACIA console traps, and with no write to port `$38`. ticks emulates the ACIA. The CF taskfile (`$10`–`$17`) and the 8255 PPIDE (`$20`–`$23`) stay outside that session. The 8085 CF ACIA board runs this branch. The directory-search crash is closed. A ticks shell banner is `ya_loop`, a different gate from this `A>`.
+   Future run: a board pass in the order already written under Tests (CCP `DIR`, `ERA`, `REN`, `TYPE`, `SAVE`, `USER`, then PIP, STAT, ASM, LOAD, DDT), or a taskfile emulator that can mount. Report that pass from the board or from that emulator.
 
 6. **Master and this branch are different shells.** Master is the container line. Its 8085 PATA image still has `hget` and is 11 bytes under 32768. This branch mounts letter directories, reads `CPMIDE.CFG` when `cpm` has no arguments, and includes `hget` because `md`, `dd`, and `mount` are gone. The automatic-frame trial on master was reverted. `origin/master` is now `5db3e30`. `864f590` is the `ya_md` commit under that tag.
    Future run: leave the branched functions static on `master`. Do not push `master` from this branch. Leave tag `cpm-ide-v2.6` at `5db3e30`.
@@ -148,7 +149,7 @@ Closed items stay here so a later edit does not reopen them. The others are stil
    Future run: leave `hg_sum` file-scope.
 
 8. **A few limits are accepted and are not open defects.** Function 0 is specified as warm-boot with no return; the suites count `wboot` hits from the error paths and do not add a separate "function 0 does not return" case. The FAT32 `+test` image still does not fit. `fs_type` stays unpoked. GPT stays out until functions 0–40 pass on an MBR FAT32 image. The 80cc host run recorded mini-FAT, yash config, BDOS character, BDOS disk, and ISA kern as green. The 8085 disk harness in `test/bdos/run_disk.sh` is `-compiler=80cc` with `-pragma-define:REGISTER_SP=0`. The image in `test/bdos/out` is 65463 bytes. `z88dk-ticks -m8085` prints `BDOS_DISK_OK` at 56635198 ticks. The Z80 image beside it is 64643 bytes at 45176602 ticks. `test/bdos/isa/run_isa.sh seq` still prints `SEQ_BAD 5` because that harness leaves `cpm_dir_sclust` at 0. The config-file cases in `test/fatfs/test_cfg.c` were run after `read_cfg` landed: Z80 `YASH_CFG_OK` at 11193879 ticks, 8085 80cc `YASH_CFG_OK` at 12627960 ticks.
-   Future run: after the next BDOS or mini-FAT edit, re-run `test/bdos/run.sh`, `test/bdos/run_disk.sh`, and `test/fatfs/run.sh`. A green host suite is the host gate. It is a different result from item 5.
+   Future run: after the next BDOS or mini-FAT edit, re-run `test/bdos/run.sh`, `test/bdos/run_disk.sh`, and `test/fatfs/run.sh`. A green host suite is the host gate. The host `A>` is `sh test/cli/a.sh`. The board command pass is item 5.
 
 9. **The RC2014 repository.** Its v2.6 release is its own tag. This branch has not been copied there.
    Future run: sync that tree only when asked.
@@ -302,6 +303,7 @@ These paths are in the tree.
 | `common/cpm22bdos.asm` | Z80 BDOS. High-memory piece and ROM piece. |
 | `common/cpm22bdos_85.asm` | 8085 BDOS. Same flow. `copy_mem`, `rra`, `rl de`. |
 | `test/bdos/` | Host ticks harness, one group per function, FAT16 and FAT32 images. |
+| `test/cli/` | Z80 CCP under ticks. `sh test/cli/a.sh` prints `A>`. |
 
 Disk calls go to the resident stub. The IDE sequence is the ROM library. Character BIOS stays PHASE’d in each `cpm22bios.asm`.
 
@@ -573,7 +575,7 @@ Fixtures: a small FAT16 volume, a FAT32 volume, a fragmented file (cluster chain
 
 Fragmented fixture: write a file, force the next `create_chain` to skip a cluster, write more, read the whole file back. The bytes match. This is the case the v3 pack got wrong; the test lives next to the BDOS, not in a pack suite.
 
-Live card runs come after the host suite is green: CCP `DIR`, `ERA`, `REN`, `TYPE`, `SAVE`, `USER`, then PIP, STAT, ASM, LOAD, and DDT from the existing drive images. That pass uses the board. It is open issue 5. The host suite being green does not stand in for it.
+The host `A>` is `sh test/cli/a.sh`: `DIR` and `TYPE HELLO.TXT` on a 21-sector RAM disk (issue 4). Live card runs are the same CCP commands, then PIP, STAT, ASM, LOAD, and DDT from the existing drive images. That pass uses the board. It is open issue 5.
 
 Add one host test that is about the latch rather than a function result. A disk call (function 15 or 20) writes `$00` to the toggle port before the ROM entry and `$01` before the return. While the toggle is `$00`, a simulated RST 38 (Z80) or INT 6.5 (8085) reaches the resident ISR and does not enter the ROM library ISR. The staged FCB is what the ROM entry sees when the caller’s FCB was below `$8000`. The caller’s stack pointer is unchanged on return.
 
@@ -586,7 +588,7 @@ Add one host test that is about the latch rather than a function result. A disk 
 5. Sequential and random I/O on fragmented FAT16 and FAT32. Tests 20, 21, 33–36, 40. Done in the disk suite.
 6. Login, DPB, allocation count in `fatwin`, software read-only. Tests 13, 14, 24–29, 31, 37. Done in the disk suite.
 7. Link `z80-cf-acia` with `0005h` aimed at the stub and the old disk BDOS out of the image. Done. That link's `0006h` was `$F106` and `fat_bss` was at `$F6D0`. The shell stayed in the image. The image in the tree has `0006h` at `$F206` and `fat_bss` at `$F7D0`. Sizes are in the action report.
-8. The other six trees use the same FAT map. Done. All seven HEX files passed the 32 KiB gate. Z80 ACIA, Z80 UART, and both 8085 serial paths plant the ISR in `cboot` (`$0038` or `$0034`). SIO keeps IM 2 and writes `RET` at RAM `$0038`. The product image does not keep a `SERIAL_DISPATCH` hole. A product whose `.bin` is over 32768 bytes does not replace its HEX. The board `A>` is open issue 5.
+8. The other six trees use the same FAT map. Done. All seven HEX files passed the 32 KiB gate. Z80 ACIA, Z80 UART, and both 8085 serial paths plant the ISR in `cboot` (`$0038` or `$0034`). SIO keeps IM 2 and writes `RET` at RAM `$0038`. The product image does not keep a `SERIAL_DISPATCH` hole. A product whose `.bin` is over 32768 bytes does not replace its HEX. The host `A>` is `sh test/cli/a.sh`. The board `A>` is open issue 5.
 
 ## ROM and code rules
 

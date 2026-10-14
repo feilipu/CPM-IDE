@@ -1,6 +1,6 @@
 # Testing CP/M-IDE v3 under z88dk-ticks
 
-The suites here run the v3 BDOS and mini-FAT as a flat `+test` image. The disk is a RAM image. The pass line is printed on the terminal by the `+test` console trap. These scripts do not load a product HEX file, and they do not start the CCP.
+The suites here run the v3 BDOS and mini-FAT as a flat `+test` image. The disk is a RAM image. The pass line is printed on the terminal by the `+test` console trap. The three scripts below do not load a product HEX file, and they do not start the CCP. The CCP session is the last section, `sh test/cli/a.sh`.
 
 Run them from the repository root, one after another. Each script builds Z80, then 8085. Both builds `cd /tmp` before `zcc`, and `/tmp/zcc_opt.def` is one file, so two scripts at once corrupt the link.
 
@@ -92,20 +92,24 @@ z88dk-ticks shell.bin -x shell.map -counter 999999999
 
 ## An `A>` prompt
 
-On the product the copy happens before the shell. `cpm22preamble.asm` is `SECTION code_crt_init`, assembled when `__crt_org_code` is 0. `pboot` copies the CCP, the resident stub, and the BIOS from their rodata heads onto the phase addresses, clears the drive table and the FAT BSS, then falls into `main`. The stored bytes are `_rodata_cpm_ccp_head` and `_rodata_bdos_stub_head`. The labels resolve at the high addresses (`$E9E0` for the Z80 CCP, `$E980` for the 8085 CCP, `$F200` for the stub). The `+test` CRT is also org 0, so the same file runs before `main` if the link includes it and the BIOS symbols it `EXTERN`s are present. The host suites leave it out. Until that copy has run, a jump to `_cpm_ccp_head` executes whatever is at the phase address.
+`test/cli/a.sh` builds the Z80 CCP, the v3 BDOS, and mini-FAT, then starts them under ticks.
 
-`cpm` prints `Initialised CP/M` and calls `cpm_boot` (`_cpm_boot` in the product BIOS). Cold boot writes `$01` to port `$38` (`__IO_ROM_TOGGLE`) so RAM covers the ROM window, plants `JP wboot` at `0000` and `JP _cpm_bdos_fbase` at `0005`, and jumps to `_cpm_ccp_head`. It does not copy the CCP again. Warm boot latches ROM back in and enters `pboot`, which copies again.
+```bash
+sh test/cli/a.sh                 # A> on this terminal
+sh test/cli/a.sh DIR             # one command, then ticks exits
+sh test/cli/a.sh --check         # DIR must list HELLO.TXT
+```
 
-On a flat ticks image there is no latch, and port `$38` is not implemented. The bytes written there do nothing. Page 0 is ordinary RAM, so the two `JP` plants can be done by the program itself. Do them after the preamble copy. A `.com` name would overwrite `0005` with the ticks host BDOS.
+Drive A: is cluster 2 of a 21-sector RAM disk. The directory holds `HELLO.TXT` (the eight bytes `Hello.` and CR LF). Built-in commands that use the disk are `DIR`, `TYPE`, `ERA`, and `REN`. `USER` changes the user number. `EXIT` leaves ticks. A closed pipe also leaves ticks, so a one-shot command returns.
 
-After the jump, the CCP's console is BIOS `const`, `conin`, and `conout`. The capture ring in `bdos_host.asm` will not show a prompt, because `conout` stores into `con_buf` and `conin` only returns what `con_push` stored. Point those three at the same trap as the shell:
+`sh test/cli/a.sh DIR` listed `A: HELLO    TXT` and finished at 671406 ticks. `sh test/cli/a.sh TYPE HELLO.TXT` printed `Hello.` and returned to `A>` at 871393 ticks. The image is 26362 bytes. The CCP reads each command with function 10. End of input is what stops ticks.
 
-- `conout`: the character is already in `C`. `ld l,c` / `ld h,0` / `ld a,1` / `call SYSCALL`.
-- `conin`: `ld a,2` / `call SYSCALL` / `ld a,l`. Map 10 to 13. The CCP editor ends the line on CR. It already treats `7Fh` as backspace, and a terminal Delete key arrives as `7Fh`.
-- `const`: return 0 when no byte is held. Command 3 waits, so it cannot be the idle status. With `const` returning 0, function 2 prints without stopping for CTRL-S, and the line editor still waits in `conin`.
+The binary is `test/cli/out/a.bin`, loaded at `$0100`. The default FCB is `$5C` and the DMA buffer is `$80`, below that origin. The CCP runs at `$E9E0` and the resident stub at `$F200`. `cli_go` copies both into place and jumps to the CCP with C = 0. Console in and out are the ticks terminal traps. Enter arrives as byte 10 and is turned into CR.
 
-`seldsk` accepts a drive only when `_cpm_dir_sclust` for that letter is nonzero. The preamble clears that table, so the mount has to happen after the copy and before the jump. Planting cluster 35 the way `test_disk.c` does is the same step. `rboot` passes `$0004` to the CCP in `C`.
+```bash
+z88dk-ticks -l 0x100 test/cli/out/a.bin -x test/cli/out/a.map -counter 999999999999
+```
 
-A product ROM binary does not take this path. The shell's mount talks to the CF or PPIDE ports, `cboot` expects the latch at `$38` to hide the ROM, and the CCP then runs in the RAM that the latch uncovered. Ticks has the ACIA ports and does not have those two. The `A>` session above is the `+test` image with the preamble copy and the three console traps.
+`-l` is base 0, and it also sets the start PC. `100` without the `0x` loads at decimal 100. CR and LF each print as a newline, so the CCP's CR LF pair leaves a blank line above `A>`.
 
-The CCP command itself is still a BDOS call. Search, open, read, rename, and the function 10 editor are what `test/bdos/run_disk.sh` already checks, with keys delivered through `con_push` and CR equal to 13.
+A product ROM does not take this path. Its mount uses the CF or PPIDE ports, and cold boot writes the ROM latch at `$38`. Ticks has the ACIA ports and does not have those two. A file whose name ends in `.com` is the ticks host BDOS, not this CCP.

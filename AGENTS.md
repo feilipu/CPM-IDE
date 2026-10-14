@@ -70,4 +70,4 @@ export Z88DK=/data/z88dk
 .agents/skills/tool-rebuild/SKILL.md
 ```
 
-Disk-path tests: `test/fatfs/run.sh` prints `MINIFAT_OK` on Z80 and 8085. The same script also runs the v2.6 BIOS deblock harness. When this tree has no `setLBAaddr`, that harness loads `git show master:` of the old BIOS. It does not execute this branch's `read` or `write`. BDOS disk tests are `test/bdos/`. The 8085 disk harness is `-compiler=80cc`. The v3 pack/synth suite is not part of this line. Overlay TIMER: `test/fatfs/bench_overlay.c`. Host diskdef: `cpmtools/readme_cpmtools.md`.
+Disk-path tests: `test/fatfs/run.sh` prints `MINIFAT_OK` on Z80 and 8085. The same script also runs the v2.6 BIOS deblock harness. When this tree has no `setLBAaddr`, that harness loads `git show master:` of the old BIOS. It does not execute this branch's `read` or `write`. BDOS disk tests are `test/bdos/`. The 8085 disk harness is `-compiler=80cc`. The v3 pack/synth suite is not part of this line. The Z80 `A>` under ticks is `sh test/cli/a.sh` (`test/README.md`). The binary is `test/cli/out/a.bin`, loaded at `$0100`. Overlay TIMER: `test/fatfs/bench_overlay.c`. Host diskdef: `cpmtools/readme_cpmtools.md`.
