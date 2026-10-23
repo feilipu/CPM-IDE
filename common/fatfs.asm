@@ -639,11 +639,9 @@ fat_mount_fatarea:
     or      e
     jp      Z,fat_mount_fail        ;system area wrapped
 fat_mount_sy1:
-    push    hl
-    ld      hl,(fatwin+BPB_FATSz16)
-    ld      a,h
-    or      l
-    pop     hl
+    ld      bc,(fatwin+BPB_FATSz16) ;HL stays the system-area low word
+    ld      a,b
+    or      c
     jr      Z,fat_mount_r32root     ;FATSz16 == 0
     ld      bc,(_cpm_fat_vol+2)     ;n_rootent
     ld      a,b
@@ -662,21 +660,16 @@ fat_mount_sy1:
     rr      c                       ;root sectors = n_rootent/16
     jr      fat_mount_addroot
 fat_mount_r32root:
-    push    hl
-    ld      hl,(fatwin+BPB_RootEntCnt)
-    ld      a,h
-    or      l
-    jr      NZ,fat_mount_r32bad     ;RootEntCnt is not 0
-    ld      a,(fatwin+BPB_FSVer)
-    ld      hl,fatwin+BPB_FSVer+1
-    or      (hl)
-    jr      NZ,fat_mount_r32bad     ;FSVer is not 0
-    pop     hl
+    ld      bc,(fatwin+BPB_RootEntCnt) ;HL stays the system-area low word
+    ld      a,b
+    or      c
+    jp      NZ,fat_mount_fail       ;RootEntCnt is not 0
+    ld      bc,(fatwin+BPB_FSVer)
+    ld      a,b
+    or      c
+    jp      NZ,fat_mount_fail       ;FSVer is not 0
     ld      bc,0                    ;FAT32 has no static root
     jr      fat_mount_addroot
-fat_mount_r32bad:
-    pop     hl
-    jp      fat_mount_fail
 fat_mount_addroot:
     add     hl,bc                   ;system sectors + root
     jr      NC,fat_mount_sy2        ;root add fits in 16 bits
@@ -1914,12 +1907,9 @@ dir_sdi:
     ld      (dir_sclust+2),bc
     jr      dsdi_chain
 dsdi_root16:
+    ld      (dir_clust),bc          ;BC is 0. Static FAT16 root.
+    ld      (dir_clust+2),bc
     push    hl                      ;ofs
-    ld      hl,0
-    ld      (dir_clust),hl          ;static FAT16 root
-    ld      (dir_clust+2),hl
-    pop     hl                      ;ofs
-    push    hl
     call    fat_root16_max          ;C: any 16-bit offset fits
     jr      C,dsdi_root16_in        ;2048 entries: any 16-bit ofs
     ex      de,hl                   ;DE = max

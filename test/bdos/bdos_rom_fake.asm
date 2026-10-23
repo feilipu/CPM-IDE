@@ -42,8 +42,12 @@ rz:
     ret
 
 note:
+IF __CPU_8085__
     ld      hl,de
     ld      (_rom_de),hl
+ELSE
+    ld      (_rom_de),de        ;Z80: the counter below still uses HL
+ENDIF
     ld      a,c
     ld      (_rom_fn),a
     ld      hl,(_rom_entries)

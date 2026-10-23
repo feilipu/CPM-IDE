@@ -321,7 +321,12 @@ static void test_vectors(void)
            p[3] == 0x00 && p[4] == 0x00 && p[5] == 0x00);
     expect("entry_jp FAIL",
            p[6] == 0xC3 && word_at(p + 7) == (unsigned)(p + 17));
+    /* Z80 fbase is ld (nn),de. The 8085 fbase is ex de,hl. */
+#ifdef __8085
     expect("entry_op FAIL", p[17] == 0xEB);
+#else
+    expect("entry_op FAIL", p[17] == 0xED && p[18] == 0x53);
+#endif
     w0 = word_at(p + 9);
     w1 = word_at(p + 11);
     w2 = word_at(p + 13);

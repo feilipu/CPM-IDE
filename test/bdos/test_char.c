@@ -99,7 +99,12 @@ static void test_entry(void)
            p[3] == 0x00 && p[4] == 0x00 && p[5] == 0x00);
     expect("entry_jp FAIL", p[6] == 0xC3);
     expect("entry_fbase FAIL", word_at(p + 7) == (unsigned)(p + 17));
+    /* Z80 fbase is ld (nn),de. The 8085 fbase is ex de,hl. */
+#ifdef __8085
     expect("entry_op FAIL", p[17] == 0xEB);
+#else
+    expect("entry_op FAIL", p[17] == 0xED && p[18] == 0x53);
+#endif
     for (i = 0; i < 6; i++)
         saved[i] = p[i];
     for (i = 0; i < 6; i++)

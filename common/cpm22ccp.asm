@@ -541,12 +541,9 @@ CONVERT:
     PUSH    HL
     XOR    A
     LD    (CHGDRV),A    ;initialize drive change flag.
-    LD    HL,(INPOINT)    ;set (HL) as pointer into input line.
-    EX    DE,HL
+    LD    DE,(INPOINT)    ;input line. DE stays the pointer.
     CALL    NONBLANK    ;get next non-blank character.
-    EX    DE,HL
-    LD    (NAMEPNT),HL    ;save pointer here for any error message.
-    EX    DE,HL
+    LD    (NAMEPNT),DE    ;save pointer here for any error message.
     POP    HL
     LD    A,(DE)        ;get first character.
     OR    A
@@ -635,8 +632,7 @@ GETEXT7:
     LD    (HL),0
     DEC    B
     JR    NZ,GETEXT7
-    EX    DE,HL
-    LD    (INPOINT),HL    ;save input line pointer.
+    LD    (INPOINT),DE    ;save input line pointer.
     POP    HL
 ;
 ;   Check to see if this is an ambiguous file name specification.
@@ -1156,17 +1152,15 @@ RENAME:
     LD      HL,FCB          ;yes, move this name into second slot.
     LD      DE,FCB+16
     CALL    LDI_16          ;copy 16 bytes
-    LD      HL,(INPOINT)    ;get input pointer.
-    EX      DE,HL
+    LD      DE,(INPOINT)    ;get input pointer.
     CALL    NONBLANK        ;get next non blank character.
     CP      '='             ;only allow an '=' or '_' seperator.
     JR      Z,RENAME1
     CP      '_'
     JP      NZ,RENAME5
 RENAME1:
-    EX      DE,HL
-    INC     HL              ;ok, skip seperator.
-    LD      (INPOINT),HL    ;save input line pointer.
+    INC     DE              ;ok, skip seperator.
+    LD      (INPOINT),DE    ;save input line pointer.
     CALL    CONVFST         ;convert this second file name now.
     JP      NZ,RENAME5      ;again, no wild cards.
     POP     AF              ;if a drive was specified, then it

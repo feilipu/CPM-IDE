@@ -36,6 +36,14 @@ PUBLIC  conout
 PUBLIC  list
 PUBLIC  punch
 PUBLIC  reader
+PUBLIC  cboot
+PUBLIC  home
+PUBLIC  seldsk
+PUBLIC  settrk
+PUBLIC  setsec
+PUBLIC  setdma
+PUBLIC  listst
+PUBLIC  sectran
 
 EXTERN  _cpm_bdos_fbase
 EXTERN  bdos_usrstack
@@ -60,13 +68,21 @@ _bdos:
     ld      d,(hl)
     inc     hl
     ld      c,(hl)
+IF __CPU_8085__
     ld      hl,0
     add     hl,sp
     ld      (sp_mark),hl
+ELSE
+    ld      (sp_mark),sp        ;Z80: HL stays free for the BDOS result
+ENDIF
     call    _cpm_bdos_fbase     ;JP fbase. The six serial bytes are not code.
     ld      (bdos_result),hl
+IF __CPU_8085__
     ld      hl,(sp_mark)
     ex      de,hl
+ELSE
+    ld      de,(sp_mark)        ;saved SP, for the compare below
+ENDIF
     ld      hl,0
     add     hl,sp
     ld      a,l
@@ -233,13 +249,29 @@ reader:
     ld      a,(_rdr_byte)
     ret
 
+; The BDOS file aliases the BIOS jump table. This harness has no disk
+; BIOS. These returns let that alias link. Nothing here calls them.
+cboot:
+home:
+seldsk:
+settrk:
+setsec:
+setdma:
+listst:
+sectran:
+    ret
+
 wboot:
     ld      hl,(_wboot_hits)
     inc     hl
     ld      (_wboot_hits),hl
     call    bdos_warm
+IF __CPU_8085__
     ld      hl,(bdos_usrstack)
     ld      sp,hl
+ELSE
+    ld      sp,(bdos_usrstack)
+ENDIF
     ret
 
 SECTION bss_compiler

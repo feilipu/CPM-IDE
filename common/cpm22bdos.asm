@@ -158,8 +158,8 @@ ENDIF
 ; (__COMMON_AREA_PHASE_BDOS, CCP + $820).
 ; Serial, then the JP at 0006h, then the four error words, then fbase.
 ; Serial bytes are SNH, version 2.2, REV, SNL: 00 16 00 00 00 00.
-; add hl,sp saves the user SP while HL is 0 and leaves DE as the
-; parameter for ld c,e. ld de,sp is not that save on both CPUs.
+; ld (nn),de stores the parameter. ld (nn),sp stores the user SP.
+; HL is not used for the copy. This file is Z80. The 8085 file keeps add hl,sp.
 ;
 _cpm_bdos_head:
 bdos:
@@ -183,15 +183,12 @@ _cpm_bdos_fbase:
 ; (DE) or (E) are the parameters. The function number is in (C).
 ;
 fbase:
-    ex      de,hl                   ;save the (DE) parameters.
-    ld      (params),hl             ;keep DE while HL is free
-    ex      de,hl                   ;DE is the parameter again
+    ld      (params),de             ;DE stays the parameter
     ld      a,e                     ;and save register (E) in particular.
     ld      (eparam),a              ;E alone, for function 32
-    ld      hl,0                    ;zero, so the next add reads SP
+    ld      hl,0                    ;zero for the status word
     ld      (status),hl             ;clear return status.
-    add     hl,sp                   ;save the user stack pointer.
-    ld      (bdos_usrstack),hl      ;user SP, restored by goback
+    ld      (bdos_usrstack),sp      ;user SP, restored by goback
     ld      sp,bdos_stack           ;and set our own.
     xor     a                       ;clear auto select storage.
     ld      (autoflag),a            ;no auto-selected drive
@@ -587,8 +584,7 @@ setuser:
     ret
 
 goback:
-    ld      hl,(bdos_usrstack)      ;SP saved at entry
-    ld      sp,hl                   ;back on the caller's stack
+    ld      sp,(bdos_usrstack)      ;back on the caller's stack
     ld      hl,(status)             ;function result
     ld      a,l                     ;A = L = status low
     ld      b,h                     ;B = H = status high
@@ -1438,8 +1434,7 @@ cursor_after:
     call    want_ext                ;does the FCB filter want it?
     pop     bc                      ;extent
     jp      nc,curs_slot            ;filter rejected it
-    ld      hl,bc                   ;stay on this directory slot
-    ld      (srch_ext),hl           ;next extent to try
+    ld      (srch_ext),bc           ;stay on this slot. Next extent to try.
     ret
 curs_slot:
     ld      hl,(srch_ofs)           ;slot just emitted
@@ -1517,8 +1512,7 @@ sf_slot:
     call    name_match              ;FCB name, '?' wild
     jp      nc,sf_adv               ;different name
 sf_ex:
-    ld      hl,(srch_ext)           ;extent cursor for this slot
-    ld      bc,hl                   ;BC = extent to test
+    ld      bc,(srch_ext)           ;extent cursor for this slot
     push    bc                      ;extent
     call    ext_rc                  ;carry clear: past the file
     pop     bc                      ;extent
@@ -1650,10 +1644,8 @@ cl_wr:
     call    slot_index              ;slot 0..3
     ld      (srch_idx),a            ;returned if the write succeeds
     call    load_clst               ;BCDE = old start cluster
-    ld      hl,de                   ;low word
-    ld      (ent_buf),hl            ;saved for a possible free
-    ld      hl,bc                   ;high word
-    ld      (ent_buf+2),hl          ;saved
+    ld      (ent_buf),de            ;low word, saved for a possible free
+    ld      (ent_buf+2),bc          ;high word
     call    store_size              ;Z when the FCB length is zero
     ld      a,0                     ;A = 0 means keep the chain
     jp      nz,cl_flg               ;NZ: file is not empty
@@ -1670,10 +1662,8 @@ cl_at:
     ld      a,(ent_buf+4)           ;free flag
     or      a                       ;0: chain stays
     jp      z,cl_ret                ;nothing to free
-    ld      hl,(ent_buf+2)          ;old cluster, high word
-    ld      bc,hl                   ;BC = high
-    ld      hl,(ent_buf)            ;old cluster, low word
-    ex      de,hl                   ;DE = low, BCDE = cluster
+    ld      bc,(ent_buf+2)          ;old cluster, high word
+    ld      de,(ent_buf)            ;old cluster, low word
     call    maybe_free              ;free only when the cluster is 2 or more
     call    fat_sync_window         ;FAT too
     jp      nc,ret_ff               ;sync failed
@@ -1832,10 +1822,8 @@ del_lp:
     and     1                       ;bit 0 is read-only
     jp      nz,fatal_ro             ;a read-only match is fatal
     call    load_clst               ;BCDE = start cluster
-    ld      hl,de                   ;low word
-    ld      (ent_buf),hl            ;save it
-    ld      hl,bc                   ;high word
-    ld      (ent_buf+2),hl          ;save it
+    ld      (ent_buf),de            ;low word
+    ld      (ent_buf+2),bc          ;high word
     ld      a,(srch_idx)            ;set on the first match only
     cp      $FF                     ;already have the return slot
     jp      nz,del_zap              ;not the first match
@@ -1849,10 +1837,8 @@ del_zap:
     call    dir_zap                 ;mark the entry deleted
     call    fat_sync_window         ;write that sector
     jp      nc,del_bad              ;sync failed
-    ld      hl,(ent_buf+2)          ;cluster high
-    ld      bc,hl                   ;BC = high
-    ld      hl,(ent_buf)            ;cluster low
-    ex      de,hl                   ;DE = low
+    ld      bc,(ent_buf+2)          ;cluster high
+    ld      de,(ent_buf)            ;cluster low
     call    maybe_free              ;free the chain when it is real
     call    fat_sync_window         ;FAT too
     jp      nc,del_bad              ;sync failed
@@ -1895,10 +1881,8 @@ fn_make:
     call    slot_index              ;return slot
     ld      (srch_idx),a            ;make returns it
     call    load_clst               ;old cluster
-    ld      hl,de                   ;low word
-    ld      (ent_buf),hl            ;saved
-    ld      hl,bc                   ;high word
-    ld      (ent_buf+2),hl          ;saved
+    ld      (ent_buf),de            ;low word
+    ld      (ent_buf+2),bc          ;high word
     ld      hl,(dir_ptr)            ;entry
     ld      de,28                   ;size at byte 28
     add     hl,de                   ;point at it
@@ -1912,10 +1896,8 @@ fn_make:
     ld      (fat_wflag),a           ;directory sector is dirty
     call    fat_sync_window         ;write the truncated entry
     jp      nc,ret_ff               ;sync failed
-    ld      hl,(ent_buf+2)          ;old cluster, high word
-    ld      bc,hl                   ;BC = high
-    ld      hl,(ent_buf)            ;old cluster, low word
-    ex      de,hl                   ;DE = low, BCDE = cluster
+    ld      bc,(ent_buf+2)          ;old cluster, high word
+    ld      de,(ent_buf)            ;old cluster, low word
     call    maybe_free              ;free it when the cluster is 2 or more
     call    fat_sync_window         ;write the FAT
     jp      nc,ret_ff               ;sync failed

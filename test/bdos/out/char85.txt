@@ -1,4 +1,4 @@
 bdos_before_boot
 BDOS_CHAR_OK
 
-Ticks: 266996
+Ticks: 258898

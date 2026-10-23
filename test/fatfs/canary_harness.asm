@@ -49,3 +49,20 @@ canary_restored:
 
 qboot:
     ret
+
+; The cfg image links yash.c and not the ROM BDOS. xget is not called.
+; These three returns satisfy the link. Both CPUs use the same bytes.
+PUBLIC _xm_const
+PUBLIC _xm_conin
+PUBLIC _xm_conout
+
+_xm_const:
+    ld hl,0
+    ret
+
+_xm_conin:
+    ld hl,0
+    ret
+
+_xm_conout:
+    ret
