@@ -11,8 +11,10 @@ Always-on rules, PHASE/synthetics, and the z88dk / 8085-skills lookup: repo-root
   skills/
     cpm-asm/SKILL.md
     cpm-ddt/SKILL.md
+    cpm-hitech/SKILL.md
     cpm-load/SKILL.md
     cpm-pip/SKILL.md
+    cpm-xmodem/SKILL.md
     tool-cpmtools/SKILL.md
     tool-rebuild/SKILL.md
 ```
