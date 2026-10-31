@@ -41,6 +41,8 @@ Entry files in those trees (index only; do not ingest every skill they list):
 | `+rc2014` CRT, serial, diskio | `target-rc2014` |
 | `z88dk-lib` / third-party `ff` | `tool-z88dk-lib` |
 | Rebuild HEX or `ff_ro` / `ff_85_ro` | this repo `.agents/skills/tool-rebuild` |
+| XMODEM transfer and MD5 check | this repo `.agents/skills/cpm-xmodem` |
+| Hi-Tech Z80 C on the RC2014 | this repo `.agents/skills/cpm-hitech` |
 
 ## Environment
 
@@ -67,6 +69,8 @@ export Z88DK=/data/z88dk
 ```text
 .agents/scripts/rebuild-ff.sh
 .agents/scripts/rebuild-hex.sh
+.agents/skills/cpm-hitech/SKILL.md
+.agents/skills/cpm-xmodem/SKILL.md
 .agents/skills/tool-rebuild/SKILL.md
 ```
 
