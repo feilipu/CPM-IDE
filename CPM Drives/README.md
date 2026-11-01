@@ -340,7 +340,7 @@ There is a small mailbox here.
 ZORK II: The Wizard of Frobozz
 Copyright (c) 1981, 1982, 1983 Infocom, Inc. All rights reserved.
 ZORK is a registered trademark of Infocom, Inc.
-Version 48 / Serial number 840904
+Release 22 / Serial number 830331
 
 Inside the Barrow
 You are inside an ancient barrow hidden deep within a dark
@@ -354,7 +354,7 @@ A sword of Elvish workmanship is on the ground.
 ZORK III: The Dungeon Master
 Copyright 1982 by Infocom, Inc. All rights reserved.
 ZORK is a trademark of Infocom, Inc.
-Release 17 / Serial number 840727
+Release 15 / Serial number 830331
 
 Endless Stair
 You are at the bottom of a seemingly endless stair, winding
@@ -366,8 +366,8 @@ Your old friend, the brass lantern, is at your feet.
 ```
 
 ```
-FILE_ID .DIZ   4k : ZORK1   .COM  12k : ZORK1   .DAT  84k : ZORK2   .COM  12k
-ZORK2   .DAT  88k : ZORK3   .COM  12k : ZORK3   .DAT  84k
-         Drive B0   Files: 7/296k   Free: 7832k 
+FILE_ID .DIZ   4k : ZORK1   .COM  12k : ZORK1   .DAT  84k : ZORK2   .COM   8k
+ZORK2   .DAT  84k : ZORK3   .COM   8k : ZORK3   .DAT  84k
+         Drive B0   Files: 7/284k   Free: 7844k 
 ```
 
