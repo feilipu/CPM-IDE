@@ -43,6 +43,9 @@ Entry files in those trees (index only; do not ingest every skill they list):
 | Rebuild HEX or `ff_ro` / `ff_85_ro` | this repo `.agents/skills/tool-rebuild` |
 | XMODEM transfer and MD5 check | this repo `.agents/skills/cpm-xmodem` |
 | Hi-Tech Z80 C on the RC2014 | this repo `.agents/skills/cpm-hitech` |
+| PL/I-80 on the RC2014 | this repo `.agents/skills/cpm-pli` |
+| Z80 debugger, `HIST.UTL`, `TRACE.UTL` | this repo `.agents/skills/cpm-zsid` |
+| R Lee CP/M software index, Zork copies | this repo `.agents/skills/cpm-rlee` |
 
 ## Environment
 
@@ -70,7 +73,10 @@ export Z88DK=/data/z88dk
 .agents/scripts/rebuild-ff.sh
 .agents/scripts/rebuild-hex.sh
 .agents/skills/cpm-hitech/SKILL.md
+.agents/skills/cpm-pli/SKILL.md
 .agents/skills/cpm-xmodem/SKILL.md
+.agents/skills/cpm-zsid/SKILL.md
+.agents/skills/cpm-rlee/SKILL.md
 .agents/skills/tool-rebuild/SKILL.md
 ```
 

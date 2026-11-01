@@ -11,7 +11,7 @@ description: >
 
 Forms below are from the CP/M Dynamic Debugging Tool User's Guide, sections I–III. DDT is an 8080 debugger. Mnemonics are the Intel 8080 set. Every DDT number is hexadecimal, one to four digits. A longer number is truncated on the right. Values are separated by a comma or a single blank. A command is not run until carriage return. A line is at most 32 characters; the 33rd becomes a carriage return.
 
-Producing the HEX file is ASM (`cpm-asm`). Making a COM without the debugger is LOAD (`cpm-load`).
+Producing the HEX file is ASM (`cpm-asm`). Making a COM without the debugger is LOAD (`cpm-load`). On a Z80, use ZSID (`cpm-zsid`). DDT lists 8080 mnemonics.
 
 ## Start
 
