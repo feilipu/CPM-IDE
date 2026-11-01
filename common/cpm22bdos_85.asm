@@ -709,6 +709,7 @@ SECTION code_lib
 PUBLIC  bdos_warm
 
 EXTERN  dir_sdi
+EXTERN  dir_next
 EXTERN  dir_create
 EXTERN  dir_zap
 EXTERN  remove_chain
@@ -3744,9 +3745,12 @@ fn_dpb:
     ret
 
 ;
-; Function 27. fatwin becomes 512 bytes, all used, then the free 2 KB
-; blocks (capped at 4096) are cleared from block 4095 downward.
-; Bit 7 of byte 0 is block 0. The window is invalidated before return:
+; Function 27. Free 2 KB blocks are the smaller of the capped FAT free
+; count and the blocks left on this drive. Each file on the current
+; drive rounds up to the next 2 KB block. fatwin then becomes 512 bytes,
+; all used, and that many bits are cleared from block 4095 downward.
+; Bit 7 of byte 0 is block 0. The directory walk uses fatwin, so it
+; runs before the bitmap fill. The window is invalidated before return:
 ; the bitmap is not a sector, and the pointer dies on the next disk call.
 ;
 fn_vec:
@@ -3755,9 +3759,11 @@ fn_vec:
     ld      a,(_cpm_fat_vol)        ;FAT type
     or      a                       ;0 means the volume is not mounted
     jp      z,vec_zero              ;no bitmap bits to clear
+    call    vec_used                ;DE = 2 KB blocks on this drive
+    push    de                      ;kept across the FAT free scan
     ld      hl,vec_free             ;address of free cluster count
     call    _fat_getfree            ;count free clusters
-    jp      nc,vec_zero             ;free-space count failed: no bitmap bits to clear
+    jp      nc,vec_drop             ;drop the used count, then zero
     ld      hl,vec_free             ;address of free cluster count
     call    io_ld                   ;BCDE from (HL), E is low
     ld      a,(_cpm_fat_vol+1)      ;cluster-size shift
@@ -3784,14 +3790,29 @@ vec_div:
     jp      nz,vec_cap              ;more than 65535 blocks: cap the free count at 4096 blocks
     ld      a,d                     ;high byte
     cp      16                      ;high byte of the free-block count?
-    jp      c,vec_have              ;fewer than 4096 blocks: DE is the free block count
+    jp      c,vec_min               ;fewer than 4096 blocks: DE is the free block count
     jp      nz,vec_cap              ;cap the free count at 4096 blocks
     ld      a,e                     ;low byte
     or      a                       ;exactly 4096 when this is 0
-    jp      z,vec_have              ;exactly 4096 blocks: DE is the free block count
+    jp      z,vec_min               ;exactly 4096 blocks: DE is the free block count
 vec_cap:
     ld      de,4096                 ;4096 blocks is the 8 MB cap
-    jp      vec_have                ;DE is the free block count
+vec_min:
+    pop     bc                      ;used blocks on this drive, 0..4096
+    ld      hl,4096                 ;blocks on the reported 8 MB disk
+    sub     hl,bc                   ;HL = blocks not used by this drive
+    push    hl                      ;room
+    ld      bc,de                   ;FAT free blocks
+    sub     hl,bc                   ;room - free. C if the room is smaller
+    pop     hl                      ;room. pop hl does not change C
+    jp      c,vec_room              ;FAT free is larger: use the room
+    jp      vec_have                ;DE is the smaller free count
+vec_room:
+    ld      d,h                     ;room left on this drive
+    ld      e,l                     ;low byte
+    jp      vec_have                ;DE is the smaller free count
+vec_drop:
+    pop     de                      ;used count is not needed
 vec_zero:
     ld      de,0                    ;no free blocks
 vec_have:
@@ -3824,6 +3845,122 @@ vec_done:
     xor     a                       ;do not write the bitmap as a sector
     ld      (fat_wflag),a           ;store window is dirty
     pop     hl                      ;fatwin, the allocation vector
+    ret
+
+;
+; DE = 2 KB blocks occupied by files on the current drive, capped at 4096.
+; A deleted name, a label, a directory, and a long name are not files.
+; 00h ends the table. This walk uses fatwin. Call it before the bitmap fill.
+;
+vec_used:
+    ld      hl,0                    ;no blocks yet
+    push    hl                      ;running total
+    ld      a,(bdos_drive)          ;current drive, not the stale FCB
+    call    drv_mounted             ;BCDE = directory cluster
+    jp      nc,vu_done              ;letter is not mounted
+    ld      hl,0                    ;first directory entry
+    call    dir_sdi                 ;dir_ptr at that entry
+    jp      nc,vu_done              ;directory did not open
+vu_ent:
+    ld      hl,(dir_ptr)            ;this entry
+    ld      a,(hl)                  ;first byte
+    or      a                       ;00h ends the directory
+    jp      z,vu_done               ;no more names
+    cp      $E5                     ;deleted slot
+    jp      z,vu_adv                ;skip it
+    call    attr_skip               ;label, directory, or long name
+    jp      c,vu_adv                ;not a file
+    call    vec_one                 ;BC = 2 KB blocks for this file
+    pop     hl                      ;total so far
+    add     hl,bc                   ;add this file
+    ld      a,h                     ;high byte
+    cp      16                      ;4096 is 1000h
+    jp      c,vu_push               ;still under the disk
+    ld      hl,4096                 ;the drive fills the reported disk
+    push    hl                      ;store the cap
+    jp      vu_done                 ;further files cannot add space
+vu_push:
+    push    hl                      ;updated total
+vu_adv:
+    call    dir_next                ;next entry; carry clear at the end
+    jp      c,vu_ent                ;another entry
+vu_done:
+    pop     de                      ;used blocks
+    ret
+
+;
+; dir_ptr size at byte 28. BC = min(4096, ceil(size / 2048)).
+;
+vec_one:
+    ld      hl,(dir_ptr)            ;this directory entry
+    ld      de,28                   ;FAT size is four bytes here
+    add     hl,de                   ;point at byte 0 of the size
+    ld      a,(hl)                  ;size byte 0
+    inc     hl                      ;byte 1
+    ld      e,a                     ;keep byte 0
+    ld      a,(hl)                  ;size byte 1
+    ld      d,a                     ;keep byte 1
+    and     7                       ;low 3 bits sit inside the 2 KB block
+    or      e                       ;byte 0 or those bits: a partial block
+    ld      c,a                     ;nonzero means round up
+    ld      a,d                     ;byte 1
+    rrca
+    rrca
+    rrca                            ;byte 1 >> 3 in the low 5 bits
+    and     $1F                     ;drop the three bits that rotated in
+    ld      e,a                     ;low byte of size/2048
+    inc     hl                      ;byte 2
+    ld      a,(hl)                  ;size byte 2
+    ld      d,a                     ;keep byte 2
+    rlca
+    rlca
+    rlca
+    rlca
+    rlca                            ;byte 2 << 5
+    and     $E0                     ;three bits land in the low byte
+    or      e                       ;merge with byte 1 >> 3
+    ld      e,a                     ;low byte of the block count
+    ld      a,d                     ;byte 2
+    rrca
+    rrca
+    rrca                            ;byte 2 >> 3
+    and     $1F                     ;five bits
+    ld      d,a                     ;high byte starts here
+    inc     hl                      ;byte 3
+    ld      a,(hl)                  ;size byte 3
+    ld      b,a                     ;keep byte 3
+    and     $F8                     ;bit 3..7 means at least 65536 blocks
+    jp      nz,vo_cap               ;larger than this disk
+    ld      a,b                     ;byte 3
+    rlca
+    rlca
+    rlca
+    rlca
+    rlca                            ;byte 3 << 5
+    and     $E0                     ;three bits into the high byte
+    or      d                       ;merge
+    ld      d,a                     ;DE = size/2048, truncated
+    ld      a,c                     ;partial block?
+    or      a                       ;zero means an exact multiple
+    jp      z,vo_fit                ;no round-up
+    inc     de                      ;one more 2 KB block
+    ld      a,d                     ;wrapped to 0 only at 65536
+    or      e                       ;both bytes
+    jp      z,vo_cap                ;the increment overflowed
+vo_fit:
+    ld      a,d                     ;high byte
+    cp      16                      ;4096 is 1000h
+    jp      c,vo_bc                 ;below 4096
+    jp      nz,vo_cap               ;above
+    ld      a,e                     ;low byte
+    or      a                       ;exactly 4096 when this is 0
+    jp      nz,vo_cap               ;above 4096
+vo_bc:
+    ld      b,d                     ;block count high
+    ld      c,e                     ;block count low
+    ret
+vo_cap:
+    ld      bc,4096                 ;one file can fill the reported disk
     ret
 
 shr32:

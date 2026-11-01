@@ -14,12 +14,14 @@ run_cpu() {
     fat="$3"
     ide="$4"
     out="$HERE/out/disk${5}"
-    # 8085 disk harness is 80cc. The image is 65463 bytes, inside the
+    # 8085 disk harness is 80cc. The image must stay inside the
     # z88dk-ticks limit of 65536. The 8085 ROMs use 80cc as well.
     if [ "$cpu" = "8085" ]; then
-        # ldi_body ends above the default $FF00 stack. SP=0 keeps
-        # the stack in the bytes above BSS, inside the 64K image.
+        # SP=0 keeps the stack in the bytes above BSS, inside the
+        # 64K image. BDOS_NO_DEBLOCK omits the v2.6 deblock cells.
         ( cd /tmp && zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m \
+            -DVEC_SUB \
+            -Ca-DBDOS_NO_DEBLOCK \
             -pragma-define:REGISTER_SP=0 \
             -I"$ROOT/common" -I"$ROOT/test/fatfs" \
             "$HERE/test_disk.c" "$HERE/bdos_host.asm" \
@@ -27,7 +29,11 @@ run_cpu() {
             -o "$out.bin" -lndos )
         z88dk-ticks -m8085 "$out.bin" -x "$out.map" -counter 999999999 | tee "$out.txt"
     else
-        ( cd /tmp && zcc +test -vn -m \
+        # VEC_SUB checks function 27 against files on the current drive.
+        # BDOS_NO_DEBLOCK omits the v2.6 deblock cells. This harness
+        # does not link bios_disk.
+        ( cd /tmp && zcc +test -vn -m -DVEC_SUB \
+            -Ca-DBDOS_NO_DEBLOCK \
             -I"$ROOT/common" -I"$ROOT/test/fatfs" \
             "$HERE/test_disk.c" "$HERE/bdos_host.asm" \
             "$bdos" "$fat" "$ide" "$ROOT/test/fatfs/bss_ram.asm" \

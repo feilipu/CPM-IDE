@@ -1094,6 +1094,8 @@ static void test_login(void)
     vec = bdos(27, 0);
     ab = bdos_ab(27, 0);
     bits = (unsigned char *)vec;
+    /* Files on this image use fewer 2 KB blocks than the FAT free count,
+     * so the drive adjustment does not change this zero-bit count. */
     blocks = (unsigned long)cpm_fat_vol.free_clst * cpm_fat_vol.csize / 4;
     if (blocks > 4096)
         blocks = 4096;
@@ -1125,6 +1127,29 @@ static void test_login(void)
     fcb[32] = 0;
     bdos(27, 0);
     expect("vec_poison FAIL", call(20) == 0 && dma[0] == 0x41);
+
+#ifdef VEC_SUB
+    /* Cached free clusters above 8 MB. An empty drive still fills the vector.
+     * base_files occupies 308 blocks of 2 KB: README 1, NOTES 8, lowcase 1,
+     * ELLO 1, BIG 296, $$$ 1. LFN, label, directory, and the deleted slot stay out. */
+    rebuild();
+    cpm_fat_vol.free_valid = 1;
+    cpm_fat_vol.free_clst = 20000;
+    vec = bdos(27, 0);
+    bits = (unsigned char *)vec;
+    expect("vec_empty FAIL", vec == (unsigned)fatwin && zero_bits(bits, 512) == 4096);
+    rebuild();
+    base_files();
+    cpm_fat_vol.free_valid = 1;
+    cpm_fat_vol.free_clst = 20000;
+    vec = bdos(27, 0);
+    bits = (unsigned char *)vec;
+    blocks = 4096 - 308;
+    expect("vec_used FAIL", zero_bits(bits, 512) == (unsigned)blocks);
+    expect("vec_used_b0 FAIL", bit_used(bits, 0) &&
+           !bit_used(bits, 4096 - (unsigned)blocks) &&
+           bit_used(bits, 4095 - (unsigned)blocks) && !bit_used(bits, 4095));
+#endif
 
     rebuild_io();
     clear_fcb();
