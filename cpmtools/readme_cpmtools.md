@@ -42,7 +42,7 @@ cpmls -f rc2014-8MB SYS.CPM                # list
 fsed.cpm -f rc2014-8MB a.cpm               # interactive editor
 ```
 
-Verified against `CPM Drives/SYS.CPM.zip`: 44 files extract intact, and the listing is
+Verified against `CPM Drives/SYS.CPM.zip`: 45 files extract intact, and the listing is
 byte-identical between the apt build and our build.
 
 ## Bug 1 — `cpmglobfree` assert (cpmtools, cosmetic)

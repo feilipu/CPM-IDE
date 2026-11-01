@@ -40,11 +40,12 @@ LS      .COM   8k : LU      .COM  20k : LUA     .COM   4k : MAC     .COM  16k
 MBASIC  .COM  24k : MLOAD   .COM   4k : MOVCPM  .COM  12k : NORMPRMP.SUB   4k
 NSWP    .COM  12k : PIP     .COM   8k : SD      .COM   8k : SH      .COM  12k
 SH      .OVR  12k : SHSAVE  .COM   4k : STAT    .COM   8k : SUBMIT  .COM   4k
-SURVEY  .COM   4k : SYSGEN  .COM   4k : UNARC   .COM   8k : UNCR    .COM   8k
-USQ     .COM   4k : XMODEM  .COM   4k : XSUB    .COM   4k : YASH    .COM  36k
-YASH85  .COM  40k : YASH85CF.COM  40k : YASHCF  .COM  36k : Z80ASM  .COM  28k
-ZEXALL  .COM  12k : ZEXDOC  .COM  12k : ZSID    .COM  12k : ZTRAN   .COM   4k
-         Drive A0   Files: 44/520k   Free: 7608k 
+SURVEY  .COM   4k : SYSGEN  .COM   4k : TE      .COM  20k : UNARC   .COM   8k
+UNCR    .COM   8k : USQ     .COM   4k : XMODEM  .COM   4k : XSUB    .COM   4k
+YASH    .COM  36k : YASH85  .COM  40k : YASH85CF.COM  40k : YASHCF  .COM  36k
+Z80ASM  .COM  28k : ZEXALL  .COM  12k : ZEXDOC  .COM  12k : ZSID    .COM  12k
+ZTRAN   .COM   4k
+         Drive A0   Files: 45/540k   Free: 7588k 
 ```
 The [NGS Microshell](http://www.z80.eu/microshell.html) can be very useful for those familiar with unix-like shells, so it has been added to the example [system disk](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/SYS.CPM.zip) too. There is no need to replace the DRI CCP with Microshell. In fact, adding it permanently would remove the special `EXIT` function built into the DRI CCP to provide a clean return to the CP/M-IDE shell. It can be launched with __`SH`__.
 
