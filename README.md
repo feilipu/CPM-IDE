@@ -46,7 +46,7 @@ The CP/M-IDE system mounts up to 16 drives, A: through P:, as directories on one
 
 CP/M-IDE v2.6 mounted up to four 8 MB container files. That procedure, including `frag` and `mkdrv`, is in [CP/M-IDE v2.6](docs/CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is the published v2.6 ROM.
 
-A CP/M program uses the TPA, from `$0100` up to FBASE. FBASE is the word at `0006h` (`$F206`, `jp fbase`). The CCP sits inside that range. It is reloaded each time a program exits, because the program may have overwritten it. The space for each ROM is in [Modifications to the CCP and BDOS](docs/readme_ccp_bdos.md).
+A CP/M program uses the TPA, from `$0100` up to FBASE. FBASE is the word at `0006h` (`$F206`, `jp fbase`). The CCP sits inside that range. A program may overwrite it. A jump to address 0 copies the CCP back before the next prompt. How the ROM, the RAM, and that ceiling fit together is in [How CP/M-IDE fits](docs/how-it-works.md). The CCP and BDOS changes are in [Modifications to the CCP and BDOS](docs/readme_ccp_bdos.md).
 
 <div>
 <table style="border: 2px solid #cccccc;">

@@ -2,7 +2,7 @@
 
 A program on this machine calls BDOS the way CP/M 2.2 has always been called. The byte at `0005h` is a jump. `C` is the function number. `DE` is the argument. The return is the Calkins pair: `A = L` is the low byte of the result and `B = H` is the high byte. Function 12 is the one that needs both bytes. It returns `HL = 0022h`, so a program that asks the version stays on the CP/M 2.2 path.
 
-The code is `common/cpm22bdos.asm` and `common/cpm22bdos_85.asm`. Same labels, same branches. The Z80 file uses `ldir` and the Z80 shifts. The 8085 file uses `copy_mem`, `rra`, and `rl de`. The entry at `0006h` is `jp fbase` on both. That jump is not a relative branch. Six serial-number bytes sit in front of it, so `0006h` is `$F206` and the stub itself is `$F200`.
+How the stub, the ROM half, and the TPA fit together is [How CP/M-IDE fits](how-it-works.md). The code is `common/cpm22bdos.asm` and `common/cpm22bdos_85.asm`. Same labels, same branches. The Z80 file uses `ldir` and the Z80 shifts. The 8085 file uses `copy_mem`, `rra`, and `rl de`. The entry at `0006h` is `jp fbase` on both. That jump is not a relative branch. Six serial-number bytes sit in front of it, so `0006h` is `$F206` and the stub itself is `$F200`.
 
 The comparison is the Clark A. Calkins reconstruction of 27 February 1981, the Digital Research CP/M 2.2 manual, and [John Elliott's BDOS description](https://www.seasip.info/Cpm/bdos.html) where he marks a call as CP/M 2.2 or "all versions". A behaviour that exists only in CP/M 3, MP/M, or DOS Plus is not implemented. Functions 38 and 39, and any function above 40, return 0.
 

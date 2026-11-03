@@ -4,7 +4,7 @@ The CCP is `common/cpm22ccp.asm` (Z80) and `common/cpm22ccp_85.asm` (8085). Z80 
 
 The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 (27 February 1981). That listing is the unmodified original this port was built from, and its header is still at the top of `cpm22ccp.asm` and `cpm22ccp_85.asm`. The version bytes stored by the resident BDOS are unchanged: version 2, release 2, revision 0.
 
-`CALL 5` is the resident stub in `common/cpm22bdos.asm` (Z80) or `common/cpm22bdos_85.asm` (8085). Those two files are one logical flow. What each call returns, and how the FAT directory produces it, is in [bdos.md](bdos.md). The sector and cluster layer is in [mini-fat.md](mini-fat.md). The implementation record is [CPM-IDE-MSX.md](CPM-IDE-MSX.md).
+`CALL 5` is the resident stub in `common/cpm22bdos.asm` (Z80) or `common/cpm22bdos_85.asm` (8085). Those two files are one logical flow. What each call returns, and how the FAT directory produces it, is in [bdos.md](bdos.md). The sector and cluster layer is in [mini-fat.md](mini-fat.md). How the ROM window, the high RAM, and the TPA fit together is in [how-it-works.md](how-it-works.md). The design and build record is [CPM-IDE-MSX.md](CPM-IDE-MSX.md).
 
 ## Origins
 
@@ -20,7 +20,7 @@ All seven products share one high map. The CCP origin differs by CPU because the
 
 The Z80 CCP image is `$820` bytes, so `$E9E0` meets the stub. The 8085 image is `$880` bytes, so `$E980` meets the stub. The 32-byte CCP stack is the last bytes of each image, padded to `__COMMON_AREA_PHASE_BDOS`, and its top is the stub. `REGISTER_SP` sits at the CCP origin, and the shell stack stays below the CCP. The resident BDOS is on a page. Disk BSS is `$F750`–`$F7C6`. FAT BSS is `$F7D0`–`$FA84`, and the BIOS page is `$FB00`. The BIOS stack pad is 16 bytes. The canary word is its floor.
 
-The transient program area runs from `$0100` up to FBASE. FBASE is the word at `0006h` (`$F206`, `jp fbase`). The CCP sits inside that range. It is reloaded each time a program exits, because the program may have overwritten it. It is not the ceiling.
+The transient program area runs from `$0100` up to FBASE. FBASE is the word at `0006h` (`$F206`, `jp fbase`). The CCP sits inside that range. A program may overwrite it. A jump to address 0 copies it back before the next prompt. It is not the ceiling.
 
 The preamble copies the phased CCP, the resident BDOS stub, and the BIOS to those addresses. Mini-FAT, the disk BDOS, and the shell stay in ROM.
 
