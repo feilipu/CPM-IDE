@@ -220,7 +220,7 @@ SQUARO  .COB   4k
 
 ## NZCOM.CPM
 
-This image is for the v2.6 ROM. NZ-COM overwrites the CCP and the BDOS, and that ROM keeps both in RAM for the session. The load, and the [NZ-COM User's Manual](https://oldcomputers.dyndns.org/public/pub/manuals/zcpr/nzcom.pdf), are in [CP/M-IDE v2.6](../docs/CPM-IDE-v2.6.md).
+This image is for the v2.6 ROM. NZ-COM overwrites the CCP and the BDOS, and that ROM keeps both in RAM for the session. The load, and the [NZ-COM User's Manual](http://cpmarchives.classiccmp.org/trs80/Miscellany/Emulatrs/Z-System/nzcom.pdf), are in [CP/M-IDE v2.6](../docs/CPM-IDE-v2.6.md).
 
 ```
 !VERS--1.2H    0k : ALIAS   .CMD   4k : ARUNZ   .COM   8k : BGZRDS19.LBR   4k

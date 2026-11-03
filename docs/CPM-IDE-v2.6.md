@@ -14,7 +14,7 @@ Cold boot and warm boot both come from ROM. There is no CP/M boot sector.
 
 Format the card FAT32, or FAT16 if it is small. Unzip the example images from [CPM Drives](../CPM%20Drives) and copy them to the card. Check that each file occupies 8388608 bytes. They can sit in the root or in any directory. At least `SYS.CPM` is worth having. It holds PIP, STAT, XMODEM, and the rest of the usual set.
 
-The [NGS Microshell](http://www.z80.eu/microshell.html) is on that disk as `SH`. It replaces the CCP for that session. Leave the DRI CCP in place. Replacing it removes `EXIT`, and `EXIT` is the clean way back to the shell. NZ-COM, on `NZCOM.CPM`, can be loaded for a session. On this ROM the CCP and the BDOS both sit in RAM, so NZ-COM overwrites them until the next warm boot from ROM. The manual is the [NZ-COM User's Manual](https://oldcomputers.dyndns.org/public/pub/manuals/zcpr/nzcom.pdf). The current disk BDOS stays in ROM, so that load is not available there.
+The [NGS Microshell](http://www.z80.eu/microshell.html) is on that disk as `SH`. It replaces the CCP for that session. Leave the DRI CCP in place. Replacing it removes `EXIT`, and `EXIT` is the clean way back to the shell. NZ-COM, on `NZCOM.CPM`, can be loaded for a session. On this ROM the CCP and the BDOS both sit in RAM, so NZ-COM overwrites them until the next warm boot from ROM. The manual is the [NZ-COM User's Manual](http://cpmarchives.classiccmp.org/trs80/Miscellany/Emulatrs/Z-System/nzcom.pdf). The current disk BDOS stays in ROM, so that load is not available there.
 
 ## Starting CP/M
 

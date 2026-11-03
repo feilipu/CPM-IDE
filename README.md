@@ -6,7 +6,7 @@ For further technical reading, a longer [description of CP/M-IDE is here](https:
 
 ## Concept
 
-This CP/M-IDE is designed to provide support for CP/M 2.2 with either Z80 or 8085 CPUs while using a normal FATFS formatted hard drive. And further, to do so with the minimum of (no) additional modules, complexity, and expense.
+This CP/M-IDE is designed to provide support for CP/M 2.2 with either Z80 or 8085 CPUs, using a normal FAT-formatted hard drive, and to do so with no additional modules, complexity, or expense.
 
 In contrast to other CP/M implementations, CP/M-IDE includes performance optimised drivers from the [z88dk](https://github.com/z88dk/z88dk). The z88dk RC2014 support includes serial interface drivers for the ACIA Serial Module, for the SIO/2 Serial Module, and for the Single and Dual UART Serial Modules. Two disk interface types are supported, being the IDE Hard Drive Module for PATA attached drives of all types and also the Compact Flash Module for Compact Flash Cards and Adapters.
 
@@ -16,7 +16,7 @@ While multiple configurations are possible, and can be built up as desired, the 
 
 - The RC2014 Z80 CF UART build supports the RC2014 Pro with either the Single or Dual __UART Serial Module__ and the Compact Flash Module 2.0.
 
-- The RC2014 Z80 PATA SIO build supports the RC2014 Pro Module equipped with the __IDE Hard Drive Module__.
+- The RC2014 Z80 PATA SIO build supports the RC2014 Pro equipped with the __IDE Hard Drive Module__.
 
 - The RC2014 Z80 CF ACIA build supports the RC2014 Pro with the standard ACIA Serial Module and the Compact Flash Module 2.0.
 
@@ -86,7 +86,7 @@ For the [RC2014 Pro](https://z80kits.com/shop/rc2014-pro/) no additional hardwar
 
 For the RC2014 IDE Module builds, in addition to the [RC2014 Pro](https://z80kits.com/shop/rc2014-pro/) which contains the CPU and SIO Serial modules, just the IDE Hard Drive Module is necessary.
 
-1. [IDE Hard Drive Module](https://rc2014.co.uk/modules/ide-hard-drive-module/).
+1. [IDE Hard Drive Module](https://rc2014.co.uk/ide-hard-drive-module/).
 
 Using the IDE Hard Drive Module the widest variety of PATA attached hard disks are supported. This is the way to connect 80's and 90's spinning disks for maximum "retro appeal".
 
@@ -96,12 +96,12 @@ __NOTE:__ If you are using the IDE Hard Drive Module 40-pin PATA connector, be a
 
 As noted above, the complete RC2014 Pro system must include:
 
-2. [CPU Module](https://rc2014.co.uk/modules/cpu/z80-cpu-v2-1/).
-3. [Clock Module](https://rc2014.co.uk/modules/clock/).
-4. [64k RAM Module](https://rc2014.co.uk/modules/64k-ram/).
-5. [Pageable ROM Module](https://rc2014.co.uk/modules/pageable-rom/).
-6. [SIO Dual Serial Module](https://rc2014.co.uk/modules/dual-serial-module-sio2/).
-7. [Backplane 8](https://rc2014.co.uk/modules/backplane-8/) or [Backplane Pro](https://rc2014.co.uk/backplanes/backplane-pro/).
+2. [CPU Module](https://rc2014.co.uk/z80-cpu-v2-1/).
+3. [Clock Module](https://rc2014.co.uk/clock/).
+4. [64k RAM Module](https://rc2014.co.uk/64k-ram/).
+5. [Pageable ROM Module](https://rc2014.co.uk/pageable-rom/).
+6. [SIO Dual Serial Module](https://rc2014.co.uk/dual-serial-module-sio2/).
+7. [Backplane 8](https://rc2014.co.uk/backplane-8/) or [Backplane Pro](https://rc2014.co.uk/backplane-pro/).
 
 If your preference is to use a CF Card, or SD Card in a uSD-CF Adapter, then Dylan Hall's CF Card PPIDE Module can be exchanged for item 1. This Module provides seamless and reliable (CF Specification compliant) CF Card (or also SD Card Adapter) support, but doesn't provide a standard 40 pin or 44 pin IDE connector.
 
@@ -109,14 +109,14 @@ If your preference is to use a CF Card, or SD Card in a uSD-CF Adapter, then Dyl
 
 It is possible to use the standard RC2014 CF Module v2.0 with either the RC2014 Pro, or with the 8085 CPU Module CF builds. As a supported RC2014 Module, the CF Module v2.0 by Tadeusz Pycio provides a very robust (CF Specification compliant) solution that will work with large Compact Flash cards (e.g. 1GB and greater), and with SD to CF Card Adapters.
 
-- [CF Module](https://rc2014.co.uk/modules/compact-flash-module/).
+- [CF Module](https://rc2014.co.uk/compact-flash-module/).
 - [CF Module v2.0](https://z80kits.com/shop/compact-flash-module/).
 
 Optionally, replacing items 4. and 5. with the Memory Module (also compatible with Steve Cousins' SC108) avoids the need for a flying `PAGE` wire joining RAM and ROM Modules when using the Backplane 8.
 
 - [Memory Module](https://www.tindie.com/products/feilipu/memory-module-pcb/).
 
-To operate the RC2014 with an 8085 CPU the following CPU Module must be exchanged for items 2. and 3, and either an ACIA Serial Module or a UART Serial Module installed.
+To operate the RC2014 with an 8085 CPU the following CPU Module must be exchanged for items 2 and 3, and either an ACIA Serial Module or a UART Serial Module must be installed.
 
 __NOTE:__ For use with the 8085 CPU Module, either the ACIA Serial Module or UART Serial Modules are supported.
 
@@ -124,13 +124,13 @@ __NOTE:__ For use with the 8085 CPU Module, either the ACIA Serial Module or UAR
 
 To operate the RC2014 with a Single or Dual UART Serial Module, install that module in exchange for item 6. Installation of multiple serial modules is not supported.
 
-- [Dual UART Module](https://rc2014.co.uk/modules/dual-serial-module-16c2550/).
+- [Dual UART Module](https://rc2014.co.uk/dual-serial-module-16c2550/).
 
-Additionally, the ACIA Serial Module from the [RC2014 Classic II](https://rc2014.co.uk/modules/serial-io/) could be substituted for item 6. the SIO Serial Module.<br>
+Additionally, the [Serial I/O module](https://rc2014.co.uk/serial-io/) from the [RC2014 Classic II](https://rc2014.co.uk/rc2014-classic-ii/) can be substituted for item 6, the SIO Serial Module.<br>
 
 - [ACIA Serial Module](https://z80kits.com/shop/tynemouth-68b50-clocked-serial-port/).
 
-Also Grant Searle's [CP/M on breadboard](http://searle.x10host.com/cpm/index.html) hardware is supported if a 32kB ROM is used, and Steve Cousins' [SC108 Module (Z80, 128k RAM, 32k ROM)](https://smallcomputercentral.com/rcbus/sc100-series/sc108-z80-processor-rc2014/) Module could be exchanged for items 2., 3., 4., and 5., because Richard Deane cared enough to ask. Thanks Richard.
+Also Grant Searle's [CP/M on breadboard](http://searle.x10host.com/cpm/index.html) hardware is supported if a 32kB ROM is used, and Steve Cousins' [SC108 Module (Z80, 128k RAM, 32k ROM)](https://smallcomputercentral.com/rcbus/sc100-series/sc108-z80-processor-rc2014/) could be exchanged for items 2., 3., 4., and 5., because Richard Deane cared enough to ask. Thanks Richard.
 
 As noted, when used with the IDE Hard Drive Module, both SD Cards and Compact Flash cards are also supported in their native 16-bit PATA mode, as shown below. Otherwise, when using the CF Module from the RC2014 Pro, SD Cards and Compact Flash cards are supported in the Compact Flash 8-bit compatibility mode.
 
@@ -426,7 +426,7 @@ Mini-FAT uses the z88dk IDE driver. Set `__IO_CF_8_BIT` in `config_target.m4`, t
 - PATA (IDE Hard Drive Module, 8255 at `$20`–`$23`): `__IO_CF_8_BIT = 0`.
 - Compact Flash Module (ports `$10`–`$17`): `__IO_CF_8_BIT = 1`.
 
-A PATA ROM linked with the CF 8-bit library returns `FR_NOT_READY` on `ls`. A later `fat_mount` can still print `FR_OK` because it does not talk to the disk.
+A PATA ROM linked with the CF 8-bit library returns `FR_NOT_READY` on `ls`. `fat_mount` does talk to the drive. A successful call is silent. `put_rc` prints a name only when the call fails.
 
 The disk access configuration, for either 16-bit PPIDE or 8-bit CF IDE, is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_target.m4#L22). PATA HEX files in this tree were built with `__IO_CF_8_BIT = 0`. CF HEX files were built with `__IO_CF_8_BIT = 1`. Rebuild the rc2014 libraries when you change that flag. Do not mix a PATA HEX with a CF library. The availability of the shadow RAM for 128kB RAM systems ([SC108](https://smallcomputercentral.com/rcbus/sc100-series/sc108-z80-processor-rc2014/), etc) is [configured here](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_ram.m4#L10). Following changes to any of the configurations, the z88dk libraries for RC2014 should be rebuilt.
 

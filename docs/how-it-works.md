@@ -49,7 +49,7 @@ Mini-FAT, the disk BDOS, and the IDE driver are not phased. They run at the addr
 
 v2.6 kept the whole disk BDOS and the disk half of the BIOS in high RAM, because the drive was an 8 MB file and the BIOS did the sector arithmetic. On the SIO ROMs the TPA stopped at `$E200`. Moving that work into the ROM raised the ceiling by about 4 KB, to `$F206`, on every product.
 
-The CCP is inside the TPA on purpose. Reserving it above `0006h` would shrink every program by the size of the CCP, `$820` bytes on the Z80 and `$880` bytes on the 8085, whether or not the program touched it. A program that stays below the CCP leaves it intact. A program that does not leaves through address 0, and that warm boot copies the CCP back.
+The CCP is inside the TPA on purpose. Reserving it above `0006h` would shrink every program by the size of the CCP, `$820` bytes on the Z80 and `$880` bytes on the 8085, whether or not the program touched it. A program that stays below the CCP leaves it intact. A program that overwrites it leaves through address 0, and that warm boot copies the CCP back.
 
 ## The 32 KiB budget
 

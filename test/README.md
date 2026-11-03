@@ -2,7 +2,7 @@
 
 The suites here run the v3 BDOS and mini-FAT as a flat `+test` image. The disk is a RAM image. The pass line is printed on the terminal by the `+test` console trap. The three scripts below do not load a product HEX file, and they do not start the CCP. The CCP session is the last section, `sh test/cli/a.sh`.
 
-Run them from the repository root, one after another. Each script builds Z80, then 8085. Both builds `cd /tmp` before `zcc`, and `/tmp/zcc_opt.def` is one file, so two scripts at once corrupt the link.
+Run them from the repository root, one after another. Each script builds Z80, then 8085. Each build changes to `/tmp` before `zcc`, and `/tmp/zcc_opt.def` is one file, so two scripts at once corrupt the link.
 
 ```bash
 export PATH=/data/z88dk/bin:$PATH
