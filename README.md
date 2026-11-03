@@ -315,6 +315,8 @@ xget PROG.COM
 
 __`xget`__ prints `Waiting for XMODEM`. Then send the file with `sx --checksum` (minicom: Ctrl-A S, then xmodem). The shell answers ACK after each good block is stored, so the host waits while a sector is written. EOT finishes the receive. Success prints the byte count. A quiet line prints `timeout`. CAN prints `cancelled`.
 
+Before the first `cpm`, use `xget` from this shell to load the starter programs into the directory that will be A:. `XMODEM`, `MD5`, `PIP`, and `SD` are enough to get started, together with the CCP commands that are already built in. The example is in [Working drive](#working-drive).
+
 Once CP/M is running, `XMODEM` on drive A: receives a `.COM` straight into the current drive. An example host line:
 
 ```text
@@ -360,13 +362,25 @@ C GAMES
 
 Put that file in the root when the machine should enter CP/M at power on. Put a different file in a project directory when that project should choose its own letters, then `cd` there and type `cpm`. Several project directories can each have their own file. `EXIT` between them, and type `cpm` again.
 
-On the first session, A: can hold the system files and another letter the work. `PIP` the commands you want onto the working directory. The CCP already has `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`, and `EXIT`. A command typed with no drive letter is tried on A: when the `.COM` is not on the current drive. A command typed with a drive letter searches only that drive. DEL is a backspace.
+Before the first `cpm`, seed A: from the shell. Leave a root `CPMIDE.CFG` out until these files are on A:. A file there that names A: starts CP/M at power on and skips this prompt. Change into the directory that will be drive A and receive the programs with `xget`. `XMODEM`, `MD5`, `PIP`, and `SD` are the useful set, along with any other program you want. The CCP already has `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`, and `EXIT`, so those do not need a file on the disk. The transfer is in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014).
+
+```text
+cd DRIVES/A
+xget XMODEM.COM
+xget MD5.COM
+xget PIP.COM
+xget SD.COM
+cd ..
+cpm .
+```
+
+A command typed with no drive letter is tried on A: when the `.COM` is not on the current drive. A command typed with a drive letter searches only that drive. DEL is a backspace. Once `PIP` is on A:, it can copy further commands onto another letter.
 
 Keep a compiler or a game in its own letter directory. A crashed program can be replaced by sending the `.COM` again. The other letters stay as they were.
 
 `USER` above 0 sees an empty disk, and a program cannot create a file there. Stay on user 0.
 
-`SD`, `SURVEY`, and `STAT` report free space on the 8 MB disk the BDOS publishes. An empty letter reports 8192k, including on a card that is much larger. Each file reduces that figure by its size, rounded up to 2 KB. The number will not match a count of records. The directory's own clusters are not subtracted. The details are in [The CP/M 2.2 BDOS](docs/bdos.md).
+`SD` and `STAT` report free space and the file count on the 8 MB disk the BDOS publishes. An empty letter reports 8192k, including on a card that is much larger. Each file reduces that figure by its size, rounded up to 2 KB. The number will not match a count of records. The directory's own clusters are not subtracted. Do not use `SURVEY` for either figure. Its free-space and file-count results are incorrect, and they always have been. The details are in [The CP/M 2.2 BDOS](docs/bdos.md).
 
 Of course other workflows are fine. Extract [Zork](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/ZORK.CPM.zip) into a letter directory and play a game.
 
