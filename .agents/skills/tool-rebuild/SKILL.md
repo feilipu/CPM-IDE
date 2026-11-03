@@ -1,11 +1,11 @@
 ---
 name: tool-rebuild
 description: >
-  Rebuild CP/M-IDE ROM HEX and ChaN ff / ff_ro / ff_85 libraries into z88dk.
-  Use when asked to rebuild firmware, hex products, FatFs libs, or refresh ff_ro.
+  Rebuild CP/M-IDE ROM HEX. Z80 images use zsdcc. 8085 images use 80cc.
+  Use when asked to rebuild firmware or hex products.
 ---
 
-# Rebuild — HEX and FatFs
+# Rebuild — HEX
 
 zcc command lines live in repo-root `README.md` (Building Software from Source). Do not invent flags. Wrap them with the scripts; do not paste ad-hoc `zcc` from memory.
 
@@ -17,8 +17,7 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 | `rebuild-hex.sh` | All seven ROMs on the FAT map (stub `$F200`, BDOS BSS `$F750`, FAT BSS `$F7D0`, BIOS `$FB00`). PATA first (`__IO_CF_8_BIT` 0, both libraries: Z80 SIO and 8085 UART), then CF (flag 1, both libraries: three Z80 and two 8085). Copies `.ihx` → `.hex` only after `gate_fat`. |
 
 ```bash
-# from repo root
-./.agents/scripts/rebuild-ff.sh
+# from repo root. rebuild-ff.sh is the old ChaN library build, not a ROM step.
 ./.agents/scripts/rebuild-hex.sh       # PATA, then all five CF ROMs
 ./.agents/scripts/rebuild-hex.sh cf    # five CF ROMs; skips the lib rebuild when the flag is already 1
 ./.agents/scripts/rebuild-hex.sh sio   # both SIO ROMs (PATA then CF)
@@ -31,7 +30,7 @@ git add -f rc2014-cpm22-*.hex
 
 `MAXJOBS` default 2. Each job has its own cwd and `TMPDIR` — **never** parallel bare `zcc` in one directory (`zcc_opt.def`).
 
-The ROM zcc lines are the README lines. They do not link ChaN `ff_ro` or `ff_85_ro`. `common/yash.c` calls mini-FAT.
+The ROM zcc lines are the README lines. `common/yash.c` calls mini-FAT. The ROM used to link ChaN `ff_ro`. It does not now.
 
 The resident BDOS must start on a page. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP` (`$E9E0` Z80, `$E980` 8085), `__COMMON_AREA_PHASE_BDOS` (`$F200`, CCP + `$820` / `$880`), and `__COMMON_AREA_PHASE_BIOS` (`$FB00`). zpragma cannot add, so BDOS is the computed constant. The BDOS files alias that pragma to `BDOS_STUB_ORG`. CCP and BIOS should start on a page when the image fits. FAT BSS is `$F7D0`–`$FA84`. The BIOS stack pad is 16 bytes. The CCP sources are `common/cpm22ccp.asm` and `common/cpm22ccp_85.asm`. `main.c` is first in each `cpm22.lst` so those PHASE pragmas are in `zcc_opt.def` before CCP, BDOS, and BIOS assemble.
 

@@ -8,7 +8,7 @@ z88dk libraries put one function in each file because the linker includes a whol
 
 ## z88dk / 8085-skills (mandatory lookup)
 
-Before editing assembler, choosing a compiler, measuring ticks, or linking FatFs, **read the matching skill** from the first tree that has it. Do not skip this because the host already listed the skill name. Do **not** bulk-read every skill.
+Before editing assembler, choosing a compiler, measuring ticks, or linking the mini-FAT, **read the matching skill** from the first tree that has it. Do not skip this because the host already listed the skill name. Do **not** bulk-read every skill.
 
 Resolve each `SKILL.md` with **realpath** and load it **once**.
 

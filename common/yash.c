@@ -544,7 +544,7 @@ static uint8_t copy_file(uint32_t src, uint32_t size, uint32_t *out_first, uint3
     return 0;
 }
 
-/* Named FatFs FRESULT (ChaN). rc=0 is silent. */
+/* Named result. rc=0 is silent. The names follow the old FatFs set. */
 void put_rc(uint8_t rc)
 {
     static const char names[] =    /* ROM string table; not a stack copy */

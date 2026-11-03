@@ -6,8 +6,8 @@ Always-on rules, PHASE/synthetics, and the z88dk / 8085-skills lookup: repo-root
 .agents/
   README.md
   scripts/
-    rebuild-ff.sh     # ff, ff_ro, ff_85, ff_85_ro → z88dk clibs
-    rebuild-hex.sh    # seven rc2014-cpm22-*.hex; PATA at flag 0, then CF at flag 1
+    rebuild-ff.sh     # historical ChaN ff libraries; the ROM does not link them
+    rebuild-hex.sh    # seven rc2014-cpm22-*.hex; Z80 zsdcc, 8085 80cc
   skills/
     cpm-asm/SKILL.md
     cpm-ddt/SKILL.md
