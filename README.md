@@ -380,7 +380,7 @@ Keep a compiler or a game in its own letter directory. A crashed program can be 
 
 `USER` above 0 sees an empty disk, and a program cannot create a file there. Stay on user 0.
 
-`SD` and `STAT` report free space and the file count on the 8 MB disk the BDOS publishes. An empty letter reports 8192k, including on a card that is much larger. Each file reduces that figure by its size, rounded up to 2 KB. The number will not match a count of records. The directory's own clusters are not subtracted. Do not use `SURVEY` for either figure. Its free-space and file-count results are incorrect, and they always have been. The details are in [The CP/M 2.2 BDOS](docs/bdos.md).
+`SD` and `STAT` report free space and the file count on the 8 MB disk the BDOS publishes. An empty letter reports 8192k, including on a card that is much larger. Each file reduces that figure by its size, rounded up to 2 KB. The number will not match a count of records. The directory's own clusters are not subtracted. The details are in [The CP/M 2.2 BDOS](docs/bdos.md).
 
 Of course other workflows are fine. Extract [Zork](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/ZORK.CPM.zip) into a letter directory and play a game.
 
