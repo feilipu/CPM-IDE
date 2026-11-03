@@ -33,16 +33,17 @@ From within CP/M directory listings of each of the above drive files are provide
 ```
 ASM     .COM   8k : CAL     .COM  16k : DD      .COM   4k : DDIR    .COM   8k
 DDT     .COM   8k : DUMP    .COM   4k : ED      .COM   8k : ERASE   .SUB   4k
-FULLPRMP.SUB   4k : INFO    .COM   4k : KERMIT  .COM  32k : LOAD    .COM   4k
-LS      .COM   8k : LU      .COM  20k : LUA     .COM   4k : MAC     .COM  16k
-MBASIC  .COM  24k : MLOAD   .COM   4k : MOVCPM  .COM  12k : NORMPRMP.SUB   4k
-NSWP    .COM  12k : PIP     .COM   8k : SD      .COM   8k : SH      .COM  12k
-SH      .OVR  12k : SHSAVE  .COM   4k : STAT    .COM   8k : SUBMIT  .COM   4k
-SURVEY  .COM   4k : SYSGEN  .COM   4k : UNARC   .COM   8k : UNCR    .COM   8k
-USQ     .COM   4k : XMODEM  .COM   4k : XSUB    .COM   4k : YASH    .COM  36k
-YASH85  .COM  40k : YASH85CF.COM  40k : YASHCF  .COM  36k : Z80ASM  .COM  28k
-ZEXALL  .COM  12k : ZEXDOC  .COM  12k : ZSID    .COM  12k : ZTRAN   .COM   4k
-         Drive A0   Files: 44/520k   Free: 7608k 
+FULLPRMP.SUB   4k : HEXD    .COM  16k : INFO    .COM   4k : KERMIT  .COM  32k
+LOAD    .COM   4k : LS      .COM   8k : LU      .COM  20k : LUA     .COM   4k
+MAC     .COM  16k : MBASIC  .COM  24k : MLOAD   .COM   4k : MOVCPM  .COM  12k
+NORMPRMP.SUB   4k : NSWP    .COM  12k : PIP     .COM   8k : SD      .COM   8k
+SH      .COM  12k : SH      .OVR  12k : SHSAVE  .COM   4k : STAT    .COM   8k
+SUBMIT  .COM   4k : SURVEY  .COM   4k : SYSGEN  .COM   4k : TE      .COM  20k
+UNARC   .COM   8k : UNCR    .COM   8k : USQ     .COM   4k : XMODEM  .COM   4k
+XSUB    .COM   4k : YASH    .COM  36k : YASH85  .COM  40k : YASH85CF.COM  40k
+YASHCF  .COM  36k : Z80ASM  .COM  28k : ZEXALL  .COM  12k : ZEXDOC  .COM  12k
+ZSID    .COM  12k : ZTRAN   .COM   4k
+         Drive A0   Files: 46/556k   Free: 7572k 
 ```
 The [NGS Microshell](http://www.z80.eu/microshell.html) can be very useful for those familiar with unix-like shells, so it has been added to the example [system disk](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/SYS.CPM.zip) too. There is no need to replace the DRI CCP with Microshell. In fact, adding it permanently would remove the special `EXIT` function built into the DRI CCP to provide a clean return to the CP/M-IDE shell. It can be launched with __`SH`__.
 
@@ -260,7 +261,7 @@ DEPREC  .PLI  12k : DFACT   .PLI   4k : DIO80   .DCL   4k : DIOCALLS.PLI  12k
 DIOCOPY .PLI   4k : DIOMOD  .DCL   4k : DIORAND .PLI   4k : DIV2    .ASM   4k
 DTEST   .PLI   4k : ENTER   .PLI   4k : EXPR1   .PLI   4k : EXPR2   .PLI   4k
 FCB     .DCL   4k : FDIV2   .ASM   4k : FDTEST  .PLI   4k : FFACT   .PLI   4k
-FLTPOLY .PLI   4k : FLTPOLY2.PLI   4k : FSCAN   .PLI   4k : HEXDUMP .PLI  12k
+FLTPOLY .PLI   4k : FLTPOLY2.PLI   4k : FSCAN   .PLI   4k : HEXD    .PLI   8k
 IFACT   .PLI   4k : INVERT  .PLI   4k : KEYFILE .PLI   4k : LABELS  .PLI   4k
 LIB     .COM   8k : LINK    .COM  16k : LOAN1   .PLI   4k : LOAN2   .PLI   8k
 MAININVT.PLI   4k : MATSIZE .LIB   4k : MPMCALLA.PLI  16k : MPMCALLB.PLI  12k
@@ -270,7 +271,7 @@ PLI2    .OVL  36k : PLILIB  .IRL  72k : RECORD  .DCL   4k : RELNOTES.PRN  36k
 REPORT  .PLI   4k : RETRIEVE.PLI   4k : REVERSE .PLI   4k : REVERT  .PLI   4k
 RFACT   .PLI   4k : RMAC    .COM  16k : SAMPLE  .PLI   4k : TE      .COM  20k
 TEST    .PLI   4k : UPDATE  .PLI   4k : XREF    .COM  16k : Z80     .LIB   8k
-         Drive B0   Files: 68/612k   Free: 7516k 
+         Drive B0   Files: 68/608k   Free: 7520k 
 ```
 
 ## [SLRTOOL.CPM](http://www.retroarchive.org/cpm/lang/lang.htm)

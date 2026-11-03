@@ -22,6 +22,12 @@
 ;
 ; CP/M 2.2 BDOS (Z80).
 ;
+; What each CP/M 2.2 function returns, and how the FAT directory
+; produces that result, is docs/bdos.md. Functions 38, 39, and any
+; function above 40 return 0. The disk a program is told about is
+; the fixed 8 MB parameter block at bdos_dpb. The files themselves
+; are 8.3 names in the current drive's FAT directory, user 0.
+;
 ; Same labels and the same branch decisions as common/cpm22bdos_85.asm.
 ; A shift, a load, or a block move uses the Z80 instruction: ldir,
 ; srl/rr, sla/rl. The 8085 file uses copy_mem, rra, and rl de for

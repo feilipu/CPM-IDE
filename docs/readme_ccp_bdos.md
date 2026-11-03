@@ -4,7 +4,7 @@ The CCP is `common/cpm22ccp.asm` (Z80) and `common/cpm22ccp_85.asm` (8085). Z80 
 
 The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 (27 February 1981). That listing is the unmodified original this port was built from, and its header is still at the top of `cpm22ccp.asm` and `cpm22ccp_85.asm`. The version bytes stored by the resident BDOS are unchanged: version 2, release 2, revision 0.
 
-`CALL 5` is the resident stub in `common/cpm22bdos.asm` (Z80) or `common/cpm22bdos_85.asm` (8085). Those two files are one logical flow. The function contract is in [CPM-IDE-MSX.md](CPM-IDE-MSX.md).
+`CALL 5` is the resident stub in `common/cpm22bdos.asm` (Z80) or `common/cpm22bdos_85.asm` (8085). Those two files are one logical flow. What each call returns, and how the FAT directory produces it, is in [bdos.md](bdos.md). The sector and cluster layer is in [mini-fat.md](mini-fat.md). The implementation record is [CPM-IDE-MSX.md](CPM-IDE-MSX.md).
 
 ## Origins
 

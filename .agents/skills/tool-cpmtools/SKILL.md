@@ -130,14 +130,14 @@ mkfs.cpm -f rc2014-8MB w.img
 cpmcp  -f rc2014-8MB w.img /etc/hostname 0:HOST.TXT
 cpmls  -f rc2014-8MB w.img               # must print host.txt, rc=0
 
-# 2. a real image must still list completely (45 lines: the "0:" header + 44 files)
+# 2. a real image must still list completely (47 lines: the "0:" header + 46 files)
 unzip -o -j "CPM Drives/SYS.CPM.zip" -d /tmp/real
 cpmls -f rc2014-8MB /tmp/real/SYS.CPM > /tmp/new.txt
-test "$(wc -l < /tmp/new.txt)" = 45 || { echo "LISTING REGRESSED"; exit 1; }
-grep -qx 'pip.com' /tmp/new.txt && grep -qx 'z80asm.com' /tmp/new.txt
+test "$(wc -l < /tmp/new.txt)" = 47 || { echo "LISTING REGRESSED"; exit 1; }
+grep -qx 'pip.com' /tmp/new.txt && grep -qx 'te.com' /tmp/new.txt && grep -qx 'hexd.com' /tmp/new.txt && grep -qx 'z80asm.com' /tmp/new.txt
 
 # 3. the rest of the suite must not just link but run
-fsck.cpm  -f rc2014-8MB /tmp/real/SYS.CPM   # 48/2048 files, 146/2048 blocks
+fsck.cpm  -f rc2014-8MB /tmp/real/SYS.CPM   # 50/2048 files, 155/2048 blocks
 cpmcp    -f rc2014-8MB /tmp/real/SYS.CPM 0:PIP.COM /tmp/got.com
 cpmchattr -f rc2014-8MB w.img rs '0:HOST.TXT'
 cpmchmod  -f rc2014-8MB w.img 400 '0:HOST.TXT'

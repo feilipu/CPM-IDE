@@ -22,6 +22,11 @@
 ;
 ; Mini-FAT16/32 for CP/M-IDE (8085).
 ;
+; The human description, and how another program reuses this layer,
+; is docs/mini-fat.md. ChaN's application interface is
+; http://elm-chan.org/fsw/ff/00index_e.html
+; This file is the sector and directory layer under that interface.
+;
 ; Same PUBLIC API, BSS names, and function contracts as fatfs.asm /
 ; fatfs.h. ROM-resident, no PHASE. Shell buffers live in fat_bss.asm
 ; (RAM). The sector window is fatwin.

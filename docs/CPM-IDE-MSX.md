@@ -1,5 +1,9 @@
 # CPM-IDE-MSX: CP/M 2.2 BDOS on FAT16/FAT32
 
+How the machine starts is in the front [README](../README.md). The FAT layer is [mini-fat.md](mini-fat.md). What each BDOS call returns is [bdos.md](bdos.md). v2.6 container files are [CPM-IDE-v2.6.md](CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is `f093809`.
+
+This file is the implementation record. Where an older paragraph names `hget`, the command in the ROM is `xget`.
+
 ## Status
 
 Current on 2026-10-11. Branch `cpm-ide-msx`. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP`, `__COMMON_AREA_PHASE_BDOS` (CCP + `$820` Z80 / `$880` 8085), and `__COMMON_AREA_PHASE_BIOS`. The BIOS stack pad is 16 bytes. The shell starts CP/M from the root only, and `EXIT` stays in the shell. `ya_boot_root` boots when `CPMIDE.CFG` is in the volume root and names A:. A file in any other directory does not auto-boot. Change to that directory and type `cpm` with no arguments. `EXIT` flips the BIOS canary `$AA` byte to `$55`, and that `$5555` word does not boot again. A whole `$AA55` is RST 0 back to the CCP on the same user and drive. `rboot` passes `$0004` in C. The canary is the floor of `bios_stack`. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the volume root, and a missing file uses the letter directories in the working directory. `cpm <directory>` mounts the letter directories `A` through `P` inside that directory. Drive A has to be present or CP/M does not start. `hget` is in the seven HEX files. `md`, `dd`, and the shell `mount` command are not. 8085 ROMs are built with 80cc, stack locals, and no `-fframe-pointer`. Z80 ROMs stay on sdcc (`-SO3`). This file is the implementation guide. The contract sections below were checked against the Digital Research CP/M 2.2 manual (chapters 1, 5, and 6), John Elliott’s BDOS and FCB pages, and the Calkins reconstruction in `common/cpm22ccp.asm`. Where those three disagree, the rule is:
