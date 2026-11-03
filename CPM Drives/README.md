@@ -220,9 +220,7 @@ SQUARO  .COB   4k
 
 ## NZCOM.CPM
 
-The NZ-COM, or Z-System, can be loaded, temporarily overwriting the DRI CCP and BDOS.
-
-Further information on NZ-COM and how to use it can be found in the [NZ-COM User's Manual](https://oldcomputers.dyndns.org/public/pub/manuals/zcpr/nzcom.pdf).
+This image is for the v2.6 ROM. NZ-COM overwrites the CCP and the BDOS, and that ROM keeps both in RAM for the session. The load, and the [NZ-COM User's Manual](https://oldcomputers.dyndns.org/public/pub/manuals/zcpr/nzcom.pdf), are in [CP/M-IDE v2.6](../docs/CPM-IDE-v2.6.md).
 
 ```
 !VERS--1.2H    0k : ALIAS   .CMD   4k : ARUNZ   .COM   8k : BGZRDS19.LBR   4k

@@ -246,7 +246,7 @@ Cold and warm boot are both from ROM. There is no CP/M-IDE boot sector. Each dri
 
 The [CPM Drives](https://github.com/feilipu/CPM-IDE/tree/master/CPM%20Drives) directory holds the example programs as 8 MB disk images: the [system utilities](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/SYS.CPM.zip) (PIP, STAT, SD, SURVEY, XMODEM, MBASIC), [Zork](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/ZORK.CPM.zip), [BBC Basic](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/BBCBASIC.CPM.zip), [Hi-Tech C v3.09-15](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/HITECHC.CPM.zip), [MS BASIC Compiler v5.3](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/MSBASCOM.CPM.zip), and the others listed there. Extract an image into a letter directory with [`cpmtools`](cpmtools/readme_cpmtools.md). The [RunCPM](https://github.com/MockbaTheBorg/RunCPM/tree/master/DISK) set is the basis of the system image.
 
-The [NGS Microshell](http://www.z80.eu/microshell.html) is on the system image as `SH`. Leave the DRI CCP in place. Replacing it removes `EXIT`. NZ-COM can be loaded for a session from the [NZ-COM image](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/NZCOM.CPM.zip). It overwrites the CCP and BDOS until the next warm boot from ROM. The manual is the [NZ-COM User's Manual](https://oldcomputers.dyndns.org/public/pub/manuals/zcpr/nzcom.pdf).
+The [NGS Microshell](http://www.z80.eu/microshell.html) is on the system image as `SH`. It replaces the CCP for that session. Leave the DRI CCP in place. Replacing it removes `EXIT`.
 
 How v2.6 mounted those images as drives, and the host `diskdef` used to build them, is in [CP/M-IDE v2.6](docs/CPM-IDE-v2.6.md).
 
