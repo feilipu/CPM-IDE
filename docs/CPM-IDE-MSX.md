@@ -90,7 +90,7 @@ The next table is the 2026-10-09 cfg link, from `/tmp/cpm-ide-cfg-hex/summary.tx
 | 8085-cf-uart | 32274 | `$7DB3` | 494 | 462 |
 | 8085-pata-uart | 32421 | `$7E46` | 347 | 315 |
 
-8085 PATA `__CODE_END` `$7E46` is 315 bytes below the `$7F81` gate. The 8085 CF lines stay `--opt-code-speed=all`. The 8085 PATA line stays the named list in `SPEED_8085_PATA` (`lshift32,rshift32,add32,sub32,sub16,intcompare,charcompare,longcompare,ucharmult,floatconst`). That list leaves `lib/z80rules.8` off. 80cc ignores `--opt-code-speed`, so the name list does not change the 8085 80cc image. It stays so a sccz80 rebuild of that line does not pull `lib/z80rules.8` back in.
+8085 PATA `__CODE_END` `$7E46` is 315 bytes below the `$7F81` gate. That cfg link passed `--opt-code-speed`. 80cc ignores the option (`opt_code_speed_inert` in `src/80cc/main.c`), so the name list did not change the 80cc image. The current 8085 lines do not pass it. On sccz80, `--opt-code-speed=all` runs `lib/z80rules.8`.
 
 The `/tmp/cpm-ide-fit-nomount` table (8085 PATA 32342 / `$7DF7`) is the sccz80 link before 80cc and before `CPMIDE.CFG`. The 80cc link before this config file was 8085 PATA 31742 / `$7B9F`. Adding `read_cfg` grew that 80cc image by 679 bytes.
 

@@ -26,10 +26,16 @@
 #include <stdint.h>
 
 /*
- * Mini-FAT C API (common/fatfs.asm Z80, common/fatfs_85.asm 8085).
- * The long form, and how another program reuses the layer, is docs/mini-fat.md.
- * ChaN's application interface is http://elm-chan.org/fsw/ff/00index_e.html
- * This API is the sector and directory layer under that interface.
+ * Public C API for mini-FAT. Include this header. Link common/fatfs.asm
+ * (Z80) or common/fatfs_85.asm (8085), and common/fat_bss.asm. Supply
+ * asm_disk_initialize, ide_read_sector, and ide_write_sector. There is
+ * no separate library archive.
+ *
+ * This is the sector and directory layer under ChaN FatFs. ChaN's
+ * application interface is http://elm-chan.org/fsw/ff/00index_e.html
+ * f_open and f_read are not in this header. A program that wants those
+ * links the ff library. The long form is docs/mini-fat.md.
+ *
  * Success is 0 in L. 80cc and sccz80 return that byte in L, and
  * sccz80 widens it to an int, so H is 0.
  * Pointer arguments are __z88dk_fastcall (HL).

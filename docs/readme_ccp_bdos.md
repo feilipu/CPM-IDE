@@ -20,7 +20,7 @@ All seven products share one high map. The CCP origin differs by CPU because the
 
 The Z80 CCP image is `$820` bytes, so `$E9E0` meets the stub. The 8085 image is `$880` bytes, so `$E980` meets the stub. The 32-byte CCP stack is the last bytes of each image, padded to `__COMMON_AREA_PHASE_BDOS`, and its top is the stub. `REGISTER_SP` sits at the CCP origin, and the shell stack stays below the CCP. The resident BDOS is on a page. Disk BSS is `$F750`–`$F7C6`. FAT BSS is `$F7D0`–`$FA84`, and the BIOS page is `$FB00`. The BIOS stack pad is 16 bytes. The canary word is its floor.
 
-The transient program area runs from `$0100` to the word at `0006h` (`$F206`). The CCP is reloaded on warm boot and is inside that range. It is not the ceiling.
+The transient program area runs from `$0100` up to FBASE. FBASE is the word at `0006h` (`$F206`, `jp fbase`). The CCP sits inside that range. It is reloaded each time a program exits, because the program may have overwritten it. It is not the ceiling.
 
 The preamble copies the phased CCP, the resident BDOS stub, and the BIOS to those addresses. Mini-FAT, the disk BDOS, and the shell stay in ROM.
 

@@ -4,7 +4,7 @@ Mini-FAT is the FAT16 and FAT32 layer in the CP/M-IDE ROM. It lives in `common/f
 
 The work follows [ChaN FatFs R0.16](http://elm-chan.org/fsw/ff/00index_e.html), in particular `check_fs`, `find_volume`, `mount_volume`, `move_window`, `sync_window`, `clst2sect`, `get_fat`, `put_fat`, `create_chain`, `remove_chain`, `dir_sdi`, `dir_next`, `dir_find`, and `dir_create` in `ff.c`. ChaN's application page is the right map if you already know `f_mount` and `f_open`. Mini-FAT stops one layer below that page. There is no `FIL`, no current file offset, and no `f_read`.
 
-The shell in `common/yash.c` and the disk BDOS both call this layer. A CP/M application that wants ChaN's `f_open` / `f_read` links the full `ff` library. It does not link these two files.
+The shell in `common/yash.c` and the disk BDOS both call this layer. `common/fatfs.h` is the public C header. Include it and link one of the two assembly files plus `common/fat_bss.asm`. There is no separate library archive. A CP/M application that wants ChaN's `f_open` / `f_read` links the full `ff` library. It does not link these two files.
 
 ## What is in scope
 

@@ -39,7 +39,7 @@ Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `
 
 ## CF vs PATA (before any ROM `zcc`)
 
-The shell FatFs path links the z88dk IDE driver. `__IO_CF_8_BIT` in `$Z88DK/libsrc/target/rc2014/config/config_target.m4` selects it.
+Mini-FAT links the z88dk IDE driver. `__IO_CF_8_BIT` in `$Z88DK/libsrc/target/rc2014/config/config_target.m4` selects it.
 
 | HEX | Flag | Ports |
 |-----|------|-------|
@@ -54,7 +54,7 @@ After a flag change: `make -C $Z88DK/libsrc/newlib rc2014-clean rc2014`. Remove 
 
 - `cd` into the firmware tree before `zcc` (`@cpm22.lst` is relative).
 - ROM zcc lines are copied from `README.md`. Do not add `ff_ro` or `ff_85_ro`.
-- The 8085 ROM lines pass `-compiler=80cc` and do not pass `-fframe-pointer`. `--opt-code-speed` is ignored by 80cc, and `lib/z80rules.8` is not on the 80cc rule list. The PATA line still names the sccz80 speed options and leaves `all` and `inlineints` out, so a sccz80 rebuild of that line stays within 32 KiB. The two 8085 CF lines stay on `=all` for that fallback. The Z80 ROM lines stay on sdcc (`-SO3`). `rebuild-ff.sh` still uses `=all` for the ChaN library.
+- The 8085 ROM lines pass `-compiler=80cc` and do not pass `-fframe-pointer` or `--opt-code-speed`. 80cc accepts `--opt-code-speed` and ignores it, and it does not run `lib/z80rules.8`. On sccz80, `=all` does run that file. The Z80 ROM lines stay on sdcc (`-SO3`) and still pass `--opt-code-speed`. `rebuild-ff.sh` still uses `=all` for the ChaN library, which is built with sccz80.
 - `z88dk-lib +rc2014 ff` installs basename `ff` only. Copy `ff_ro` / `ff_85*` by hand (the ff script does this).
 - SDCC `ff_ro` is one `-clib=sdcc_iy` object, installed as `lib/clibs/sdcc_ix/lib/<target>/ff_ro.lib`. Do not leave a second copy under `sdcc_iy/`.
 - Restore `FF_FS_READONLY` to `0` after an RO build (`rebuild-ff.sh` traps this).

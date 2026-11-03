@@ -46,7 +46,7 @@ The CP/M-IDE system mounts up to 16 drives, A: through P:, as directories on one
 
 CP/M-IDE v2.6 mounted up to four 8 MB container files. That procedure, including `frag` and `mkdrv`, is in [CP/M-IDE v2.6](docs/CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is the published v2.6 ROM.
 
-A CP/M program runs from `$0100` up to the CCP. The space for each ROM is in [Modifications to the CCP and BDOS](docs/readme_ccp_bdos.md).
+A CP/M program uses the TPA, from `$0100` up to FBASE. FBASE is the word at `0006h` (`$F206`, `jp fbase`). The CCP sits inside that range. It is reloaded each time a program exits, because the program may have overwritten it. The space for each ROM is in [Modifications to the CCP and BDOS](docs/readme_ccp_bdos.md).
 
 <div>
 <table style="border: 2px solid #cccccc;">
@@ -368,33 +368,19 @@ Keep a compiler or a game in its own letter directory. A crashed program can be 
 
 Of course other workflows are fine. Extract [Zork](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/ZORK.CPM.zip) into a letter directory and play a game.
 
-## Preparing CP/M applications with z88dk using ChaN FatFS (`-subtype=cpm`)
+## Building a CP/M application
 
-The **CP/M-IDE ROM** is built with bare-metal serial subtypes (`-subtype=sio` / `uart` / `acia`, or the 8085 hybrids). The CCP is `common/cpm22ccp.asm` (8085: `cpm22ccp_85.asm`) and the disk BDOS is `common/cpm22bdos.asm` (8085: `cpm22bdos_85.asm`). The shell and mini-FAT (`common/fatfs.asm`, 8085: `fatfs_85.asm`) are linked from `cpm22.lst`. `cpm` reads `CPMIDE.CFG` or mounts letter directories. That is **firmware**, not a CP/M application.
-
-**CP/M applications** (`.COM` files you upload and run under the CCP) should be built with the RC2014 **CP/M subtype**:
+A `.COM` runs in the TPA under the CCP. Build it with the RC2014 CP/M subtype. `open`, `read`, `write`, `lseek`, and `close` use the BDOS, and the BDOS writes the FAT directory on the card. Console I/O is also the BDOS.
 
 ```bash
 zcc +rc2014 -subtype=cpm -clib=new app.c -o app -m
 ```
 
-With that subtype, unprefixed file calls (`open` / `read` / `write` / `lseek` / `close`) use **BDOS FCB** on the mounted CP/M drives (e.g. `A:`). Console I/O is also via BDOS.
+On v2.6 the BDOS could write only inside a container file. A program that had to create a file on the FAT volume itself linked ChaN FatFs. That recipe is in [CP/M-IDE v2.6](docs/CPM-IDE-v2.6.md).
 
-Optional **FatFs** on the same IDE/CF media (ChaN `f_*`, independent of FCB) uses the full read/write `ff` package and in-tree diskio:
+This ROM does not link ChaN. The shell and the disk BDOS call mini-FAT, the sector and directory layer under ChaN's `f_open` and `f_read`. The public header is [`common/fatfs.h`](common/fatfs.h). Link `common/fatfs.asm` on the Z80, or `common/fatfs_85.asm` on the 8085, together with `common/fat_bss.asm`. Supply `asm_disk_initialize`, `ide_read_sector`, and `ide_write_sector`. There is no separate library archive. The calls are in [Mini-FAT](docs/mini-fat.md).
 
-```bash
-z88dk-lib +rc2014 ff time
-zcc +rc2014 -subtype=cpm -clib=new app.c \
-  -llib/rc2014/ff -llib/rc2014/time -o app -m
-```
-
-Both stacks may be used in one binary (BDOS files and FatFs volumes such as `0:`). A CP/M application that wants ChaN `f_*` links `ff`, not the ROM shell.
-
-Policy, dual-stack rules, and fuller recipes:
-
-* [z88dk wiki — Newlib File I/O and FatFs](https://github.com/z88dk/z88dk/wiki/Newlib_File_IO_and_FatFs)
-* Package sources: [feilipu/z88dk-libraries](https://github.com/feilipu/z88dk-libraries)
-* RC2014 [Using Z88DK](https://github.com/RC2014Z80/RC2014/wiki/Using-Z88DK) (subtypes and general z88dk usage)
+A program that still wants ChaN's `f_*` links the `ff` library. The line is in the v2.6 note.
 
 ## Building Software from Source
 
@@ -411,31 +397,29 @@ First though, refer to the library, disk and buffer configuration notes below.
 `zcc +rc2014 -subtype=acia -SO3 --opt-code-speed -m --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-acia -create-app`
 
 
-The z88dk command lines to build the CP/M-IDE for the 8085 CPU Module are below. These three images use 80cc (`-compiler=80cc`), with locals on the stack and no `-fframe-pointer`. The `rc2014` target and relevant subtype should be selected, from within the relevant directory. Set `Z88DK` to your z88dk install root. The `-I${Z88DK}/include` path must precede the `_DEVELOPMENT/common` include path so classic `<stdio.h>` is used (required for `stdin`/`stdout` on the hybrid 8085 CRT).
+The z88dk command lines to build the CP/M-IDE for the 8085 CPU Module are below. These three images use 80cc (`-compiler=80cc`), with locals on the stack and no `-fframe-pointer`. 80cc accepts `--opt-code-speed` and ignores it, so these lines do not pass it. The `rc2014` target and relevant subtype should be selected, from within the relevant directory. Set `Z88DK` to your z88dk install root. The `-I${Z88DK}/include` path must precede the `_DEVELOPMENT/common` include path so classic `<stdio.h>` is used (required for `stdin`/`stdout` on the hybrid 8085 CRT).
 
-80cc accepts `--opt-code-speed` and ignores it. `lib/z80rules.8` is the sccz80 inline-int peephole file, and 80cc does not run it. The integer helpers that file inlines are lowered in the 80cc back end. The PATA line still names those sccz80 speed options and leaves `all` and `inlineints` out, so building that line with sccz80 does not pull `z80rules.8` back in.
+`zcc +rc2014 -subtype=uart85 -compiler=80cc -O2 -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
 
-`zcc +rc2014 -subtype=uart85 -compiler=80cc -O2 --opt-code-speed=lshift32,rshift32,add32,sub32,sub16,intcompare,charcompare,longcompare,ucharmult,floatconst -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
+`zcc +rc2014 -subtype=uart85 -compiler=80cc -O2 -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-uart -create-app`
 
-`zcc +rc2014 -subtype=uart85 -compiler=80cc -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-uart -create-app`
-
-`zcc +rc2014 -subtype=acia85 -compiler=80cc -O2 --opt-code-speed=all -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
+`zcc +rc2014 -subtype=acia85 -compiler=80cc -O2 -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
 
 The 8085 host programs use 80cc as well. `sh test/bdos/run_disk.sh` builds the disk harness with `zcc +test -clib=8085 -m8085 -compiler=80cc` and `-pragma-define:REGISTER_SP=0`. That image is 65279 bytes. `z88dk-ticks` accepts a file of up to 65536 bytes, and the run prints `BDOS_DISK_OK`.
 
 The Z80 `A>` under ticks is `sh test/cli/a.sh`. The script builds `test/cli/out/a.bin` and loads it at `$0100`. `DIR` and `TYPE HELLO.TXT` run on a RAM disk and return to `A>`. The recipe is in [`test/README.md`](test/README.md). The 8085 disk image is already near the 65536-byte ticks limit, so this session is Z80.
 
-The ROM shell no longer links ChaN `ff_ro`. `common/yash.c` calls the mini-FAT in `common/fatfs.asm`. Volume rules and the drive map are in [Modifications to the CCP and BDOS](docs/readme_ccp_bdos.md). A [FATFS library](https://github.com/feilipu/z88dk-libraries/tree/master/ff) is still what a CP/M application links when it wants ChaN `f_*` on the IDE volume.
+The ROM shell calls mini-FAT (`common/fatfs.h`, `common/fatfs.asm`). Volume rules and the drive map are in [Modifications to the CCP and BDOS](docs/readme_ccp_bdos.md).
 
 The example images in `CPM Drives` are extracted with cpmtools. The diskdef and the recipes are in [`cpmtools/readme_cpmtools.md`](cpmtools/readme_cpmtools.md) and [CP/M-IDE v2.6](docs/CPM-IDE-v2.6.md).
 
-Again: ROM builds use **bare** subtypes and `common/fatfs.asm`; application `.COM` builds under running CP/M use **`-subtype=cpm`** (FCB file I/O) and optional full `ff` / `time` for FatFs — see [Preparing CP/M applications with z88dk using ChaN FatFS](#preparing-cpm-applications-with-z88dk-using-chan-fatfs--subtypecpm) above.
+ROM builds use the bare subtypes above. A `.COM` uses `-subtype=cpm`, as in [Building a CP/M application](#building-a-cpm-application).
 
 The sizes of the serial transmit and receive buffers are set within the z88dk RC2014 target configuration files for the [ACIA](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_acia.m4), [SIO/2](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_sio.m4), and [UART](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_uart.m4) respectively.
 
 #### PATA versus Compact Flash
 
-The shell FatFs path uses the z88dk IDE driver. Set `__IO_CF_8_BIT` in `config_target.m4`, then rebuild the rc2014 libraries, then build the HEX.
+Mini-FAT uses the z88dk IDE driver. Set `__IO_CF_8_BIT` in `config_target.m4`, then rebuild the rc2014 libraries, then build the HEX.
 
 - PATA (IDE Hard Drive Module, 8255 at `$20`–`$23`): `__IO_CF_8_BIT = 0`.
 - Compact Flash Module (ports `$10`–`$17`): `__IO_CF_8_BIT = 1`.

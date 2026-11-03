@@ -119,3 +119,27 @@ The shell is `common/yash.c`. Backspace and DEL stop at the prompt. CR+LF, or LF
 From the CCP, `EXIT` returns to this shell.
 
 The BDOS on that ROM is the Digital Research BDOS, deblocking 128-byte records inside a 512-byte sector. The current BDOS, which reads the FAT directory itself, is [bdos.md](bdos.md).
+
+## Applications, and ChaN FatFs
+
+The v2.6 BDOS writes only inside the mounted container. It does not create a file on the FAT volume. The shell does that (`mkdrv`, `cp`, `xget`). A `.COM` that has to read or write the card as a FAT volume links [ChaN FatFs](http://elm-chan.org/fsw/ff/00index_e.html). The current ROM's BDOS writes ordinary FAT directories, so a `.COM` uses the BDOS and does not need ChaN. That build is in the front README, under Building a CP/M application.
+
+A `.COM` for this ROM is the same CP/M subtype. Unprefixed `open`, `read`, `write`, `lseek`, and `close` use the BDOS FCB, which is the interior of the container.
+
+```bash
+zcc +rc2014 -subtype=cpm -clib=new app.c -o app -m
+```
+
+ChaN `f_*` is a second stack on the same IDE or CF media, independent of the FCB. It uses the full read/write `ff` package:
+
+```bash
+z88dk-lib +rc2014 ff time
+zcc +rc2014 -subtype=cpm -clib=new app.c \
+  -llib/rc2014/ff -llib/rc2014/time -o app -m
+```
+
+Both stacks may be used in one binary (BDOS files inside the container, and FatFs volumes such as `0:`). The current ROM does not link ChaN `ff_ro`. Its shell and disk BDOS call mini-FAT. That is the sector and directory layer under ChaN's `f_open` and `f_read`. The public header is [`common/fatfs.h`](../common/fatfs.h). The calls are in [Mini-FAT](mini-fat.md).
+
+* [z88dk wiki — Newlib File I/O and FatFs](https://github.com/z88dk/z88dk/wiki/Newlib_File_IO_and_FatFs)
+* Package sources: [feilipu/z88dk-libraries](https://github.com/feilipu/z88dk-libraries)
+* RC2014 [Using Z88DK](https://github.com/RC2014Z80/RC2014/wiki/Using-Z88DK)
