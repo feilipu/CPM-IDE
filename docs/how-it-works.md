@@ -137,7 +137,7 @@ The full return for each call is [The CP/M 2.2 BDOS](bdos.md).
 
 ## What is worth knowing in practice
 
-A `.COM` starts at `$0100`. It may use memory up to `$F206`. A jump to address 0 copies the CCP back, and it copies the stub code as well. The FAT window and the BIOS stay. A return into the CCP does not copy anything, so that return needs the CCP still intact. NZ-COM replaces a BDOS that lives in RAM. On this ROM the disk BDOS is in the ROM, so that load belongs to the v2.6 machine, which is [CP/M-IDE v2.6](CPM-IDE-v2.6.md). The NGS Microshell replaces the CCP for one session. It is `SH` on the system image. Leaving the Digital Research CCP in place keeps `EXIT`.
+A `.COM` starts at `$0100`. It may use memory up to `$F206`. A jump to address 0 copies the CCP back, and it copies the stub code as well. The FAT window and the BIOS stay. A return into the CCP does not copy anything, so that return needs the CCP still intact. NZ-COM replaces a BDOS that lives in RAM. On this ROM the disk BDOS is in the ROM, so that load belongs to the v2.6 machine, which is [CP/M-IDE v2.6](CPM-IDE-v2.6.md). The NGS Microshell is `SH` on the system image. The Digital Research CCP stays in ROM and warm boot copies it back. Type `SH` at the prompt, or leave `SH` in `A:$$$.SUB` so the CCP runs it at start.
 
 Page zero is the usual CP/M page. `$0000` warm-boots. Address 3 is the IOBYTE. Address 4 is the user and the drive. `$0005` jumps to `$F206`. The default DMA buffer is `$0080` and the default FCB is `$005C`.
 

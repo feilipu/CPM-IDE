@@ -45,7 +45,7 @@ YASHCF  .COM  36k : Z80ASM  .COM  28k : ZEXALL  .COM  12k : ZEXDOC  .COM  12k
 ZSID    .COM  12k : ZTRAN   .COM   4k
          Drive A0   Files: 46/556k   Free: 7572k 
 ```
-The [NGS Microshell](http://www.z80.eu/microshell.html) can be very useful for those familiar with unix-like shells, so it has been added to the example [system disk](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/SYS.CPM.zip) too. There is no need to replace the DRI CCP with Microshell. In fact, adding it permanently would remove the special `EXIT` function built into the DRI CCP to provide a clean return to the CP/M-IDE shell. It can be launched with __`SH`__.
+The [NGS Microshell](http://www.z80.eu/microshell.html) is on the example [system disk](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/SYS.CPM.zip) as __`SH`__, for a unix-like shell. The DRI CCP stays in ROM and supplies __`EXIT`__ back to the CP/M-IDE shell. Type __`SH`__ at the CP/M prompt, or put `SH` in `A:$$$.SUB` so it runs when CP/M starts. __`SUBMIT`__ builds that file from a `.SUB` script.
 
 The __`YASH`__ application runs under CP/M and works on the underlying FAT32 volume. It can create CP/M drive files, list, copy, and delete files, and mount further CP/M drive files.
 
