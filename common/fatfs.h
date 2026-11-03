@@ -1,11 +1,43 @@
+/*
+ * Copyright (c) October 2026 Phillip Stevens (feilipu)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #ifndef CPM_IDE_FATFS_H
 #define CPM_IDE_FATFS_H
 
 #include <stdint.h>
 
 /*
- * Mini-FAT C API (common/fatfs.asm Z80, common/fatfs_85.asm 8085).
- * Success is 0 in L. sccz80 treats that char as an int, so H is 0.
+ * Public C API for mini-FAT. Include this header. Link common/fatfs.asm
+ * (Z80) or common/fatfs_85.asm (8085), and common/fat_bss.asm. Supply
+ * asm_disk_initialize, ide_read_sector, and ide_write_sector. There is
+ * no separate library archive.
+ *
+ * This is the sector and directory layer under ChaN FatFs. ChaN's
+ * application interface is http://elm-chan.org/fsw/ff/00index_e.html
+ * f_open and f_read are not in this header. A program that wants those
+ * links the ff library. The long form is docs/mini-fat.md.
+ *
+ * Success is 0 in L. 80cc and sccz80 return that byte in L, and
+ * sccz80 widens it to an int, so H is 0.
  * Pointer arguments are __z88dk_fastcall (HL).
  * DWORD cluster/LBA marshals load little-endian *(uint32_t *) into BCDE.
  * fat_getfree writes the free-cluster count through that pointer.
@@ -27,7 +59,7 @@ typedef struct {
 } fat_vol_t;
 
 extern fat_vol_t  cpm_fat_vol;
-extern uint32_t   cpm_dir_sclust[4];
+extern uint32_t   cpm_dir_sclust[16];
 extern uint32_t   fat_cwd;
 extern uint32_t   fat_found_sclust;
 extern uint32_t   fat_found_size;

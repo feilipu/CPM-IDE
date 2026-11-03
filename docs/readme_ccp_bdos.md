@@ -1,0 +1,71 @@
+# Modifications to the CCP and BDOS
+
+The CCP is `common/cpm22ccp.asm` (Z80) and `common/cpm22ccp_85.asm` (8085). Z80 block moves in the CCP use `LDI`. The 8085 CCP calls `LDI_3`, which is three `ld a,(hl+)` / `ld (de+),a` pairs. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP` next to `REGISTER_SP` (Z80 `$E9E0`, 8085 `$E980`), `__COMMON_AREA_PHASE_BDOS` (`$F200`, CCP + `$820` on Z80 and CCP + `$880` on 8085), and `__COMMON_AREA_PHASE_BIOS` (`$FB00`). zpragma cannot add, so BDOS is the computed constant.
+
+The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 (27 February 1981). That listing is the unmodified original this port was built from, and its header is still at the top of `cpm22ccp.asm` and `cpm22ccp_85.asm`. The version bytes stored by the resident BDOS are unchanged: version 2, release 2, revision 0.
+
+`CALL 5` is the resident stub in `common/cpm22bdos.asm` (Z80) or `common/cpm22bdos_85.asm` (8085). Those two files are one logical flow. What each call returns, and how the FAT directory produces it, is in [bdos.md](bdos.md). The sector and cluster layer is in [mini-fat.md](mini-fat.md). How the ROM window, the high RAM, and the TPA fit together is in [how-it-works.md](how-it-works.md). The design and build record is [CPM-IDE-MSX.md](CPM-IDE-MSX.md).
+
+## Origins
+
+All seven products share one high map. The CCP origin differs by CPU because the 8085 CCP image is longer.
+
+| | Z80 | 8085 |
+|--|-----|------|
+| CCP run address | `$E9E0` | `$E980` |
+| CCP tail | `$F200` | `$F200` |
+| BDOS stub | `$F200` | `$F200` |
+| `0006h` | `$F206` | `$F206` |
+| BIOS | `$FB00` | `$FB00` |
+
+The Z80 CCP image is `$820` bytes, so `$E9E0` meets the stub. The 8085 image is `$880` bytes, so `$E980` meets the stub. The 32-byte CCP stack is the last bytes of each image, padded to `__COMMON_AREA_PHASE_BDOS`, and its top is the stub. `REGISTER_SP` sits at the CCP origin, and the shell stack stays below the CCP. The resident BDOS is on a page. Disk BSS is `$F750`–`$F7C6`. FAT BSS is `$F7D0`–`$FA84`, and the BIOS page is `$FB00`. The BIOS stack pad is 16 bytes. The canary word is its floor.
+
+The transient program area runs from `$0100` up to FBASE. FBASE is the word at `0006h` (`$F206`, `jp fbase`). The CCP sits inside that range. A program may overwrite it. A jump to address 0 copies it back before the next prompt. It is not the ceiling.
+
+The preamble copies the phased CCP, the resident BDOS stub, and the BIOS to those addresses. Mini-FAT, the disk BDOS, and the shell stay in ROM.
+
+Serial rings stay at the top of RAM by their own `ALIGN` (`inc l` / `AND (size-1)` / `OR base`). SIO transmit buffers are 32 bytes.
+
+The published v2.6 ROMs used a different triple on each board (`$D9E0` / `$E200` / `$F100` on the two SIO ports, and two higher sets on the others) because the whole disk BDOS and the disk BIOS had to finish before `_cpm_dsk0_base` at `$F800`. This branch does not keep that table. Tag `cpm-ide-v2.6` is that older map.
+
+## CCP
+
+The Calkins command table has six commands (`NUMCMDS = 6`): `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`. This tree adds `EXIT` (`NUMCMDS = 7`) ahead of the unknown-command path. `EXIT` prints `Exiting CP/M`, flips `_cpm_bios_canary` from `$AA55` to `$5555` (`$AA` becomes `$55`, not `$00` or `$FF`), toggles the ROM with `out ($38),a`, and jumps to `__Exit`, which restarts the shell and stays there. A large program may have overwritten the shell heap, so the restart initialises from the beginning. A whole `$AA55` still takes RST 0 back to the CCP on the same user and drive. `rboot` passes the byte at `$0004` to the CCP in C.
+
+A nameless command whose `.COM` is missing on the current drive is retried on `A:`. `UNKWN2` opens the file once. On a miss, `CHGDRV` is still zero when the user did not type a drive letter. The code sets `CHGDRV` to 1 and calls `DSELECT`, which selects drive A, then opens the file again. An explicit `d:` leaves `CHGDRV` nonzero, so that second open is skipped.
+
+The six serial-number bytes (`PATTRN1` / `PATTRN2`) are commented out, and `UNKNOWN` no longer calls `VERIFY`. The Calkins CCP halts when those two copies disagree.
+
+The `.COM` extension is three `LDI` instructions on Z80 and `LDI_3` on 8085.
+
+A host `A>` under z88dk-ticks is `sh test/cli/a.sh`. It links the Z80 CCP, the v3 BDOS, and mini-FAT, copies them to `$E9E0` and `$F200`, and jumps with C = 0. Drive A: is a RAM-disk cluster. The product ROM still copies those images from the preamble. The recipe is in [`test/README.md`](../test/README.md).
+
+## BDOS
+
+Function 10 (buffered console input) treats DEL (`7Fh`) as backspace. Digital Research Application Note 02 specifies that. The editor is in the ROM piece of `cpm22bdos.asm`. `ed_ndel` jumps to the same path as BS.
+
+The linked disk code walks FAT directory entries and cluster chains. A drive letter is a start cluster in `_cpm_dir_sclust`. Zero means that letter is not mounted.
+
+`0006h` is `JP fbase`, six bytes after the six serial bytes at `$F200`. Four error words follow the `JP`. The handler indexes a 41-word list. Functions 38, 39, and any function above 40 return 0. Function 12 returns `0022h`.
+
+## v2.6 directory deblock
+
+The figures below are the published BIOS, not this branch. CP/M 2.2 transferred 128-byte records through `SETDMA` / `READ` / `WRITE`, and that BIOS deblocked four records per 512-byte sector in `hstbuf`. `z88dk-ticks` with stub IDE calls, on 32 sequential directory records, reported 6 334 724 T-states for the file-DMA path. That number is not this BDOS. Do not subtract it from a measurement of `cpm22bdos.asm`.
+
+This branch has no `hstbuf`. BIOS `read` and `write` are `ld a,1` / `ret`. Sector I/O is the ROM BDOS calling mini-FAT through `fatwin`.
+
+## BIOS
+
+`seldsk` returns one DPH when the letter's cluster is present, and HL = 0 otherwise. Drives are A: through P:.
+
+The shell reads a FAT16 or a FAT32 volume. A cluster is 32 KB or less.
+
+A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entries fills the 16-bit directory offset. The shell can still list that root. FAT32 must be version 0 and must have a zero root count.
+
+`ls` stops at the last name of a full directory. A name that starts with byte `0xE5` is stored as `0x05`.
+
+`mkdir` and `cp` free a new cluster chain when the directory update does not finish. `cp` also releases that chain when the source has walked as many clusters as the volume has. It does this before the new name is written. A file read walks the FAT chain, including a chain that is more than one run.
+
+At shell start, `ya_boot_root` boots CP/M only when `CPMIDE.CFG` is in the volume root and names A:. A file in any other directory does not auto-boot, and there is no letter-directory fallback on that path. Change to the directory that holds the file and type `cpm` with no arguments. `EXIT` returns to the shell and does not boot again. A whole canary returns to the CCP. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the root when that directory has no file. A missing file, or a file that does not name A:, mounts the letter directories in the working directory. A line is a letter `A`–`P` and a directory path, separated by a space or `=`. A `#` or `[` line is skipped. `cpm <directory>` records the start cluster of each letter directory `A` through `P` inside that directory. A missing letter stays empty. `A` has to be present or CP/M does not start.
+
+Two cluster counts follow ChaN rather than Microsoft FAT specification 1.03. `nclst <= $0FF5` is rejected as FAT12. The specification treats a count of 4085 as FAT16. `nclst == $FFF5` stays FAT16. The specification would use FAT32. The mount suite does not build either boundary. A third limit is local: `BPB_SecPerClus >= 65` (a 64 KiB cluster) is refused with `L = 19`, because that cluster is 0 bytes in the 16-bit sector arithmetic. `BPB_Media` is not read. JumpBoot is not required. The VBR check does require the `55AA` signature.

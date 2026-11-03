@@ -1,4 +1,4 @@
-; 8085 +test BIOS disk layer. Same contract as bios_disk.asm.
+; 8085 +test v2.6 BIOS disk layer. Same contract as bios_disk.asm.
 ; No ldir/srl/sbc hl,de/djnz. sra hl for host/slice; sub hl,bc for window.
 
 SECTION code_compiler

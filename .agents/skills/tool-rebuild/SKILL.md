@@ -13,13 +13,16 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 
 | Script | What |
 |--------|------|
-| `rebuild-hex.sh` | All seven ROMs. PATA first (`__IO_CF_8_BIT` 0, both libraries: Z80 SIO and 8085 UART), then CF (flag 1, both libraries: three Z80 and two 8085). Z80 uses zsdcc (`-SO3`). 8085 uses `-compiler=80cc` and does not pass `--opt-code-speed`. Copies `.ihx` → `.hex`, deletes leftovers. |
-| `rebuild-ff.sh` | Historical. Builds the old ChaN `ff` libraries. The ROM does not link them. |
+| `rebuild-ff.sh` | ChaN `ff` RW+RO, Z80 all FatFs targets + rc2014 `ff_85` / `ff_85_ro`. Installs into `$ZCCCFG/../clibs`. |
+| `rebuild-hex.sh` | All seven ROMs on the FAT map (stub `$F200`, BDOS BSS `$F750`, FAT BSS `$F7D0`, BIOS `$FB00`). PATA first (`__IO_CF_8_BIT` 0, both libraries: Z80 SIO and 8085 UART), then CF (flag 1, both libraries: three Z80 and two 8085). Copies `.ihx` → `.hex` only after `gate_fat`. |
 
 ```bash
 # from repo root. rebuild-ff.sh is the old ChaN library build, not a ROM step.
 ./.agents/scripts/rebuild-hex.sh       # PATA, then all five CF ROMs
-./.agents/scripts/rebuild-hex.sh cf    # three CF ROMs only; skips the lib rebuild when the flag is already 1
+./.agents/scripts/rebuild-hex.sh cf    # five CF ROMs; skips the lib rebuild when the flag is already 1
+./.agents/scripts/rebuild-hex.sh sio   # both SIO ROMs (PATA then CF)
+./.agents/scripts/rebuild-hex.sh acia  # z80-cf-acia FAT image only; skips the lib rebuild when the flag is already 1
+./.agents/scripts/rebuild-hex.sh acia85  # 8085-cf-acia only; same CF-library rule
 # *.hex gitignored; often assume-unchanged (git ls-files -v shows lowercase h)
 git update-index --no-assume-unchanged rc2014-cpm22-*.hex
 git add -f rc2014-cpm22-*.hex
@@ -29,11 +32,13 @@ git add -f rc2014-cpm22-*.hex
 
 The ROM zcc lines are the README lines. `common/yash.c` calls mini-FAT. The ROM used to link ChaN `ff_ro`. It does not now.
 
-Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `$7F81`, a BDOS tail that is not the BIOS origin, the wrong IDE port bytes, or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). Job-dir `rm` is not success. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`); `reap` exits on the first non-zero child. After HEX `wait_all`, every product in that run must exist and be non-empty or the script exits 1. The flag is left at 1. A failed PATA phase restores the CF libraries before exiting.
+The resident BDOS must start on a page. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP` (`$E9E0` Z80, `$E980` 8085), `__COMMON_AREA_PHASE_BDOS` (`$F200`, CCP + `$820` / `$880`), and `__COMMON_AREA_PHASE_BIOS` (`$FB00`). zpragma cannot add, so BDOS is the computed constant. The BDOS files alias that pragma to `BDOS_STUB_ORG`. CCP and BIOS should start on a page when the image fits. FAT BSS is `$F7D0`–`$FA84`. The BIOS stack pad is 16 bytes. The CCP sources are `common/cpm22ccp.asm` and `common/cpm22ccp_85.asm`. `main.c` is first in each `cpm22.lst` so those PHASE pragmas are in `zcc_opt.def` before CCP, BDOS, and BIOS assemble.
+
+Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `$7F81`, a FAT-map overlap (`gate_fat`: `0006h` six bytes after `bdos`, CCP tail, stub tail, FAT tail, BIOS code tail against the ring), the wrong IDE port bytes, or a missing/empty product (`.ihx` / `.hex` / `out.lib`) fails that job (`|| return 1`). The v2.6 check that the BDOS tail equals the BIOS origin is not the live gate. A failed ROM is not copied to `.hex`. `reap` records the failure and the other products still build. The script exits 1 if any product failed. Job-dir `rm` is not success. `spawn` writes FAIL plus a log tail into `$LOG/summary.txt` (hex: `$WORK`; ff: `$WORK/logs`). After HEX `wait_all`, every product in that run must exist and be non-empty or the script exits 1. The flag is left at 1. A crash before the CF libraries are selected restores them from the EXIT trap.
 
 ## CF vs PATA (before any ROM `zcc`)
 
-The shell disk path links the z88dk IDE driver. `__IO_CF_8_BIT` in `$Z88DK/libsrc/target/rc2014/config/config_target.m4` selects it.
+Mini-FAT links the z88dk IDE driver. `__IO_CF_8_BIT` in `$Z88DK/libsrc/target/rc2014/config/config_target.m4` selects it.
 
 | HEX | Flag | Ports |
 |-----|------|-------|
@@ -42,11 +47,14 @@ The shell disk path links the z88dk IDE driver. `__IO_CF_8_BIT` in `$Z88DK/libsr
 
 After a flag change: `make -C $Z88DK/libsrc/newlib rc2014-clean rc2014`. Remove `rc2014-8085_clib.lib` then `make -C $Z88DK/libsrc rc2014-8085_clib.lib` and copy it to `$Z88DK/lib/clibs/`. Include-only changes do not rebuild with `z80asm -d`.
 
-`rebuild-hex.sh` does that switch itself and leaves the flag at 1. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls` / `mount 1`. Delayed `mount` can still print `FR_OK`. The default run builds the UART ROMs in the same PATA-then-CF order.
+`rebuild-hex.sh` does that switch itself and leaves the flag at 1. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls`. A later `fat_mount` can still print `FR_OK`. The default run builds the UART ROMs in the same PATA-then-CF order.
 
 ## Pitfalls
 
 - `cd` into the firmware tree before `zcc` (`@cpm22.lst` is relative).
-- ROM zcc lines are copied from `README.md`. Do not pass `--opt-code-speed` to 80cc. Z80 stays on zsdcc (`-SO3`), which does take `--opt-code-speed`.
-- Do not link ChaN `ff_ro` or `ff_85_ro` into a ROM. `rebuild-ff.sh` is only the old library build.
+- ROM zcc lines are copied from `README.md`. Do not add `ff_ro` or `ff_85_ro`.
+- The 8085 ROM lines pass `-compiler=80cc` and do not pass `-fframe-pointer` or `--opt-code-speed`. 80cc accepts `--opt-code-speed` and ignores it, and it does not run `lib/z80rules.8`. On sccz80, `=all` does run that file. The Z80 ROM lines stay on sdcc (`-SO3`) and still pass `--opt-code-speed`. `rebuild-ff.sh` still uses `=all` for the ChaN library, which is built with sccz80.
+- `z88dk-lib +rc2014 ff` installs basename `ff` only. Copy `ff_ro` / `ff_85*` by hand (the ff script does this).
+- SDCC `ff_ro` is one `-clib=sdcc_iy` object, installed as `lib/clibs/sdcc_ix/lib/<target>/ff_ro.lib`. Do not leave a second copy under `sdcc_iy/`.
+- Restore `FF_FS_READONLY` to `0` after an RO build (`rebuild-ff.sh` traps this).
 - `*.hex` is gitignored and often assume-unchanged (`git ls-files -v` shows lowercase **h**). Stage with the `update-index` + `git add -f` lines above.

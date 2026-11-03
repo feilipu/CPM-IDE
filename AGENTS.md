@@ -4,6 +4,8 @@ This **`AGENTS.md`** is the only always-on project rules file at the repo root.
 
 CPU opcodes, assembler, compilers, and measurement live in **z88dk** (fallback **8085-skills**). Open those `SKILL.md` files when the task matches — do not copy them here.
 
+z88dk libraries put one function in each file because the linker includes a whole object file. This repo is seven finished ROM products. That split does not apply. Code stays in the file that already owns its section.
+
 ## z88dk / 8085-skills (mandatory lookup)
 
 Before editing assembler, choosing a compiler, measuring ticks, or linking the mini-FAT, **read the matching skill** from the first tree that has it. Do not skip this because the host already listed the skill name. Do **not** bulk-read every skill.
@@ -27,19 +29,23 @@ Entry files in those trees (index only; do not ingest every skill they list):
 
 | Task | Skill (`SKILL.md`) |
 |------|--------------------|
-| Z80 BIOS / deblock / serial rings | `cpu-z80` |
-| 8085 BIOS / deblock | `cpu-8085` (pastraiser: `rl de` `-----VC`, `sra hl` `-----0C` — neither writes Z) |
+| Z80 BIOS / serial rings | `cpu-z80` |
+| 8085 BIOS | `cpu-8085` (pastraiser: `rl de` `-----VC`, `sra hl` `-----0C` — neither writes Z) |
 | Assembler, synthetics, listings | `tool-z80asm` |
 | `zcc` flags, subtypes, parallel cwd | `tool-zcc` |
-| 80cc (8085 ROM) | `compiler-80cc` |
+| 8085 ROM and 8085 `+test` (`-compiler=80cc`) | `compiler-80cc` |
+| Z80 `+test` host lines (sccz80) | `compiler-sccz80` |
 | zsdcc / `sdcc_ix` / `sdcc_iy` (Z80 ROM) | `compiler-zsdcc` |
-| sccz80 (`+test` host lines) | `compiler-sccz80` |
+| 80cc only if that compiler is in play | `compiler-80cc` |
 | `z88dk-ticks`, TIMER A/B | `tool-ticks`, `methodology-measure` |
 | `+rc2014` CRT, serial, diskio | `target-rc2014` |
-| `z88dk-lib` | `tool-z88dk-lib` |
-| Rebuild HEX | this repo `.agents/skills/tool-rebuild` |
+| `z88dk-lib` / third-party `ff` | `tool-z88dk-lib` |
+| Rebuild HEX or `ff_ro` / `ff_85_ro` | this repo `.agents/skills/tool-rebuild` |
 | XMODEM transfer and MD5 check | this repo `.agents/skills/cpm-xmodem` |
 | Hi-Tech Z80 C on the RC2014 | this repo `.agents/skills/cpm-hitech` |
+| PL/I-80 on the RC2014 | this repo `.agents/skills/cpm-pli` |
+| Z80 debugger, `HIST.UTL`, `TRACE.UTL` | this repo `.agents/skills/cpm-zsid` |
+| R Lee CP/M software index, Zork copies | this repo `.agents/skills/cpm-rlee` |
 
 ## Environment
 
@@ -53,12 +59,12 @@ export Z88DK=/data/z88dk
 
 ## This repo — always
 
-1. **PHASE / DEPHASE.** `PHASE expr` … `DEPHASE` assemble bytes at the current storage PC but resolve labels as if `ORG expr`. The linker does not know about PHASE. That code **cannot run where it is stored**; the CRT/preamble copies it to `expr` (BIOS, CCP/BDOS). ROM-resident code (mini-FAT, IDE, shell) is **not** inside PHASE. Mini-FAT lives in `common/fatfs.asm` and `common/fatfs_85.asm` (`SECTION code_lib`), with RAM in `common/fat_bss.asm`. The shell is `common/yash.c`. `cpm` mounts up to four 8 MB `.CPM` files. The BIOS adds track and sector to the base LBA; it does not call mini-FAT. From `cboot` until `wboot` latches ROM back in, RAM covers the ROM window, so that path must not call mini-FAT.
-2. **Synthetics.** Prefer `ld a,(hl+)` and `ld (hl+),a` for byte streams (z80asm expands to `ld` + `inc hl`). Other registers: `ld r,(hl+)`, not `ld rr,(hl+)`. Last byte of a field with no post-increment stays `ld r,(hl)`. `ld (rr),r` / `dec rr` is `ld (rr-),r`. Prefer `ex de,hl` over `ld de,hl` when old DE belongs in HL (or HL is dead). Serial ring wrap stays `inc l` (size-1 mask), never `inc hl`. `ld (de+),a` is cheap (`12 13`) on both CPUs.
-3. **DRI CCP/BDOS.** Unmodified except `DIRBUF` `PUBLIC`, APN 02 `DEL`=BS, CCP A: `.COM` fallback, the GETNEXT resume, and BDOS `ALIGN $100` (page origin). CCP starts `$20` below the previous page so BDOS stays on a page and BDOS BSS ends at the BIOS origin. Those three addresses are per ROM: BIOS code must finish before `_cpm_dsk0_base` at `$F800`, so Z80 CF ACIA is `$DBE0` / `$E400` / `$F300`, Z80 PATA SIO and Z80 CF SIO are `$D9E0` / `$E200` / `$F100`, and the other four are `$DAE0` / `$E300` / `$F200`. A new directory entry (every 32 KB, `EXM = 1`) resumes after the closed entry and wraps once. A same-entry read searches from the front. A same-entry write reopens the entry in memory. BIOS does not call BDOS copy helpers.
-4. **Deblock.** 512-byte `hstbuf`, 4×128 CP/M records. DPH `DIRBUF` overlays `hstbuf`. Directory `READ` skips the 128-byte copy when DMA is in that window and retargets BDOS `DIRBUF`. User DMA (file copy, TPA) still copies. `WRITE` C=1 still copies then `writehst`. No CP/M 3 MULTIO/FLUSH. LBA in BCDE with E as LSB.
-5. **CF vs PATA before HEX.** `__IO_CF_8_BIT` in `$Z88DK/libsrc/target/rc2014/config/config_target.m4` selects the z88dk IDE driver the shell links. Change it, then rebuild `rc2014.lib` (newlib, `make -C libsrc/newlib rc2014-clean rc2014`) and `rc2014-8085_clib.lib` (force-remove the `.lib` first; `z80asm -d` does not rebuild on include-only change). Copy the 8085 `.lib` into `lib/clibs/`. PATA HEX needs `0` (8255 `$20`–`$23`). CF HEX needs `1` (ports `$10`–`$17`). `rebuild-hex.sh` builds both PATA ROMs with the flag at 0 and both libraries, switches the flag to 1, rebuilds both libraries, then builds all five CF ROMs. `cf` builds the three usual CF ROMs (Z80 ACIA, Z80 SIO, 8085 ACIA) and skips the library rebuild when the flag is already 1. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls` / `mount 1`.
-6. **Rebuild.** zcc lines are in `README.md`. Use `.agents/scripts/rebuild-hex.sh` (`tool-rebuild`). `cd` into each firmware tree. Parallel `zcc` only in **different** cwds (shared `zcc_opt.def`). Copy `.ihx` → `.hex`, delete leftovers. Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `$7F81`, a BDOS tail off the BIOS origin, the wrong IDE port bytes, or a missing/empty product (`.ihx`/`.hex`/`.lib`) fails the job; job-dir `rm` is not success. `*.hex` is gitignored and often assume-unchanged (`git ls-files -v` shows lowercase **h**) → `git update-index --no-assume-unchanged` then `git add -f`. Z80 ROMs use zsdcc (`-SO3`). 8085 ROMs use `-compiler=80cc` and do not pass `--opt-code-speed`. `rebuild-ff.sh` is the old ChaN library build. The ROM does not link it.
+1. **PHASE / DEPHASE.** `PHASE expr` … `DEPHASE` assemble bytes at the current storage PC but resolve labels as if `ORG expr`. The linker does not know about PHASE. That code **cannot run where it is stored**; the CRT/preamble copies it to `expr` (BIOS, CCP, resident BDOS stub). ROM-resident code (mini-FAT, disk BDOS, IDE, shell) is **not** inside PHASE. Mini-FAT lives in `common/fatfs.asm` and `common/fatfs_85.asm` (`SECTION code_lib`), with RAM in `common/fat_bss.asm`. The shell is `common/yash.c`. At shell start, `ya_boot_root` boots CP/M only when `CPMIDE.CFG` is in the volume root and names A:. A file in any other directory does not auto-boot. Change to that directory and type `cpm` with no arguments. `EXIT` flips the BIOS canary from `$AA55` to `$5555` (`$AA` becomes `$55`) and the shell stays at the prompt. A whole `$AA55` means the BIOS stack has not overrun: RST 0 returns to the CCP on the same user and drive. `rboot` passes `$0004` to the CCP in C. The canary word is the floor of `bios_stack`. `cpm` with no arguments reads `CPMIDE.CFG` from the working directory, then the volume root when that directory has no file. A missing file, or a file that does not name A:, mounts letter directories in the working directory. A file in the working directory is not replaced by the root file. `cpm <directory>` mounts letter directories A: through P: inside that directory, on one FAT volume. BIOS `read` and `write` return an error. Sector I/O is the ROM BDOS calling mini-FAT. From `cboot` until `wboot` latches ROM back in, RAM covers the ROM window, so that path must not call mini-FAT.
+2. **Synthetics.** Prefer `ld a,(hl+)` and `ld (hl+),a` for byte streams (z80asm expands to `ld` + `inc hl`). Other registers: `ld r,(hl+)`, not `ld rr,(hl+)`. Last byte of a field with no post-increment stays `ld r,(hl)`. `ld (rr),r` / `dec rr` is `ld (rr-),r`. Prefer `ex de,hl` over `ld de,hl` when old DE belongs in HL (or HL is dead). On Z80, a static word in BC, DE, or SP is `ld rr,(nn)` or `ld (nn),rr`. Do not copy that word through HL. `ld hl,(nn)` and `ld (nn),hl` stay the short forms when the word belongs in HL. Serial ring wrap stays `inc l` (size-1 mask), never `inc hl`. `ld (de+),a` is cheap (`12 13`) on both CPUs.
+3. **CCP and BDOS.** The CCP is `common/cpm22ccp.asm` (Z80) and `common/cpm22ccp_85.asm` (8085): the DRI CCP with `EXIT`, APN 02 DEL as backspace, and the A: `.COM` fallback. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP` (Z80 `$E9E0`, 8085 `$E980`) next to `REGISTER_SP`, `__COMMON_AREA_PHASE_BDOS` (`$F200`, CCP + `$820` on Z80 and CCP + `$880` on 8085), and `__COMMON_AREA_PHASE_BIOS` (`$FB00`). `main.c` is first in `cpm22.lst` so those pragmas are in `zcc_opt.def` before CCP, BDOS, and BIOS assemble. zpragma cannot add, so BDOS is the computed constant. Disk functions are `common/cpm22bdos.asm` (Z80) and `common/cpm22bdos_85.asm` (8085): same labels and the same branches. All seven products share BDOS `$F200`, `0006h` `$F206`, and BIOS `$FB00`. Both CCP tails meet the stub. The 32-byte CCP stack is the last bytes of the image, padded to `__COMMON_AREA_PHASE_BDOS`, and its top is the stub. The BIOS stack pad is 16 bytes; the canary word is its floor. The repository licence is `LICENSE.txt`: MIT for this tree, and the Bryan Sparks grant for the DRI CCP and for each product BIOS, which is derived from a Digital Research CP/M 2.2 product. Leave those headers in place.
+4. **Drives.** `seldsk` accepts a drive below 16 when `_cpm_dir_sclust` for that letter is nonzero, and it returns one DPH. BIOS `read` and `write` are `ld a,1` / `ret`. The 512-byte sector window is `fatwin`. LBA is BCDE with E as the low byte. There is no `hstbuf` and no CP/M 3 MULTIO/FLUSH.
+5. **CF vs PATA before HEX.** `__IO_CF_8_BIT` in `$Z88DK/libsrc/target/rc2014/config/config_target.m4` selects the z88dk IDE driver the shell links. Change it, then rebuild `rc2014.lib` (newlib, `make -C libsrc/newlib rc2014-clean rc2014`) and `rc2014-8085_clib.lib` (force-remove the `.lib` first; `z80asm -d` does not rebuild on include-only change). Copy the 8085 `.lib` into `lib/clibs/`. PATA HEX needs `0` (8255 `$20`–`$23`). CF HEX needs `1` (ports `$10`–`$17`). `rebuild-hex.sh` builds both PATA ROMs with the flag at 0 and both libraries, switches the flag to 1, rebuilds both libraries, then builds all five CF ROMs. `cf` builds the five CF ROMs (Z80 ACIA, Z80 SIO, Z80 UART, 8085 ACIA, 8085 UART) and skips the library rebuild when the flag is already 1. `sio` builds both SIO ROMs (PATA then CF). `acia` and `acia85` build one CF ACIA ROM each. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls`. A later `fat_mount` can still print `FR_OK`.
+6. **Rebuild.** zcc lines are in `README.md`. Use `.agents/scripts/rebuild-hex.sh` and `rebuild-ff.sh` (`tool-rebuild`). `cd` into each firmware tree. Parallel `zcc` only in **different** cwds (shared `zcc_opt.def`). Copy `.ihx` → `.hex`, delete leftovers. Scripts fail-closed: zcc, a `.bin` over 32768 bytes, an 8085 `__CODE_END` past `$7F81`, a `gate_fat` overlap, the wrong IDE port bytes, or a missing/empty product (`.ihx`/`.hex`/`.lib`) fails that product. A failed ROM is not installed. The other products still build. The script exits 1 if any failed. Job-dir `rm` is not success. The live gate is `gate_fat` (stub `$F200`, BDOS BSS `$F750`, FAT BSS `$F7D0`, BIOS `$FB00`). `*.hex` is gitignored and often assume-unchanged (`git ls-files -v` shows lowercase **h**) → `git update-index --no-assume-unchanged` then `git add -f`. The 8085 ROMs use `-compiler=80cc` with stack locals and no `-fframe-pointer`. Do not pass `--opt-code-speed` on those lines. 80cc accepts the option and ignores it (`opt_code_speed_inert` in `src/80cc/main.c`), and it does not run `lib/z80rules.8`. On sccz80, `--opt-code-speed=all` does run that file. The Z80 ROMs stay on sdcc (`-SO3`) and still pass `--opt-code-speed`.
 7. **Commit** only when asked; never push unasked. One subject line, no body, no attribution trailers.
 
 ## Local `.agents/`
@@ -67,8 +73,11 @@ export Z88DK=/data/z88dk
 .agents/scripts/rebuild-ff.sh
 .agents/scripts/rebuild-hex.sh
 .agents/skills/cpm-hitech/SKILL.md
+.agents/skills/cpm-pli/SKILL.md
 .agents/skills/cpm-xmodem/SKILL.md
+.agents/skills/cpm-zsid/SKILL.md
+.agents/skills/cpm-rlee/SKILL.md
 .agents/skills/tool-rebuild/SKILL.md
 ```
 
-Disk-path tests: `test/fatfs/run.sh` (`MINIFAT_OK` on Z80 and 8085). The v3 pack/synth suite is not part of this line. Overlay TIMER: `test/fatfs/bench_overlay.c`. Host diskdef: `cpmtools/readme_cpmtools.md`.
+Disk-path tests: `test/fatfs/run.sh` prints `MINIFAT_OK` on Z80 and 8085. The same script also runs the v2.6 BIOS deblock harness. When this tree has no `setLBAaddr`, that harness loads `git show master:` of the old BIOS. It does not execute this branch's `read` or `write`. BDOS disk tests are `test/bdos/`. The 8085 disk harness is `-compiler=80cc`. The v3 pack/synth suite is not part of this line. The Z80 `A>` under ticks is `sh test/cli/a.sh` (`test/README.md`). The binary is `test/cli/out/a.bin`, loaded at `$0100`. Overlay TIMER: `test/fatfs/bench_overlay.c`. Host diskdef: `cpmtools/readme_cpmtools.md`.

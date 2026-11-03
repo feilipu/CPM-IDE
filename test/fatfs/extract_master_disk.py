@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Slice master cpm22bios.asm disk deblock + setLBAaddr for +test (no PHASE)."""
+"""Slice the v2.6 BIOS deblock for +test (no PHASE).
+
+This branch's cpm22bios.asm has no setLBAaddr, so load_bios falls
+back to `git show master:<tree>/cpm22bios.asm`. The result is not
+the product BIOS. Product read and write return an error.
+"""
 import os
 import re
 import subprocess

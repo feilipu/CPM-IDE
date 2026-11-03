@@ -1,12 +1,10 @@
 # CP/M-IDE Drive Files
 
-This directory contains example CP/M drives stored as compressed zip files. The files can be extracted and stored on a PATA or CF disk formatted with FAT32 (or FAT16 if quite small).
+This directory contains example CP/M disk images stored as compressed zip files. Each image is 8388608 bytes. Read and extract them on the host with cpmtools. The ROM command `cpm` mounts FAT directories. It does not mount these files. Use `CPMIDE.CFG`, or directories named `A` through `P` under one parent. The front README explains both.
 
-In the CP/M-IDE shell, check each resulting file (example listing below) with __`frag`__ to confirm it is not fragmented. This check is needed only once, when the file is created.
+The shell follows a file's cluster chain, so a file that occupies more than one run needs no separate fragmentation check.
 
-__`ls`__ lists the CP/M drive files in the current directory. __`cd`__ and __`pwd`__ move through sub-directories.
-
-CP/M-IDE can be started with the __`cpm`__ command with fully qualified paths to up to four (4) files, from any of the thousands of CP/M drives you may have stored.
+__`ls`__ lists these image files when they are stored on the FAT volume. __`cd`__ and __`pwd`__ move through sub-directories. To run the programs inside an image, extract that image into a letter directory. Start CP/M with `cpm` and a `CPMIDE.CFG` line for that directory, or with `cpm <directory>` when the directory's children are named `A` through `P`.
 
 
 ```
@@ -47,7 +45,7 @@ YASHCF  .COM  36k : Z80ASM  .COM  28k : ZEXALL  .COM  12k : ZEXDOC  .COM  12k
 ZSID    .COM  12k : ZTRAN   .COM   4k
          Drive A0   Files: 46/556k   Free: 7572k 
 ```
-The [NGS Microshell](http://www.z80.eu/microshell.html) can be very useful for those familiar with unix-like shells, so it has been added to the example [system disk](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/SYS.CPM.zip) too. There is no need to replace the DRI CCP with Microshell. In fact, adding it permanently would remove the special `EXIT` function built into the DRI CCP to provide a clean return to the CP/M-IDE shell. It can be launched with __`SH`__.
+The [NGS Microshell](http://www.z80.eu/microshell.html) is on the example [system disk](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/SYS.CPM.zip) as __`SH`__, for a unix-like shell. The DRI CCP stays in ROM and supplies __`EXIT`__ back to the CP/M-IDE shell. Type __`SH`__ at the CP/M prompt, or put `SH` in `A:$$$.SUB` so it runs when CP/M starts. __`SUBMIT`__ builds that file from a `.SUB` script.
 
 The __`YASH`__ application runs under CP/M and works on the underlying FAT32 volume. It can create CP/M drive files, list, copy, and delete files, and mount further CP/M drive files.
 
@@ -222,9 +220,7 @@ SQUARO  .COB   4k
 
 ## NZCOM.CPM
 
-The NZ-COM, or Z-System, can be loaded, temporarily overwriting the DRI CCP and BDOS.
-
-Further information on NZ-COM and how to use it can be found in the [NZ-COM User's Manual](https://oldcomputers.dyndns.org/public/pub/manuals/zcpr/nzcom.pdf).
+This image is for the v2.6 ROM. NZ-COM overwrites the CCP and the BDOS, and that ROM keeps both in RAM for the session. The load, and the [NZ-COM User's Manual](http://cpmarchives.classiccmp.org/trs80/Miscellany/Emulatrs/Z-System/nzcom.pdf), are in [CP/M-IDE v2.6](../docs/CPM-IDE-v2.6.md).
 
 ```
 !VERS--1.2H    0k : ALIAS   .CMD   4k : ARUNZ   .COM   8k : BGZRDS19.LBR   4k
@@ -343,7 +339,7 @@ There is a small mailbox here.
 ZORK II: The Wizard of Frobozz
 Copyright (c) 1981, 1982, 1983 Infocom, Inc. All rights reserved.
 ZORK is a registered trademark of Infocom, Inc.
-Version 48 / Serial number 840904
+Release 22 / Serial number 830331
 
 Inside the Barrow
 You are inside an ancient barrow hidden deep within a dark
@@ -357,7 +353,7 @@ A sword of Elvish workmanship is on the ground.
 ZORK III: The Dungeon Master
 Copyright 1982 by Infocom, Inc. All rights reserved.
 ZORK is a trademark of Infocom, Inc.
-Release 17 / Serial number 840727
+Release 15 / Serial number 830331
 
 Endless Stair
 You are at the bottom of a seemingly endless stair, winding
@@ -369,8 +365,8 @@ Your old friend, the brass lantern, is at your feet.
 ```
 
 ```
-FILE_ID .DIZ   4k : ZORK1   .COM  12k : ZORK1   .DAT  84k : ZORK2   .COM  12k
-ZORK2   .DAT  88k : ZORK3   .COM  12k : ZORK3   .DAT  84k
-         Drive B0   Files: 7/296k   Free: 7832k 
+FILE_ID .DIZ   4k : ZORK1   .COM  12k : ZORK1   .DAT  84k : ZORK2   .COM   8k
+ZORK2   .DAT  84k : ZORK3   .COM   8k : ZORK3   .DAT  84k
+         Drive B0   Files: 7/284k   Free: 7844k 
 ```
 

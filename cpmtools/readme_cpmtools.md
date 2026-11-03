@@ -1,8 +1,11 @@
 # cpmtools on the host — diskdef, and two upstream bugs
 
-Host-side `cpmtools` reads and writes the CP/M files inside an 8 MB `.CPM` image
-(see `README.md` → *CP/M TOOLS Usage*). The host operating system copies the `.CPM`
+Host-side `cpmtools` reads and writes the CP/M files inside an 8 MB `.CPM` image.
+v2.6 mounted these images as drives. That procedure is `docs/CPM-IDE-v2.6.md`.
+The host operating system copies the `.CPM`
 files themselves on the FAT volume. It does not see the files stored inside an image.
+The ROM command `cpm` does not mount these images. It mounts FAT directories named
+`A` through `P`. Use `cpmcp` to extract an image into such a directory.
 
 This file records the `rc2014-8MB` diskdef, the two bugs found while validating it, and
 the recipes to rebuild the tools. The reusable procedure lives in
@@ -42,7 +45,7 @@ cpmls -f rc2014-8MB SYS.CPM                # list
 fsed.cpm -f rc2014-8MB a.cpm               # interactive editor
 ```
 
-Verified against `CPM Drives/SYS.CPM.zip`: 45 files extract intact, and the listing is
+Verified against `CPM Drives/SYS.CPM.zip`: 46 files extract intact, and the listing is
 byte-identical between the apt build and our build.
 
 ## Bug 1 — `cpmglobfree` assert (cpmtools, cosmetic)

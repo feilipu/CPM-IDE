@@ -1,3 +1,25 @@
+/*
+ * Copyright (c) October 2026 Phillip Stevens (feilipu)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -17,8 +39,8 @@ typedef uint32_t DWORD;
 #include <arch/rc2014/diskio.h>
 
 extern uint8_t bios_iobyte;
-extern uint32_t cpm_dsk0_base[4];
 extern void cpm_boot(void);
+extern uint16_t cpm_bios_canary;
 
 void *buffer;
 FILE *input;
@@ -40,9 +62,8 @@ struct Builtin {
 
 struct Builtin builtins[] = {
   // CP/M related functions
-    { "cpm", &ya_mkcpm, "file.a [file.b] [file.c] [file.d] - initiate CP/M with up to 4 drive files"},
+    { "cpm", &ya_mkcpm, "[path] - CPMIDE.CFG, or A-P in a directory"},
     { "xget", &ya_xget, "<file> - sx checksum"},
-    { "mkdrv", &ya_mkdrv, "<file> - empty 8 MB CP/M drive"},
 
 // fat related functions
     { "ls", &ya_ls, "[path] - directory listing"},
@@ -53,15 +74,11 @@ struct Builtin builtins[] = {
     { "mkdir", &ya_mkdir, "<path> - create a directory"},
     { "cp", &ya_cp, "<src> <dst> - copy a file"},
     { "mv", &ya_mv, "<src> <dst> - rename or move a file"},
-    { "mount", &ya_mount, "- mount a FAT file system"},
-    { "frag", &ya_frag, "<file> - cluster-run count for a file"},
 
 // disk related functions
     { "ds", &ya_ds, "- disk status"},
-    { "dd", &ya_dd, "[sector] - disk dump, sector in decimal"},
 
 // system related functions
-    { "md", &ya_md, "[origin] - memory dump, origin in hexadecimal"},
     { "help", &ya_help, "- this is it"},
     { "exit", &ya_exit, "- exit and restart"}
 };
@@ -671,94 +688,232 @@ static void hist_down(char *line, uint16_t *pos, uint16_t maxlen)
     }
 }
 
-static void put_hex(uint16_t v, uint8_t digits)
-{
-    uint8_t n;
-    char c;
-
-    n = digits;
-    while (n) {
-        --n;
-        c = (char)((v >> (n << 2)) & 0x0F);
-        c += (c < 10) ? '0' : ('A' - 10);
-        fputc(c, output);
-    }
-}
-
-void put_dump (const uint8_t * buff, uint16_t ofs, uint8_t cnt)
-{
-    uint8_t i;
-
-    put_hex(ofs, 4);
-    fputc(':', output);
-
-    for(i = 0; i < cnt; ++i) {
-        fputc(' ', output);
-        put_hex(buff[i], 2);
-    }
-    fputc(' ', output);
-    for(i = 0; i < cnt; ++i) {
-        fputc((buff[i] >= ' ' && buff[i] <= '~') ? buff[i] : '.', output);
-    }
-    fputc('\n', output);
-}
-
-
 /*
   Builtin function implementations (CLI user functions, ya_*).
 */
 
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "cpm". args[1..4] are .CPM container files.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_mkcpm(char ** args)   /* initialise CP/M with up to 4 container files */
+#define CPM_DRIVES 16
+
+/* 16 little-endian clusters. */
+static void clear_drives(void)
 {
     uint8_t i;
-    uint8_t n11[11];
-    uint32_t parent, cl, prev, lba;
+
+    for (i = 0; i < CPM_DRIVES; ++i)
+        cpm_dir_sclust[i] = 0;
+}
+
+/* Cluster 0 is the FAT16 root. A drive is a subdirectory cluster. */
+static uint8_t mount_dir(const char *path, uint32_t *out)
+{
+    uint8_t rc;
+    uint32_t clst;
+
+    rc = path_to_dir(path, &clst);
+    if (rc == 0 && clst < 2)
+        rc = FR_NO_PATH;
+    if (rc == 0)
+        *out = clst;
+    return rc;
+}
+
+/* Mount parent/A through parent/P. A missing letter stays empty.
+   Returns 0 when A: was set. The parent is opened once, then each
+   letter is looked up there. The sector buffer is not the path. */
+static uint8_t mount_letters(const char *parent)
+{
+    uint32_t dir, clst;
+    uint8_t i;
+    char one[2];
+
+    clear_drives();
+    if (path_to_dir(parent, &dir))
+        return 1;
+    for (i = 0; i < CPM_DRIVES; ++i) {
+        one[0] = (char)('A' + i);
+        one[1] = 0;
+        clst = dir;
+        if (dir_walk(&clst, one))
+            continue;
+        if (clst < 2)
+            continue;
+        cpm_dir_sclust[i] = clst;
+        fprintf(output, "%c: \"%s/%c\" cluster %lu\n",
+            (char)('A' + i), parent, (char)('A' + i), clst);
+    }
+    return (cpm_dir_sclust[0] == 0) ? 1 : 0;
+}
+
+/* 1 when name is the working directory ("." or its own name).
+   The 11-byte name is built in the sector buffer. */
+static uint8_t here_named(const char *name)
+{
+    uint32_t up;
+
+    if (name[0] == '.' && name[1] == 0)
+        return 1;
+    if (is_root_clst(fat_cwd))
+        return 0;
+    up = fat_cwd;
+    if (dir_walk(&up, ".."))
+        return 0;
+    if (fat_dir_open(&up))
+        return 0;
+    name83((uint8_t *)buffer, name);
+    if (dir_find_try((uint8_t *)buffer))
+        return 0;
+    return memcmp(&fat_found_sclust, &fat_cwd, 4) == 0;
+}
+
+/* 0 when dir holds a CPMIDE.CFG entry. *file may be below 2. */
+static uint8_t find_cfg(uint32_t dir, uint32_t *file)
+{
+    uint8_t n[11];
+
+    name83(n, "CPMIDE.CFG");
+    if (fat_dir_open(&dir) || dir_find_try(n))
+        return 1;
+    *file = fat_found_sclust;
+    return 0;
+}
+
+/* One sector of the file cluster. A line is "A path" or "A=path".
+   '#' and '[' lines are skipped. Returns 0 when A: was set. */
+static uint8_t load_cfg(uint32_t file)
+{
+    uint32_t lba, got;
+    char *p, *start, saved;
+    uint8_t drv;
+
+    if (file < 2)
+        return 1;
+    lba = file;
+    if (fat_clst2sect(&lba))
+        return 1;
+    if (disk_read(0, buffer, lba, 1) != 0)
+        return 1;
+    if (fat_found_size < 511)
+        ((uint8_t *)buffer)[fat_found_size] = 0;
+    else
+        ((uint8_t *)buffer)[511] = 0;
+    p = (char *)buffer;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == '\r')
+            ++p;
+        if (*p == 0)
+            break;
+        if (*p == '#' || *p == '[') {
+            while (*p && *p != '\n')
+                ++p;
+            if (*p == '\n')
+                ++p;
+            continue;
+        }
+        drv = (uint8_t)*p;
+        if (drv >= 'a' && drv <= 'p')
+            drv = (uint8_t)(drv - 32);
+        if (drv < 'A' || drv > 'P') {
+            while (*p && *p != '\n')
+                ++p;
+            if (*p == '\n')
+                ++p;
+            continue;
+        }
+        ++p;
+        while (*p == ' ' || *p == '\t' || *p == '=')
+            ++p;
+        if (*p == '"')
+            ++p;
+        start = p;
+        while (*p && *p != '"' && *p != '\n' && *p != '\r')
+            ++p;
+        saved = *p;
+        *p = 0;
+        if (mount_dir(start, &got) == 0) {
+            cpm_dir_sclust[drv - 'A'] = got;
+            fprintf(output, "%c: \"%s\" cluster %lu\n", drv, start, got);
+        }
+        *p = saved;
+        while (*p && *p != '\n')
+            ++p;
+        if (*p == '\n')
+            ++p;
+    }
+    return (cpm_dir_sclust[0] == 0) ? 1 : 0;
+}
+
+/* Working directory, then the root when that directory has no file.
+   A file that does not name A: is the result. Returns 0 when A: was set. */
+static uint8_t read_cfg(void)
+{
+    uint32_t file;
+
+    if (find_cfg(fat_cwd, &file) == 0)
+        return load_cfg(file);
+    if (is_root_clst(fat_cwd))
+        return 1;
+    if (find_cfg(root_clst(), &file))
+        return 1;
+    return load_cfg(file);
+}
+
+/* Root CPMIDE.CFG only. A missing file, or a file that does not
+   name A:, leaves the drive table empty and stays in the shell. */
+uint8_t ya_boot_root(void)
+{
+    uint32_t file;
+
+    if (cpm_fat_vol.fs_type == 0)
+        return 1;
+    clear_drives();
+    if (find_cfg(root_clst(), &file) || load_cfg(file)) {
+        clear_drives();
+        return 1;
+    }
+    fprintf(output, "Initialised CP/M\n");
+    cpu_delay_ms(1);
+    cpm_boot();
+    return 1;
+}
+
+/**
+   @brief Builtin command:
+   @param args args[0] is "cpm". No arguments read CPMIDE.CFG.
+          A missing file uses letter directories in the working directory.
+          args[1] is the directory that holds A through P.
+          If that name is the working directory, its letters are used.
+   @return Always returns 1, to continue executing.
+ */
+int8_t ya_mkcpm(char ** args)   /* boot CP/M from a config file or letter directories */
+{
+    /* The shell mounted the card before the prompt. fat_mount runs
+       ide_init again, and the directory walk after that misses every
+       name until a later read. Mount only when nothing is mounted. */
+    if (cpm_fat_vol.fs_type == 0) {
+        if (fat_mount()) {
+            put_rc(1);
+            return 1;
+        }
+    }
+
+    clear_drives();
 
     if (args[1] == NULL) {
-        fprintf(output, "Expected 1 to 4 arguments to \"cpm\"\n");
+        if (read_cfg() && mount_letters(".")) {
+            fprintf(output, "cpm <directory>\n");
+            return 1;
+        }
+    } else if (args[2] != NULL) {
+        fprintf(output, "cpm <directory>\n");
         return 1;
-    }
-    if (fat_mount()) {
-        put_rc(1);
-        return 1;
-    }
-
-    for (i = 0; i < 4; ++i)
-        cpm_dsk0_base[i] = 0;
-
-    for (i = 0; i < 4 && args[i + 1] != NULL; ++i) {
-        fprintf(output, "Opening \"%s\"", args[i + 1]);
-        if (put_fail(open_leaf(args[i + 1], &parent, n11)))
-            return 1;
-        if (fat_dir_ptr[11] & AM_DIR) {
-            put_rc(FR_DENIED);
+    } else if (mount_letters(args[1])) {
+        /* "." already searched the working directory. A different
+           name searches again only when it is this directory. */
+        if ((args[1][0] == '.' && args[1][1] == 0) ||
+            !here_named(args[1]) || mount_letters(".")) {
+            fprintf(output, "A: not mounted\n");
             return 1;
         }
-        cl = fat_found_sclust;
-        if (cl < 2) {
-            put_rc(FR_INT_ERR);
-            return 1;
-        }
-        prev = 0;
-        while (is_eoc(cl) == 0) {
-            if (prev && cl != prev + 1) {
-                fprintf(output, " is fragmented\n");
-                return 1;
-            }
-            prev = cl;
-            if (put_fail(fat_next(&cl)))
-                return 1;
-        }
-        lba = fat_found_sclust;
-        if (put_fail(fat_clst2sect(&lba)))
-            return 1;
-        cpm_dsk0_base[i] = lba;
-        fprintf(output, " at LBA %lu\n", lba);
     }
 
     fprintf(output, "Initialised CP/M\n");
@@ -769,11 +924,13 @@ int8_t ya_mkcpm(char ** args)   /* initialise CP/M with up to 4 container files 
 
 
 /*
- * xg_open creates or replaces the file xget receives. One sector is
- * held in `buffer`. XMODEM-128 checksum: SOH, block, complement,
- * 128 data, sum. The host is sx. NAK starts checksum mode. ACK is
- * sent after the 128 bytes are in the sector buffer. The console
- * calls are common/bios_con.asm, linked by every product.
+ * xg_open creates or replaces the file xget receives. A value read
+ * or written by one function is an automatic of that function. The
+ * names below are the receive session: xg_open clears them and more
+ * than one function uses each. One sector is held in `buffer`.
+ * XMODEM-128 checksum: SOH, block, complement, 128 data, sum.
+ * The host is sx. NAK starts checksum mode. ACK is sent after the
+ * 128 bytes are in the sector buffer.
  */
 static uint32_t xg_parent;
 static uint8_t xg_name[11];
@@ -786,10 +943,12 @@ static uint8_t xg_have;
 static uint8_t xg_sec;
 static uint32_t xg_lba;
 static uint8_t xm_pkt[128];
+uint8_t xm_tx;
 
-extern uint8_t bios_const(void);
-extern uint8_t bios_conin(void);
-extern void bios_conout(uint8_t c) __z88dk_fastcall;
+/* ROM BDOS. BIOS CONST, CONIN, and CONOUT. xm_conout sends xm_tx. */
+extern int xm_const(void);
+extern int xm_conin(void);
+extern void xm_conout(void);
 
 static uint8_t xg_commit(uint32_t *sz)
 {
@@ -893,15 +1052,16 @@ static uint8_t xg_open(const char *path)
 
 static void xm_putc(uint8_t c)
 {
-    bios_conout(c);
+    xm_tx = c;
+    xm_conout();
 }
 
 /* Milliseconds with the ring empty. A waiting byte returns at once. */
 static int xm_getc(uint16_t ms)
 {
     while (ms) {
-        if (bios_const())
-            return bios_conin() & 0xff;
+        if (xm_const())
+            return xm_conin() & 0xff;
         cpu_delay_ms(1);
         --ms;
     }
@@ -1013,211 +1173,6 @@ int8_t ya_xget(char ** args)   /* receive an XMODEM-128 checksum file */
     }
 }
 
-/*
- * mkdrv NAME
- *
- * One container for the rc2014-8MB disk definition: 8388608 bytes and
- * 2048 directory entries. The BIOS uses that shape, so the command
- * takes a file name and nothing else.
- *
- * fat_alloc takes the next free cluster. The file may be several runs.
- * frag prints the run count. cpm mounts a file only when it is one run.
- *
- * The directory is 2048 records of 32 bytes, which is 65536 bytes and
- * exactly 128 sectors. Each sector is 16 copies of the empty record
- * (0xE5, eleven spaces, then zeros). The remaining clusters are
- * allocated and left untouched.
- *
- * directoryBlock is a ROM constant. The counters below are only
- * used inside ya_mkdrv. They stay file-scope.
- */
-static uint8_t directoryBlock[32] = {
-    0xE5, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-};
-
-static uint32_t md_ncl, md_clst, md_1st, md_lba, md_parent;
-static uint16_t md_left;
-static uint8_t md_sec, md_n;
-static uint8_t *md_p;
-static uint8_t md_name[11];
-
-/* Create or replace the empty file mkdrv fills. */
-static uint8_t md_open(const char *path)
-{
-    uint32_t tmp;
-    uint8_t rc;
-
-    rc = path_split(path, &md_parent, md_name);
-    if (rc)
-        return rc;
-    if (is_dot_name(md_name))
-        return FR_INVALID_NAME;
-    if (fat_dir_open(&md_parent))
-        return FR_DISK_ERR;
-    if (dir_find_try(md_name) == 0) {
-        if (fat_dir_ptr[11] & (AM_DIR | AM_RDO))
-            return FR_DENIED;
-        tmp = fat_found_sclust;
-        if (dir_fill(AM_ARC, 0, 0))
-            return FR_DISK_ERR;
-        if (tmp >= 2 && (fat_free(&tmp) || fat_sync()))
-            return FR_DISK_ERR;
-        return 0;
-    }
-    if (dir_create(md_name) || dir_fill(AM_ARC, 0, 0))
-        return FR_DISK_ERR;
-    return 0;
-}
-
-
-/* 0: the name is gone. Same order as ya_rm:
- * remove the directory entry, sync, and only then free the chain.
- */
-static uint8_t md_unlink(void)
-{
-    if (fat_dir_open(&md_parent))
-        return 1;
-    if (dir_find_try(md_name))
-        return 1;
-    if (dir_zap() || fat_sync())
-        return 1;
-    return 0;
-}
-
-static void md_abandon(uint32_t clst)
-{
-    if (md_unlink() == 0)
-        release_chain(clst);
-}
-
-static int8_t md_incomplete(void)
-{
-    fputs("\nCP/M Directory Extents incomplete", output);
-    md_abandon(md_1st);
-    put_rc(1);
-    return 1;
-}
-
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "mkdrv". args[1] is the file.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_mkdrv(char ** args)   /* empty 8 MB CP/M drive */
-{
-    if (need_args(args, 1, "mkdrv"))
-        return 1;
-    fprintf(output, "Creating \"%s\"", args[1]);
-    if (put_fail(md_open(args[1])))
-        return 1;
-
-    /* Round 8388608 bytes up to whole clusters. 0 means this volume
-     * has no cluster size, or the count overflowed.
-     */
-    md_ncl = 8388608ul;
-    fat_clusters(&md_ncl);
-    if (md_ncl == 0) {
-        md_unlink();
-        put_rc(FR_INVALID_PARAMETER);
-        return 1;
-    }
-
-    md_clst = 0;
-    md_1st = 0;
-    while (md_ncl) {
-        if (fat_alloc(&md_clst)) {
-            md_abandon(md_1st);
-            fputs("\nInsufficient space", output);
-            put_rc(1);
-            return 1;
-        }
-        if (md_1st == 0)
-            md_1st = md_clst;
-        --md_ncl;
-    }
-
-    /* FAT writes move the sector window, so the entry from md_open
-     * has to be found again before it can be stamped.
-     */
-    if (fat_dir_open(&md_parent) || dir_find_try(md_name) ||
-        dir_fill(AM_ARC, md_1st, 8388608ul)) {
-        md_abandon(md_1st);
-        put_rc(1);
-        return 1;
-    }
-
-    md_p = buffer;
-    md_n = 16;
-    while (md_n) {
-        memcpy(md_p, directoryBlock, 32);
-        md_p += 32;
-        --md_n;
-    }
-
-    md_clst = md_1st;
-    md_lba = md_1st;
-    if (fat_clst2sect(&md_lba))
-        return md_incomplete();
-    md_sec = 0;
-    md_left = 128;
-    while (md_left) {
-        if (disk_write(0, buffer, md_lba, 1))
-            return md_incomplete();
-        --md_left;
-        if (md_left == 0)
-            break;
-        /* Sectors inside one cluster are consecutive LBAs.
-         * The next cluster is the FAT link, which may not be adjacent.
-         */
-        if (++md_sec < cpm_fat_vol.csize) {
-            ++md_lba;
-            continue;
-        }
-        md_sec = 0;
-        if (fat_next(&md_clst) || is_eoc(md_clst))
-            return md_incomplete();
-        md_lba = md_clst;
-        if (fat_clst2sect(&md_lba))
-            return md_incomplete();
-    }
-
-    md_lba = md_1st;
-    if (put_fail(fat_clst2sect(&md_lba)))
-        return 1;
-    fprintf(output, " at base sector LBA %lu\n", md_lba);
-    return 1;
-}
-
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "md". args[1] is an optional origin in hexadecimal.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_md(char ** args)      /* dump RAM contents from nominated origin. */
-{
-    static uint8_t * origin = 0;   /* next page, remembered across md */
-    uint16_t ofs;
-    uint8_t * ptr;
-
-    if (args[1] != NULL) {
-        origin = (uint8_t *)strtoul(args[1], NULL, 16);
-    }
-
-    fputc('\n', output);
-    fprintf(output, "Origin: ");
-    put_hex((uint16_t)origin, 4);
-    fputc('\n', output);
-
-    for (ptr=origin, ofs = 0; ofs < 0x100; ptr += 16, ofs += 16) {
-        put_dump(ptr, ofs, 16);
-    }
-
-    origin += 0x100;            /* go to next page (next time) */
-    return 1;
-}
-
-
 /**
    @brief Builtin command:
    @param args List of args.  args[0] is "help".
@@ -1228,7 +1183,7 @@ int8_t ya_help(char ** args)    /* print some help. */
     uint8_t i;
     (void *)args;
 
-    fprintf(output,"RC2014 - CP/M IDE Shell v2.6\n");
+    fprintf(output,"RC2014 - CP/M IDE Shell v3.0\n");
     fprintf(output,"The following functions are built in:\n");
 
     for (i = 0; i < ya_num_builtins(); ++i) {
@@ -1314,7 +1269,10 @@ int8_t ya_ls(char ** args)      /* print directory contents */
         fputc('\n', output);
         return 1;
     }
-    /* bytes = clusters * sectors/cluster * 512 */
+    /* bytes = clusters * sectors/cluster * 512.
+     * A product past 4 GiB wraps this 32-bit multiply and prints 0.
+     * The MiB fallback needs a 32-bit divide, and that does not fit
+     * the 8085 PATA image. */
     fprintf(output, ", %lu bytes free\n",
             (p1 * (uint32_t)cpm_fat_vol.csize) << 9);
     return 1;
@@ -1664,64 +1622,6 @@ int8_t ya_mv(char ** args)
 }
 
 
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "mount".
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_mount(char ** args)    /* mount a FAT file system */
-{
-    (void *)args;
-    put_rc(fat_mount());
-    return 1;
-}
-
-
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "frag". args[1] is the file.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_frag(char ** args)    /* cluster-run count for a file */
-{
-    uint32_t parent, cl, prev, ncl, nfrag, steps;
-    uint8_t n[11];
-
-    if (need_args(args, 1, "frag"))
-        return 1;
-    if (put_fail(open_leaf(args[1], &parent, n)))
-        return 1;
-    if (fat_dir_ptr[11] & AM_DIR) {
-        put_rc(FR_DENIED);
-        return 1;
-    }
-    cl = fat_found_sclust;
-    ncl = 0;
-    nfrag = 0;
-    prev = 0;
-    if (cl >= 2) {
-        nfrag = 1;
-        steps = 0;
-        while (is_eoc(cl) == 0) {
-            if (steps >= cpm_fat_vol.n_fatent) {
-                put_rc(FR_INT_ERR);
-                return 1;
-            }
-            ++steps;
-            ncl++;
-            if (prev && cl != prev + 1)
-                nfrag++;
-            prev = cl;
-            if (put_fail(fat_next(&cl)))
-                return 1;
-        }
-    }
-    fprintf(output, "%lu cluster(s), %lu run(s), %lu bytes\n",
-            ncl, nfrag, fat_found_size);
-    return 1;
-}
-
-
 /*
   disk related functions
  */
@@ -1777,32 +1677,6 @@ int8_t ya_ds(char ** args)      /* disk status */
         cpm_fat_vol.fatbase, cpm_fat_vol.dirbase, cpm_fat_vol.database);
     return 1;
 }
-
-
-/**
-   @brief Builtin command:
-   @param args List of args.  args[0] is "dd". args[1] is an optional sector.
-   @return Always returns 1, to continue executing.
- */
-int8_t ya_dd(char ** args)      /* disk dump */
-{
-    DRESULT res;
-    static uint32_t sect;          /* next sector, remembered across dd */
-    uint16_t ofs;
-    uint8_t * ptr;
-
-    if (args[1] != NULL) {
-        sect = strtoul(args[1], NULL, 10);
-    }
-
-    res = disk_read(0, buffer, sect, 1);
-    if (res != 0) { fprintf(output, "rc=%u\n", (uint8_t)res); return 1; }
-    fprintf(output, "PD#:0 LBA:%lu\n", sect++);
-    for (ptr=(uint8_t *)buffer, ofs = 0; ofs < 0x200; ptr += 16, ofs += 16)
-        put_dump(ptr, ofs, 16);
-    return 1;
-}
-
 
 
 /*
@@ -1960,6 +1834,13 @@ void ya_split_line(char ** tokens, char * line)
 }
 
 
+/* EXIT flipped $AA to $55. A whole $AA55 never gets here: the
+   preamble returns to the CCP. */
+uint8_t ya_shell_stays(void)
+{
+    return cpm_bios_canary == 0x5555;
+}
+
 /**
    @brief Allocate buffers, then loop getting input and executing it.
  */
@@ -1983,6 +1864,9 @@ void ya_loop(void)
     hist_i = 0;
 
     select_console();
+    /* Root CPMIDE.CFG starts CP/M. EXIT left $5555, so stay here. */
+    if (!ya_shell_stays())
+        ya_boot_root();
 
     do {
         fflush(input);
@@ -2003,3 +1887,4 @@ void ya_loop(void)
     free(args);
     free(line);
 }
+

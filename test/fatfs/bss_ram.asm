@@ -5,20 +5,12 @@ SECTION bss_compiler
 PUBLIC _cpm_fat_vol, fatwin, _fatwin, fat_winsect, fat_wflag
 PUBLIC fat_cwd, fat_found_sclust, fat_found_size
 PUBLIC dir_ptr, dir_sclust, dir_clust, dir_sect, dir_ofs
-PUBLIC fat_work, pack_sv, fat_last_clst, _cpm_dir_sclust
-PUBLIC hstbuf, _hstbuf, hstdsk, _hstdsk, hsttrk, _hsttrk, hstsec, _hstsec
-PUBLIC hstwrt, _hstwrt
-PUBLIC wrtype, dmaadr, erflag, hstact, _hstact
+PUBLIC fat_work, pack_sv, fat_last_clst, _fat_last_clst, _cpm_dir_sclust
+PUBLIC fat_fsi_lba, _fat_fsi_lba, fat_fsi_dirty, _fat_fsi_dirty
 PUBLIC clst_cache_sclust, clst_cache_ci, clst_cache_clst
 PUBLIC _fat_cwd, _fat_found_sclust, _fat_found_size, _fat_dir_ptr, _fat_dir_sclust
-PUBLIC _cpm_dsk0_base
-PUBLIC sekdsk, sektrk, seksec, sekhst, hstact
-PUBLIC unacnt, unadsk, unatrk, unasec
-PUBLIC rsflag, readop
-PUBLIC DIRBUF, _dirbuf
-PUBLIC ldi_body, _ldi_body
 
-_cpm_dir_sclust:        defs 16
+_cpm_dir_sclust:        defs 64     ;A: through P:. 0 is not mounted
 _cpm_fat_vol:           defs 32
 _fatwin:
 fatwin:                 defs 512
@@ -42,9 +34,25 @@ _fat_cwd:
 fat_cwd:                defs 4
 fat_work:               defs 16
 pack_sv:                defs 16
+_fat_last_clst:
 fat_last_clst:          defs 4      ;last cluster this session allocated
+_fat_fsi_lba:
+fat_fsi_lba:            defs 4      ;absolute FSInfo LBA, or 0 if none
+_fat_fsi_dirty:
+fat_fsi_dirty:          defs 1      ;1 = free count or next-free needs a write
 
-; CP/M deblock (same names as cpm22bios.asm BSS)
+; v2.6 deblock names. This branch's cpm22bios.asm does not define hstbuf.
+; The BDOS disk harness defines BDOS_NO_DEBLOCK. It does not link bios_disk.
+IFNDEF BDOS_NO_DEBLOCK
+PUBLIC hstbuf, _hstbuf, hstdsk, _hstdsk, hsttrk, _hsttrk, hstsec, _hstsec
+PUBLIC hstwrt, _hstwrt
+PUBLIC wrtype, dmaadr, erflag, hstact, _hstact
+PUBLIC _cpm_dsk0_base
+PUBLIC sekdsk, sektrk, seksec, sekhst
+PUBLIC unacnt, unadsk, unatrk, unasec
+PUBLIC rsflag, readop
+PUBLIC DIRBUF, _dirbuf
+PUBLIC ldi_body, _ldi_body
 _cpm_dsk0_base:         defs 16     ; 4 x 32-bit LBA bases
 _hstbuf:
 hstbuf:                 defs 512
@@ -75,3 +83,4 @@ DIRBUF:
 _dirbuf:                defs 2
 _ldi_body:
 ldi_body:               defs 65     ;Z80 33; 8085 65; copy_build fills this
+ENDIF
