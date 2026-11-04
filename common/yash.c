@@ -866,7 +866,13 @@ uint8_t ya_boot_root(void)
     if (cpm_fat_vol.fs_type == 0)
         return 1;
     clear_drives();
-    if (find_cfg(root_clst(), &file) || load_cfg(file)) {
+    if (find_cfg(root_clst(), &file)) {
+        clear_drives();
+        return 1;
+    }
+    /* "> :-)" has no newline. The first cluster note starts its own line. */
+    fprintf(output, "\n");
+    if (load_cfg(file)) {
         clear_drives();
         return 1;
     }
