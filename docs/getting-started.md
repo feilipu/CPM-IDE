@@ -68,6 +68,8 @@ Ctrl-P and Ctrl-N recall up to 8 lines of 80 characters. The shell erases the pr
 
 This shell has no `mount`, `mkdrv`, `frag`, `dd`, or `md`. Those names belong to the v2.6 shell, and to some older notes. `help` prints the list this ROM actually has.
 
+The picture below is an Example shell CLI. It is from 2023, so the banner and the `help` list are not this ROM.
+
 <div>
 <table style="border: 2px solid #cccccc;">
 <tbody>
@@ -75,7 +77,7 @@ This shell has no `mount`, `mkdrv`, `frag`, `dd`, or `md`. Those names belong to
 <td style="border: 1px solid #cccccc; padding: 6px;"><a href="https://github.com/feilipu/CPM-IDE/blob/master/docs/cpm-idev8.png" target="_blank"><img src="https://github.com/feilipu/CPM-IDE/blob/master/docs/cpm-idev8.png"/></a></td>
 </tr>
 <tr>
-<th style="border: 1px solid #cccccc; padding: 6px;"><center>RC2014 CP/M-IDE SIO - Shell CLI</center></th>
+<th style="border: 1px solid #cccccc; padding: 6px;"><center>Example shell CLI</center></th>
 </tr>
 </tbody>
 </table>
@@ -201,3 +203,5 @@ Keep a compiler or a game in its own letter directory. A crashed program can be 
 `SD` and `STAT` report free space and the file count on the 8 MB disk the BDOS publishes. An empty letter reports 8192k, including on a card that is much larger. Each file reduces that figure by its size, rounded up to 2 KB. The number will not match a count of records. The directory's own clusters are not subtracted. The 8 MB is an accounting view, not a reserved slice of the card. Other files, directory clusters, and free space on the volume are still real FAT space, shared by every letter. The details are in [The CP/M 2.2 BDOS](bdos.md).
 
 Of course other workflows are fine. Extract [Zork](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20Drives/ZORK.CPM.zip) into a letter directory and play a game.
+
+<p><a href="../README.md">Back</a></p>

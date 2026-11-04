@@ -1,10 +1,10 @@
 # The CP/M 2.2 BDOS
 
-A program on this machine calls BDOS the way CP/M 2.2 has always been called. The byte at `0005h` is a jump. `C` is the function number. `DE` is the argument. The return is the Calkins pair: `A = L` is the low byte of the result and `B = H` is the high byte. Function 12 is the one that needs both bytes. It returns `HL = 0022h`, so a program that asks the version stays on the CP/M 2.2 path.
+A program on this machine calls BDOS the way CP/M 2.2 has always been called. The byte at `0005h` is a jump. `C` is the function number. `DE` is the argument. The return is the original BDOS pair: `A = L` is the low byte of the result and `B = H` is the high byte. Function 12 is the one that needs both bytes. It returns `HL = 0022h`, so a program that asks the version stays on the CP/M 2.2 path.
 
 How the stub, the ROM half, and the TPA fit together is [How CP/M-IDE fits](how-it-works.md). The picture there separates the two routes: a console call stays in the high RAM stub, and a disk call pages the ROM in beside mini-FAT. The code is `common/cpm22bdos.asm` and `common/cpm22bdos_85.asm`. Same labels, same branches. The Z80 file uses `ldir` and the Z80 shifts. The 8085 file uses `copy_mem`, `rra`, and `rl de`. The entry at `0006h` is `jp fbase` on both. That jump is not a relative branch. Six serial-number bytes sit in front of it, so `0006h` is `$F206` and the stub itself is `$F200`.
 
-The comparison is the Clark A. Calkins reconstruction of 27 February 1981, the Digital Research CP/M 2.2 manual, and [John Elliott's BDOS description](https://www.seasip.info/Cpm/bdos.html) where he marks a call as CP/M 2.2 or "all versions". A behaviour that exists only in CP/M 3, MP/M, or DOS Plus is not implemented. Functions 38 and 39, and any function above 40, return 0.
+The calls follow the Digital Research CP/M 2.2 manuals. Clark A. Calkins transcribed a memory image of that BDOS on 27 February 1981, and [John Elliott's BDOS description](https://www.seasip.info/Cpm/bdos.html) is another published account of it. Where Elliott marks a call as CP/M 2.2 or "all versions", that note was used. A behaviour that exists only in CP/M 3, MP/M, or DOS Plus is not implemented. Functions 38 and 39, and any function above 40, return 0.
 
 ## Where the code runs
 
@@ -14,7 +14,7 @@ The product copies a short piece into high RAM. That piece is the entry, the con
 
 Some functions run entirely in the high piece: console, reader, punch, list, IOBYTE, version, the current drive, set DMA, and get/set user. A disk function latches its argument into high RAM and calls the matching word in `romfns`, with the ROM switched in. The ROM routine returns `HL`. `goback` then puts that word into `A`, `B`, and `HL`.
 
-The latch shapes are the ones Calkins used. An FCB call copies 36 bytes. Function 10 copies the line buffer. A register call keeps `DE`. Search-next (function 18) does not read `DE`. It continues the search that function 17 started. Any other disk call clears that search, and a later function 18 returns `FFh`.
+The latch shapes are the ones in the original BDOS. An FCB call copies 36 bytes. Function 10 copies the line buffer. A register call keeps `DE`. Search-next (function 18) does not read `DE`. It continues the search that function 17 started. Any other disk call clears that search, and a later function 18 returns `FFh`.
 
 BIOS `read` and `write` are a single byte error. The ROM BDOS calls mini-FAT itself. The 512-byte sector window is `fatwin`. There is no `hstbuf` and no CP/M 3 multi-sector flush.
 
@@ -126,3 +126,5 @@ The open-file cache remembers one name: the start cluster, the size, and the off
 Random I/O computes the same offset from `R0`, `R1`, and `R2`. Writing past the current end zero-fills the gap, for function 34 and for function 40, so a later read returns zeros and success.
 
 Function 13's dollar-file scan and function 27's free-space scan are the same directory walk, used for a different total.
+
+<p><a href="../README.md">Back</a></p>

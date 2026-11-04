@@ -10,7 +10,7 @@ Where an older paragraph names `hget`, the command in the ROM is `xget`.
 
 The paragraphs under this heading are the 2026-10-11 record. The HEX files in the tree are the later function 27 link, under Installed image. Branch `cpm-ide-msx`. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP`, `__COMMON_AREA_PHASE_BDOS` (CCP + `$820` Z80 / `$880` 8085), and `__COMMON_AREA_PHASE_BIOS`. The BIOS stack pad is 16 bytes. The shell starts CP/M from the root only, and `EXIT` stays in the shell. `ya_boot_root` boots when `CPMIDE.CFG` is in the volume root and names A:. A file in any other directory does not auto-boot. Change to that directory and type `cpm` with no arguments. `EXIT` flips the BIOS canary `$AA` byte to `$55`, and that `$5555` word does not boot again. A whole `$AA55` is RST 0 back to the CCP on the same user and drive. `rboot` passes `$0004` in C. The canary is the floor of `bios_stack`. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the volume root, and a missing file uses the letter directories in the working directory. `cpm <directory>` mounts the letter directories `A` through `P` inside that directory. Drive A has to be present or CP/M does not start. At that date `hget` was in the seven HEX files. `md`, `dd`, and the shell `mount` command are not. 8085 ROMs are built with 80cc, stack locals, and no `-fframe-pointer`. Z80 ROMs stay on sdcc (`-SO3`). This file is the implementation guide. The contract sections below were checked against the Digital Research CP/M 2.2 manual (chapters 1, 5, and 6), John Elliott’s BDOS and FCB pages, and the Calkins reconstruction in `common/cpm22ccp.asm`. Where those three disagree, the rule is:
 
-- Return codes and control flow follow the Calkins BDOS when Elliott’s CP/M 2.2 note agrees with it.
+- Return codes and control flow follow the original DRI BDOS. The Calkins transcription and Elliott’s CP/M 2.2 note are the copies that were read. Where those two agree, that reading was kept.
 - The manual’s programmer-facing description wins when Elliott’s CP/M 2.2 note agrees with the manual.
 - A behaviour that exists only in CP/M 3, MP/M, or DOS Plus stays out. Elliott marks those separately.
 - A FAT limit that CP/M 2.2 cannot express is written here as a FAT rule, with the manual behaviour named beside it.
@@ -108,7 +108,7 @@ The next table is the 2026-10-09 cfg link, from `/tmp/cpm-ide-cfg-hex/summary.tx
 | 8085-cf-uart | 32274 | `$7DB3` | 494 | 462 |
 | 8085-pata-uart | 32421 | `$7E46` | 347 | 315 |
 
-8085 PATA `__CODE_END` `$7E46` is 315 bytes below the `$7F81` gate. That cfg link passed `--opt-code-speed`. 80cc ignores the option (`opt_code_speed_inert` in `src/80cc/main.c`), so the name list did not change the 80cc image. The current 8085 lines do not pass it. On sccz80, `--opt-code-speed=all` runs `lib/z80rules.8`.
+8085 PATA `__CODE_END` `$7E46` is 315 bytes below the `$7F81` gate.
 
 The `/tmp/cpm-ide-fit-nomount` table (8085 PATA 32342 / `$7DF7`) is the sccz80 link before 80cc and before `CPMIDE.CFG`. The 80cc link before this config file was 8085 PATA 31742 / `$7B9F`. Adding `read_cfg` grew that 80cc image by 679 bytes.
 
@@ -620,3 +620,5 @@ Add one host test that is about the latch rather than a function result. A disk 
 - The ROM disk BDOS is outside PHASE. The stub may `call` that public symbol the same way `wboot` jumps to `pboot`. A ROM vector must not target a PHASE label.
 - Rebuilds go through `.agents/scripts/rebuild-hex.sh` once a product HEX is in scope. Parallel `zcc` only in different directories.
 - Commit only when asked. One subject line, no body, no trailer.
+
+<p><a href="../README.md">Back</a></p>

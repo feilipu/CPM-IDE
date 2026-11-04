@@ -82,3 +82,5 @@ The product copies the CCP, the BDOS stub, and the BIOS into high RAM. Mini-FAT 
 `fatwin` is also the buffer the BDOS uses for the function 27 allocation vector. That routine invalidates the window before it returns. The next disk call loads a real sector again.
 
 The shell follows a cluster chain that is more than one run. A file does not have to be contiguous.
+
+<p><a href="../README.md">Back</a></p>

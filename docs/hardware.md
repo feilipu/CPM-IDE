@@ -183,3 +183,5 @@ The modules are configured in their normal settings for CP/M. A jumper for the `
 </tbody>
 </table>
 </div>
+
+<p><a href="../README.md">Back</a></p>

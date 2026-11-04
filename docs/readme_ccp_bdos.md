@@ -2,7 +2,9 @@
 
 The CCP is `common/cpm22ccp.asm` (Z80) and `common/cpm22ccp_85.asm` (8085). Z80 block moves in the CCP use `LDI`. The 8085 CCP calls `LDI_3`, which is three `ld a,(hl+)` / `ld (de+),a` pairs. Each product `main.c` sets `__COMMON_AREA_PHASE_CCP` next to `REGISTER_SP` (Z80 `$E9E0`, 8085 `$E980`), `__COMMON_AREA_PHASE_BDOS` (`$F200`, CCP + `$820` on Z80 and CCP + `$880` on 8085), and `__COMMON_AREA_PHASE_BIOS` (`$FB00`). zpragma cannot add, so BDOS is the computed constant.
 
-The comparison below is against the Clark A. Calkins reconstruction of CP/M 2.2 (27 February 1981). That listing is the unmodified original this port was built from, and its header is still at the top of `cpm22ccp.asm` and `cpm22ccp_85.asm`. The version bytes stored by the resident BDOS are unchanged: version 2, release 2, revision 0.
+The CCP is the Digital Research CP/M 2.2 Console Command Processor. Clark A. Calkins disassembled a memory image and transcribed it on 27 February 1981. That transcription is how this port was entered. It is not a separate program, and its header is still at the top of `cpm22ccp.asm` and `cpm22ccp_85.asm`. The version bytes stored by the resident BDOS are unchanged: version 2, release 2, revision 0.
+
+The resident code began as the original Digital Research BDOS. This tree has modified it. The calls follow Digital Research's CP/M 2.2 documentation. The same BDOS has been transcribed and described on the internet, and those copies were used while checking the port.
 
 `CALL 5` is the resident stub in `common/cpm22bdos.asm` (Z80) or `common/cpm22bdos_85.asm` (8085). Those two files are one logical flow. What each call returns, and how the FAT directory produces it, is in [bdos.md](bdos.md). The sector and cluster layer is in [mini-fat.md](mini-fat.md). How the ROM window, the high RAM, and the TPA fit together is in [how-it-works.md](how-it-works.md). The design and build record is [CPM-IDE-MSX.md](CPM-IDE-MSX.md).
 
@@ -30,11 +32,11 @@ The published v2.6 ROMs used a different triple on each board (`$D9E0` / `$E200`
 
 ## CCP
 
-The Calkins command table has six commands (`NUMCMDS = 6`): `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`. This tree adds `EXIT` (`NUMCMDS = 7`) ahead of the unknown-command path. `EXIT` prints `Exiting CP/M`, flips `_cpm_bios_canary` from `$AA55` to `$5555` (`$AA` becomes `$55`, not `$00` or `$FF`), toggles the ROM with `out ($38),a`, and jumps to `__Exit`, which restarts the shell and stays there. A large program may have overwritten the shell heap, so the restart initialises from the beginning. A whole `$AA55` still takes RST 0 back to the CCP on the same user and drive. `rboot` passes the byte at `$0004` to the CCP in C.
+The DRI command table has six commands (`NUMCMDS = 6`): `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`. This tree adds `EXIT` (`NUMCMDS = 7`) ahead of the unknown-command path. `EXIT` prints `Exiting CP/M`, flips `_cpm_bios_canary` from `$AA55` to `$5555` (`$AA` becomes `$55`, not `$00` or `$FF`), toggles the ROM with `out ($38),a`, and jumps to `__Exit`, which restarts the shell and stays there. A large program may have overwritten the shell heap, so the restart initialises from the beginning. A whole `$AA55` still takes RST 0 back to the CCP on the same user and drive. `rboot` passes the byte at `$0004` to the CCP in C.
 
 A nameless command whose `.COM` is missing on the current drive is retried on `A:`. `UNKWN2` opens the file once. On a miss, `CHGDRV` is still zero when the user did not type a drive letter. The code sets `CHGDRV` to 1 and calls `DSELECT`, which selects drive A, then opens the file again. An explicit `d:` leaves `CHGDRV` nonzero, so that second open is skipped.
 
-The six serial-number bytes (`PATTRN1` / `PATTRN2`) are commented out, and `UNKNOWN` no longer calls `VERIFY`. The Calkins CCP halts when those two copies disagree.
+The six serial-number bytes (`PATTRN1` / `PATTRN2`) are commented out, and `UNKNOWN` no longer calls `VERIFY`. The DRI CCP halts when those two copies disagree.
 
 The `.COM` extension is three `LDI` instructions on Z80 and `LDI_3` on 8085.
 
@@ -42,7 +44,7 @@ A host `A>` under z88dk-ticks is `sh test/cli/a.sh`. It links the Z80 CCP, the v
 
 ## BDOS
 
-Function 10 (buffered console input) treats DEL (`7Fh`) as backspace. Digital Research Application Note 02 specifies that. The editor is in the ROM piece of `cpm22bdos.asm`. `ed_ndel` jumps to the same path as BS.
+The disk half is the part this tree changed. Function 10 (buffered console input) treats DEL (`7Fh`) as backspace. Digital Research Application Note 02 specifies that. The editor is in the ROM piece of `cpm22bdos.asm`. `ed_ndel` jumps to the same path as BS.
 
 The linked disk code walks FAT directory entries and cluster chains. A drive letter is a start cluster in `_cpm_dir_sclust`. Zero means that letter is not mounted.
 
@@ -69,3 +71,5 @@ A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entri
 At shell start, `ya_boot_root` boots CP/M only when `CPMIDE.CFG` is in the volume root and names A:. A file in any other directory does not auto-boot, and there is no letter-directory fallback on that path. Change to the directory that holds the file and type `cpm` with no arguments. `EXIT` returns to the shell and does not boot again. A whole canary returns to the CCP. `cpm` with no arguments reads one sector of `CPMIDE.CFG` from the working directory, then from the root when that directory has no file. A missing file, or a file that does not name A:, mounts the letter directories in the working directory. A line is a letter `A`–`P` and a directory path, separated by a space or `=`. A `#` or `[` line is skipped. `cpm <directory>` records the start cluster of each letter directory `A` through `P` inside that directory. A missing letter stays empty. `A` has to be present or CP/M does not start.
 
 Two cluster counts follow ChaN rather than Microsoft FAT specification 1.03. `nclst <= $0FF5` is rejected as FAT12. The specification treats a count of 4085 as FAT16. `nclst == $FFF5` stays FAT16. The specification would use FAT32. The mount suite does not build either boundary. A third limit is local: `BPB_SecPerClus >= 65` (a 64 KiB cluster) is refused with `L = 19`, because that cluster is 0 bytes in the 16-bit sector arithmetic. `BPB_Media` is not read. JumpBoot is not required. The VBR check does require the `55AA` signature.
+
+<p><a href="../README.md">Back</a></p>

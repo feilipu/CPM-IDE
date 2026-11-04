@@ -51,7 +51,7 @@ First though, refer to the library, disk and buffer configuration notes below.
 
 `zcc +rc2014 -subtype=acia -SO3 --opt-code-speed -m --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-acia -create-app`
 
-The z88dk command lines to build the CP/M-IDE for the 8085 CPU Module are below. These three images use 80cc (`-compiler=80cc`), with locals on the stack and no `-fframe-pointer`. 80cc accepts `--opt-code-speed` and ignores it, so these lines do not pass it. The `rc2014` target and relevant subtype should be selected, from within the relevant directory. Set `Z88DK` to your z88dk install root. The `-I${Z88DK}/include` path must precede the `_DEVELOPMENT/common` include path so classic `<stdio.h>` is used (required for `stdin`/`stdout` on the hybrid 8085 CRT).
+The z88dk command lines to build the CP/M-IDE for the 8085 CPU Module are below. These three images use 80cc (`-compiler=80cc`), with locals on the stack and no `-fframe-pointer`. The `rc2014` target and relevant subtype should be selected, from within the relevant directory. Set `Z88DK` to your z88dk install root. The `-I${Z88DK}/include` path must precede the `_DEVELOPMENT/common` include path so classic `<stdio.h>` is used (required for `stdin`/`stdout` on the hybrid 8085 CRT).
 
 `zcc +rc2014 -subtype=uart85 -compiler=80cc -O2 -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
 
@@ -85,3 +85,5 @@ The Z80 `A>` under ticks is `sh test/cli/a.sh`. The script builds `test/cli/out/
 Those harnesses link flat `+test` images and RAM-backed sectors. They check the algorithms. They do not boot a product HEX, and they do not speak the CF taskfile at `$10` or the 8255 at `$20`. `z88dk-ticks -ide0` is a host trap. It is not that hardware. Some retained deblock runs load the v2.6 BIOS. They do not exercise this ROM's `read` and `write`, which return an error. `test/fatfs/run.sh` prints `MINIFAT_OK` on Z80 and 8085.
 
 The example images in `CPM Drives` are extracted with cpmtools. The diskdef describes those container files. It is not the 2 KB block, 512-entry disk this ROM tells a program about. The recipes are in [`cpmtools/readme_cpmtools.md`](../cpmtools/readme_cpmtools.md) and [CP/M-IDE v2.6](CPM-IDE-v2.6.md).
+
+<p><a href="../README.md">Back</a></p>

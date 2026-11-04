@@ -60,7 +60,7 @@ cpm SYS.CPM WORK.CPM
 
 `mkdrv` writes an empty 8 MB drive with 2048 directory entries. `frag` has to report one run before `cpm` will mount it. On the first session, mount `SYS.CPM` and the new file, and `PIP` the commands you want onto the working drive. Later you can mount only the working drive on A:. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`.
 
-`cp`, `mv`, `rm`, `mkdir`, and `rmdir` change the FAT volume. `mv` of a fragmented file keeps the old chains. It does not join them.
+`cp`, `mv`, `rm`, `mkdir`, and `rmdir` change the FAT volume. `mv` of a fragmented file keeps the old chains. It does not join them. `cp` can. Copy the file, then copy that result again if `frag` still reports more than one run. On a fragmented disk this can take several copies. Leave every copy in place until one of them is a single chain, and delete the others only after that. The commands are in [Sending a container to the RC2014](#sending-a-container-to-the-rc2014).
 
 ## Sending a container to the RC2014
 
@@ -78,14 +78,16 @@ Then:
 frag DRIVE.CPM
 ```
 
-`frag` prints the cluster count, the run count, and the size. `cpm` mounts the file only when that is one run. When it is more than one run, copy it. `cp` allocates a new chain from the next free cluster, which often lands as a single run.
+`frag` prints the cluster count, the run count, and the size. `cpm` mounts the file only when that is one run. When it is more than one run, copy it with `cp`. Each copy takes a new chain. On a fragmented disk that chain can still be more than one run, so copy again and check the new name with `frag`. Keep repeating the copy until one file is a single chain. Do not delete the earlier copies until that has happened.
 
 ```text
 cp DRIVE.CPM DRIVE2.CPM
 frag DRIVE2.CPM
-rm DRIVE.CPM
-mv DRIVE2.CPM DRIVE.CPM
+cp DRIVE2.CPM DRIVE3.CPM
+frag DRIVE3.CPM
 ```
+
+Stop when `frag` reports one run. Mount that file. The other names can be removed afterwards.
 
 A received file has to be 16 MB or less. The name stored on the card is the `xget` argument, in 8.3 form.
 
@@ -172,3 +174,5 @@ Both stacks may be used in one binary (BDOS files inside the container, and FatF
 * [z88dk wiki — Newlib File I/O and FatFs](https://github.com/z88dk/z88dk/wiki/Newlib_File_IO_and_FatFs)
 * Package sources: [feilipu/z88dk-libraries](https://github.com/feilipu/z88dk-libraries)
 * RC2014 [Using Z88DK](https://github.com/RC2014Z80/RC2014/wiki/Using-Z88DK)
+
+<p><a href="../README.md">Back</a></p>
