@@ -51,10 +51,9 @@
 <polyline points="600,460 600,530" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
 <polyline points="987,460 987,530" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
 <rect x="40" y="765" width="735" height="140" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
-<text x="407.5" y="805.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Console endpoint is a separate choice</text>
-<text x="407.5" y="834.5" font-size="18" fill="#18324c" text-anchor="middle">PC serial terminal • 7xtgv serial terminal</text>
-<text x="407.5" y="859.5" font-size="18" fill="#18324c" text-anchor="middle">Or feed emulated ACIA bytes directly into 7xtgv</text>
-<text x="407.5" y="884.5" font-size="18" fill="#18324c" text-anchor="middle">A VDP is not required by CP/M-IDE</text>
+<text x="407.5" y="818" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Console endpoint is a separate choice</text>
+<text x="407.5" y="847" font-size="18" fill="#18324c" text-anchor="middle">A PC serial terminal</text>
+<text x="407.5" y="872" font-size="18" fill="#18324c" text-anchor="middle">A VDP is not required by CP/M-IDE</text>
 <rect x="815" y="765" width="345" height="140" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
 <text x="987.5" y="805.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Physical 3V3 questions</text>
 <text x="987.5" y="834.5" font-size="18" fill="#18324c" text-anchor="middle">Voltage levels and timing</text>

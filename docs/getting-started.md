@@ -133,7 +133,7 @@ xget PROG.COM
 
 __`xget`__ prints `Waiting for XMODEM`. Then send the file with `sx --checksum` (minicom: Ctrl-A S, then xmodem). The shell answers ACK after each good block is stored, so the host waits while a sector is written. EOT finishes the receive. Success prints the byte count. A quiet line prints `timeout`. CAN prints `cancelled`.
 
-Before the first `cpm`, use `xget` from this shell to load the starter programs into the directory that will be A:. `XMODEM`, `MD5`, `PIP`, and `SD` are enough to get started, together with the CCP commands that are already built in. The example is in [Working drive](#working-drive).
+Before the first `cpm`, use `xget` from this shell to load the starter programs into the directory that will be A:. `XMODEM`, `PIP`, `SD`, and `MD5` are enough to get started, together with the CCP commands that are already built in. The example is in [Working drive](#working-drive).
 
 Once CP/M is running, `XMODEM` on drive A: receives a `.COM` straight into the current drive. An example host line:
 
@@ -182,17 +182,9 @@ C GAMES
 
 Put that file in the root when the machine should enter CP/M at power on. Put a different file in a project directory when that project should choose its own letters, then `cd` there and type `cpm`. Several project directories can each have their own file. `EXIT` between them, and type `cpm` again.
 
-Before the first `cpm`, seed A: from the shell. Leave a root `CPMIDE.CFG` out until these files are on A:. A file there that names A: starts CP/M at power on and skips this prompt. Change into the directory that will be drive A and receive the programs with `xget`. `XMODEM`, `MD5`, `PIP`, and `SD` are the useful set, along with any other program you want. The CCP already has `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`, and `EXIT`, so those do not need a file on the disk. The transfer is in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014).
+Before the first `cpm`, seed A: from the shell. Leave a root `CPMIDE.CFG` out until these files are on A:. A file there that names A: starts CP/M at power on and skips this prompt. `XMODEM`, `PIP`, `SD`, and `MD5` are the useful set, along with any other program you want. The CCP already has `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`, and `EXIT`, so those do not need a file on the disk. The transfer is in [Sending a file to the RC2014](#sending-a-file-to-the-rc2014).
 
-```text
-cd DRIVES/A
-xget XMODEM.COM
-xget MD5.COM
-xget PIP.COM
-xget SD.COM
-cd ..
-cpm .
-```
+![mkdir A, cd A, xget the starter programs, then cpm .](shell-start.svg)
 
 A command typed with no drive letter is tried on A: when the `.COM` is not on the current drive. A command typed with a drive letter searches only that drive. DEL is a backspace. Once `PIP` is on A:, it can copy further commands onto another letter.
 

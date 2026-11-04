@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="460" height="332" viewBox="0 0 460 332" role="img" aria-labelledby="title desc">
+<title id="title">First files on A</title>
+<desc id="desc">mkdir A, cd A, xget XMODEM.COM, xget PIP.COM, xget SD.COM, xget MD5.COM, cd .., cpm .</desc>
+<rect width="460" height="332" rx="18" fill="#f7fafc"/>
+<g font-family="DejaVu Sans, sans-serif" fill="#18324c">
+<text x="24" y="40" font-size="22" font-weight="bold">At the shell prompt</text>
+<rect x="24" y="58" width="412" height="250" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<g font-family="DejaVu Sans Mono, ui-monospace, monospace" font-size="18">
+<text x="44" y="92">mkdir A</text>
+<text x="44" y="120">cd A</text>
+<text x="44" y="148">xget XMODEM.COM</text>
+<text x="44" y="176">xget PIP.COM</text>
+<text x="44" y="204">xget SD.COM</text>
+<text x="44" y="232">xget MD5.COM</text>
+<text x="44" y="260">cd ..</text>
+<text x="44" y="288">cpm .</text>
+</g>
+</g>
+</svg>

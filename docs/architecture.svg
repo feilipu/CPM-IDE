@@ -43,7 +43,7 @@
 <text x="210.0" y="794.5" font-size="18" fill="#18324c" text-anchor="middle">Keyboard input / screen output</text>
 <rect x="45" y="870" width="330" height="100" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
 <text x="210.0" y="915.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Terminal endpoint</text>
-<text x="210.0" y="944.5" font-size="18" fill="#18324c" text-anchor="middle">PC terminal or 7xtgv</text>
+<text x="210.0" y="944.5" font-size="18" fill="#18324c" text-anchor="middle">PC serial terminal</text>
 <polyline points="210,520 210,570" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
 <polyline points="210,670 210,720" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
 <polyline points="210,820 210,870" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>

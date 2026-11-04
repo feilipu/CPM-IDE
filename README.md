@@ -53,17 +53,9 @@ The modules, the jumper pictures, the ports, and the buffer sizes are in [Hardwa
 
 ## Get started
 
-Burn the HEX that matches that list into a 32 kB or 64 kB ROM. Format the card FAT32, or FAT16 if it is small. Make a directory called `A` and put the first programs there before CP/M starts. At the shell prompt:
+Burn the HEX that matches that list into a 32 kB or 64 kB ROM. Format the card FAT32, or FAT16 if it is small. Make a directory called `A` and put the first programs there before CP/M starts.
 
-```text
-cd A
-xget XMODEM.COM
-xget PIP.COM
-xget SD.COM
-xget MD5.COM
-cd ..
-cpm .
-```
+![mkdir A, cd A, xget the starter programs, then cpm .](docs/shell-start.svg)
 
 `xget` is XMODEM-128 checksum (`sx --checksum`). The CCP already knows `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`, and `EXIT`. Leave a root `CPMIDE.CFG` out until A: has those files. A root file that names A: starts CP/M at power-on and skips the shell.
 
