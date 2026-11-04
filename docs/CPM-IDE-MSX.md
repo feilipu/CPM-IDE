@@ -2,7 +2,7 @@
 
 This file is the design and build record. It keeps the decisions, the rejected alternatives, and the size of each link as that link was made. It is not the description of the machine as it stands. That description is [How CP/M-IDE fits](how-it-works.md).
 
-How the machine starts is in the front [README](../README.md). The FAT layer is [mini-fat.md](mini-fat.md). What each BDOS call returns is [bdos.md](bdos.md). The CCP changes are [readme_ccp_bdos.md](readme_ccp_bdos.md). v2.6 container files are [CPM-IDE-v2.6.md](CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is `f093809`.
+How the machine starts is in [Getting started](getting-started.md). The FAT layer is [mini-fat.md](mini-fat.md). What each BDOS call returns is [bdos.md](bdos.md). The CCP changes are [readme_ccp_bdos.md](readme_ccp_bdos.md). v2.6 container files are [CPM-IDE-v2.6.md](CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is `f093809`.
 
 Where an older paragraph names `hget`, the command in the ROM is `xget`.
 
@@ -46,9 +46,9 @@ Commit only when asked. One subject line, no body, no trailer. As of this 2026-1
 | `6ae97e9` | Record the function-18 root cause and fix in the two fault notes | The two fault notes, since removed. |
 | `71eb321` | Fold cheap synthetics and relink the seven ROMs | Seven HEX files. Head of this branch on 2026-10-11. |
 
-This table stops at `71eb321`. Later links changed the image. `xget` replaced `hget`. Function 27 was added on both CPUs, and the seven HEX files were rebuilt as `3e63979`. That image is the first table under Installed image, and it is the HEX in the tree. The branch head is past that commit. The machine those later commits produced is [How CP/M-IDE fits](how-it-works.md).
+This table stops at `71eb321`. Later links changed the image. `xget` replaced `hget`. Function 27 was added on both CPUs, and those seven HEX files were rebuilt as `3e63979`. That image is the first table under Installed image. It is not the HEX in the tree. Commit `59503f1` rebuilt all seven. The Z80 PATA SIO image is 32615 bytes, and 153 bytes is the smallest slack. Those sizes are in [How CP/M-IDE fits](how-it-works.md).
 
-A full rebuild on 2026-10-11, `rebuild-hex.sh` mode `all`, zcc `v25461-415806f08c-20260813`, 19:47–19:55, finished `ok=7 fail=0` and printed `UNCHANGED` for every HEX against `9dad56e`. `__IO_CF_8_BIT` was left at `0x01`. Gate: `0006h` `$F206`, CCP tail `$F200`, BIOS `$FB00`. `71eb321` relinked all seven after `latch_next`. Later links changed those sizes. The HEX in the tree is the function 27 image under Installed image.
+A full rebuild on 2026-10-11, `rebuild-hex.sh` mode `all`, zcc `v25461-415806f08c-20260813`, 19:47–19:55, finished `ok=7 fail=0` and printed `UNCHANGED` for every HEX against `9dad56e`. `__IO_CF_8_BIT` was left at `0x01`. Gate: `0006h` `$F206`, CCP tail `$F200`, BIOS `$FB00`. `71eb321` relinked all seven after `latch_next`. Later links changed those sizes. The function 27 image is the first table under Installed image. The HEX in the tree is the later rebuild recorded in [How CP/M-IDE fits](how-it-works.md).
 
 On that date the seven HEX files included `hget`. `md`, `dd`, and `mount` are not shell commands. Each `main.c` calls `fat_mount` before the prompt. `ya_loop` calls `ya_boot_root` unless the canary is `$5555`. That call reads `CPMIDE.CFG` from the volume root only. `ds` calls `fat_mount` again when `fs_type` is 0. `cpm` calls `fat_mount` only when `fs_type` is still 0, then clears `cpm_dir_sclust` and reads `CPMIDE.CFG` or walks `A` through `P`. A second init makes the next directory walk miss every name. `hg_sum` stays file-scope and is shared by `hg_hexbyte`, `hg_cksum`, and `hg_record`. The seven per-ROM `ffconf.h` copies are gone. ChaN `ff` still uses `ff/source/ffconf.h` in z88dk-libraries.
 
@@ -68,7 +68,7 @@ That size trial left the product boot path as it was. CRT page zero is the ROM-i
 
 ### Installed image
 
-The HEX files in the tree are commit `3e63979` ("BDOS - update function 27", 2026-11-01). That rebuild is `/tmp/cpm-ide-bdos27-hex/summary.txt`: `rebuild-hex.sh all`, zcc `v26669-3c3f8bb47c-20261030`, `ok=7 fail=0`. `__IO_CF_8_BIT` was left at `0x01`. Gate: `0006h` `$F206`, CCP tail `$F200`, BIOS `$FB00`, `fat_bss` `$F7D0`. Bin size is the contiguous image from address 0. The same numbers are in the burned HEX files. `xget` is the receive command. 8085 is 80cc. Z80 is sdcc.
+Commit `3e63979` ("BDOS - update function 27", 2026-11-01) is the function 27 link. It is not the HEX in the tree. That rebuild is `/tmp/cpm-ide-bdos27-hex/summary.txt`: `rebuild-hex.sh all`, zcc `v26669-3c3f8bb47c-20261030`, `ok=7 fail=0`. `__IO_CF_8_BIT` was left at `0x01`. Gate: `0006h` `$F206`, CCP tail `$F200`, BIOS `$FB00`, `fat_bss` `$F7D0`. Bin size is the contiguous image from address 0. `xget` is the receive command. 8085 is 80cc. Z80 is sdcc.
 
 | Product | Bin | `__CODE_END` | Under 32768 | Before `$7F81` |
 |---|---:|---:|---:|---:|
@@ -80,7 +80,7 @@ The HEX files in the tree are commit `3e63979` ("BDOS - update function 27", 202
 | 8085-cf-uart | 32004 | `$7CA5` | 764 | 732 |
 | 8085-pata-uart | 32151 | `$7D38` | 617 | 585 |
 
-Z80 PATA is 175 bytes under 32768. 8085 PATA `__CODE_END` `$7D38` is 585 bytes below the `$7F81` gate. Function 27 on both CPUs walks the current directory and fills `fatwin`. The disk harness that matches this BDOS printed `BDOS_DISK_OK`: Z80 `disk.bin` 64294 bytes at 63536166 ticks, 8085 `disk85.bin` 65279 bytes at 75478339 ticks.
+On that link Z80 PATA is 175 bytes under 32768. 8085 PATA `__CODE_END` `$7D38` is 585 bytes below the `$7F81` gate. The HEX files in the tree are commit `59503f1`. Z80 PATA SIO is 32615 bytes, `__CODE_END` `$7E97`, 153 bytes under 32768. That is the smallest slack. 8085 PATA is 32168 bytes, `__CODE_END` `$7D49`, 568 bytes below `$7F81`. The seven sizes are in [How CP/M-IDE fits](how-it-works.md). Function 27 on both CPUs walks the current directory and fills `fatwin`. The disk harness that matches this BDOS printed `BDOS_DISK_OK`: Z80 `disk.bin` 64294 bytes at 63536166 ticks, 8085 `disk85.bin` 65279 bytes at 75478339 ticks.
 
 The next table is the `71eb321` image. It is not the HEX in the tree. `YASH_HGET` was 1. `read_cfg` was linked. Gate addresses were already `$F206`, `$F200`, `$FB00`, `$F7D0`.
 
@@ -116,7 +116,7 @@ Every gate line from that cfg run: `0006h` `$F106`, Z80 CCP tail `$F100`, 8085 C
 
 The `676d65b` image, from `/tmp/cpm-ide-hgv`, had no `hget` and BIOS `$F960`: z80-cf-acia 31378 / `$79D2`, through 8085 PATA 32533 / `$7E7C`. On that HEX the stub was stored at `$7110`. That address belongs to that image. The stub in the tree is the later BDOS at `$F200`.
 
-The earlier links are kept in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026-10-09 (see git history). "ROM rebuild" is the pre-hget run (z80-cf-acia 32631 installed, six images over 32768). "hget compiled out" is the 31306-byte table, md counters still static, `_main` `$662A`. "Repair results" and "8085-cf-acia does not fit" (bin 33703, `__CODE_END` `$8308`, `_main` `$6B35`) are the repair history. "Image at 676d65b" in that review is the `$F960` link. The first table in this section is the HEX files in the tree (`3e63979`). The second table is the `71eb321` link. The cfg table is the `$F106` link.
+The earlier links are kept in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026-10-09 (see git history). "ROM rebuild" is the pre-hget run (z80-cf-acia 32631 installed, six images over 32768). "hget compiled out" is the 31306-byte table, md counters still static, `_main` `$662A`. "Repair results" and "8085-cf-acia does not fit" (bin 33703, `__CODE_END` `$8308`, `_main` `$6B35`) are the repair history. "Image at 676d65b" in that review is the `$F960` link. The first table in this section is the function 27 link (`3e63979`). The HEX in the tree is `59503f1`, recorded in [How CP/M-IDE fits](how-it-works.md). The second table is the `71eb321` link. The cfg table is the `$F106` link.
 
 ### Entry
 
@@ -151,7 +151,7 @@ Earlier tick figures live in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026
 
 Closed items stay here so a later edit does not reopen them. The others are still open. SHA names inside an item are the names when that item was written. The header of this file has the current tag.
 
-1. **Closed. `hget` is in the seven HEX files of that date.** Those sizes are the `71eb321` image: 8085 PATA 32605 bytes, `__CODE_END` `$7EFE` (163 under 32768, 131 before `$7F81`). The HEX in the tree is the function 27 link in the first installed-image table. The receive command in that ROM is `xget`. `md`, `dd`, and the shell `mount` command are gone. `cpm` reads `CPMIDE.CFG` or mounts letter directories. An 8 MB `.CPM` image is a file on the FAT volume. Extract it with cpmtools into a letter directory. `cpm` does not mount the image.
+1. **Closed. `hget` is in the seven HEX files of that date.** Those sizes are the `71eb321` image: 8085 PATA 32605 bytes, `__CODE_END` `$7EFE` (163 under 32768, 131 before `$7F81`). The function 27 link is the first installed-image table. The HEX in the tree is the later rebuild in [How CP/M-IDE fits](how-it-works.md). The receive command in that ROM is `xget`. `md`, `dd`, and the shell `mount` command are gone. `cpm` reads `CPMIDE.CFG` or mounts letter directories. An 8 MB `.CPM` image is a file on the FAT volume. Extract it with cpmtools into a letter directory. `cpm` does not mount the image.
 
 2. **The host harness enters at `_cpm_bdos_fbase`.** BIOS cold boot is what plants the jump at RAM `0005`. The suites call the symbol directly.
    Future run: boot one product image under ticks through `cboot` and check that the planted word at `0005` is `JP` to `$F206`. Leave the fbase instruction sequence as it is.

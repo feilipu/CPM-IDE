@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1022" viewBox="0 0 1200 1022" role="img" aria-labelledby="title desc">
+<title id="title">Build-time choices, not loadable device drivers</title><desc id="desc">The source tree ships seven combinations, not every possible permutation</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#49637c"/></marker></defs>
+<rect width="1200" height="100%" rx="18" fill="#f7fafc"/>
+<g font-family="DejaVu Sans, sans-serif" fill="#18324c">
+<text x="36" y="46" font-size="29" fill="#18324c" font-weight="bold">Build-time choices, not loadable device drivers</text>
+<text x="36" y="78" font-size="17" fill="#48617a">The source tree ships seven combinations, not every possible permutation</text>
+<rect x="400" y="110" width="400" height="90" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
+<text x="600.0" y="150.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">One 32 KiB ROM product</text>
+<text x="600.0" y="179.5" font-size="18" fill="#18324c" text-anchor="middle">Per-product main + preamble + BIOS</text>
+<rect x="40" y="270" width="345" height="190" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="212.5" y="323.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">CPU implementation</text>
+<text x="212.5" y="352.0" font-size="18" fill="#18324c" text-anchor="middle">Z80 common/*.asm</text>
+<text x="212.5" y="377.0" font-size="18" fill="#18324c" text-anchor="middle">8085 common/*_85.asm</text>
+<text x="212.5" y="402.0" font-size="18" fill="#18324c" text-anchor="middle">Same FAT / BDOS contract</text>
+<text x="212.5" y="427.0" font-size="18" fill="#18324c" text-anchor="middle">Different instructions and vectors</text>
+<rect x="425" y="270" width="350" height="190" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="600.0" y="323.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Serial implementation</text>
+<text x="600.0" y="352.0" font-size="18" fill="#18324c" text-anchor="middle">ACIA: Z80 and 8085</text>
+<text x="600.0" y="377.0" font-size="18" fill="#18324c" text-anchor="middle">UART: Z80 and 8085</text>
+<text x="600.0" y="402.0" font-size="18" fill="#18324c" text-anchor="middle">SIO/2: shipped Z80 only</text>
+<text x="600.0" y="427.0" font-size="18" fill="#18324c" text-anchor="middle">High-RAM service and rings</text>
+<rect x="815" y="270" width="345" height="190" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="987.5" y="323.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Storage implementation</text>
+<text x="987.5" y="352.0" font-size="18" fill="#18324c" text-anchor="middle">CF direct 8-bit taskfile</text>
+<text x="987.5" y="377.0" font-size="18" fill="#18324c" text-anchor="middle">or 8255 → 16-bit PATA</text>
+<text x="987.5" y="402.0" font-size="18" fill="#18324c" text-anchor="middle">Selected in z88dk library</text>
+<text x="987.5" y="427.0" font-size="18" fill="#18324c" text-anchor="middle">LBA28; one master device</text>
+<polyline points="450,200 450,235 212,235 212,270" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polyline points="600,200 600,270" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polyline points="750,200 750,235 987,235 987,270" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="40" y="530" width="345" height="170" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="212.5" y="573.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Different CPU behaviour</text>
+<text x="212.5" y="602.0" font-size="18" fill="#18324c" text-anchor="middle">Z80 IM1 / IM2</text>
+<text x="212.5" y="627.0" font-size="18" fill="#18324c" text-anchor="middle">8085 RST 6.5, RIM/SIM</text>
+<text x="212.5" y="652.0" font-size="18" fill="#18324c" text-anchor="middle">Do not substitute 8080</text>
+<text x="212.5" y="677.0" font-size="18" fill="#18324c" text-anchor="middle">or Z80 for an 8085 core</text>
+<rect x="425" y="530" width="350" height="170" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="600.0" y="573.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Different chip registers</text>
+<text x="600.0" y="602.0" font-size="18" fill="#18324c" text-anchor="middle">ACIA: $80 / $81</text>
+<text x="600.0" y="627.0" font-size="18" fill="#18324c" text-anchor="middle">SIO: $80 … $83</text>
+<text x="600.0" y="652.0" font-size="18" fill="#18324c" text-anchor="middle">UART A: $80 … $87</text>
+<text x="600.0" y="677.0" font-size="18" fill="#18324c" text-anchor="middle">UART B: $88 … $8F</text>
+<rect x="815" y="530" width="345" height="170" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="987.5" y="573.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">ATA transfer sequences</text>
+<text x="987.5" y="602.0" font-size="18" fill="#18324c" text-anchor="middle">CF: ports $10 … $17</text>
+<text x="987.5" y="627.0" font-size="18" fill="#18324c" text-anchor="middle">8255: ports $20 … $23</text>
+<text x="987.5" y="652.0" font-size="18" fill="#18324c" text-anchor="middle">512 bytes or 256 words</text>
+<text x="987.5" y="677.0" font-size="18" fill="#18324c" text-anchor="middle">Same 512-byte sector result</text>
+<polyline points="212,460 212,530" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polyline points="600,460 600,530" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polyline points="987,460 987,530" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="40" y="765" width="735" height="140" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
+<text x="407.5" y="805.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Console endpoint is a separate choice</text>
+<text x="407.5" y="834.5" font-size="18" fill="#18324c" text-anchor="middle">PC serial terminal • 7xtgv serial terminal</text>
+<text x="407.5" y="859.5" font-size="18" fill="#18324c" text-anchor="middle">Or feed emulated ACIA bytes directly into 7xtgv</text>
+<text x="407.5" y="884.5" font-size="18" fill="#18324c" text-anchor="middle">A VDP is not required by CP/M-IDE</text>
+<rect x="815" y="765" width="345" height="140" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
+<text x="987.5" y="805.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Physical 3V3 questions</text>
+<text x="987.5" y="834.5" font-size="18" fill="#18324c" text-anchor="middle">Voltage levels and timing</text>
+<text x="987.5" y="859.5" font-size="18" fill="#18324c" text-anchor="middle">Decode, reset, interrupt wiring</text>
+<text x="987.5" y="884.5" font-size="18" fill="#18324c" text-anchor="middle">Require actual board evidence</text>
+<text x="36" y="966" font-size="16" fill="#48617a">Typical RC2014 port values are shown. A similarly named RCBus/emulator machine may decode different addresses.</text>
+<text x="36" y="998" font-size="16" fill="#48617a">Graphics by Petr Antos</text>
+</g></svg>

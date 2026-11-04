@@ -6,9 +6,15 @@ The ROM is 32 KiB. It holds the startup, the shell, mini-FAT, the disk half of t
 
 What each BDOS call returns is [The CP/M 2.2 BDOS](bdos.md). The sector and directory layer is [Mini-FAT](mini-fat.md). The CCP changes are [Modifications to the CCP and BDOS](readme_ccp_bdos.md). The build that produced this layout is [CPM-IDE-MSX](CPM-IDE-MSX.md).
 
+A character call stays in the high RAM stub, so a string in the program's memory can be printed without paging. A disk call cannot. The stub copies the file control block or the record above `$8000`, pages the ROM in, and mini-FAT walks the directory. BIOS `read` and `write` are not that path. They return an error. The two routes are the picture.
+
+![Console stays in high RAM. A disk call pages the ROM in.](architecture.svg)
+
 ## Two maps, one set of chips
 
-`$8000`–`$FFFF` is always RAM. `$0000`–`$7FFF` is the window. Port `$38` selects it. Data `$00` puts the ROM there. Data `$01` puts RAM there.
+`$8000`–`$FFFF` is always RAM. `$0000`–`$7FFF` is the window. On the RC2014 pageable ROM a write to port `$38` toggles the window. It is not a bank number. The disk path writes `0`, calls the ROM, and writes `1`, which is the pair that brings the ROM in and then the RAM back. A board that latches the data byte, or that uses another port, is a different circuit. Paging hides the low RAM. It does not erase it. Anything the CPU must touch during the switch, including the serial rings, stays above `$8000`.
+
+![The shell's view of memory, and the program's view](memory-map.svg)
 
 While the shell is at the prompt the window is ROM. The shell, mini-FAT, and the disk BDOS run from that ROM. Shell variables sit at `$8000`. On the Z80 PATA image they end at `$81C5`. On the 8085 PATA image they end at `$805F`. The stack grows down from the CCP origin, `$E9E0` on the Z80 and `$E980` on the 8085. The RAM between the variables and that stack is unused. The CCP image is already sitting at the origin, and the stack grows away from it.
 
@@ -39,17 +45,19 @@ The addresses that do not depend on the CPU are the same on all seven ROMs. The 
 
 The 8085 stub is longer because `copy_mem` lives in it. A copy has to run while the window is RAM, and the 8085 has no `ldir`. The Z80 stub uses `ldir`. The stack grows down from `$F6E8` on the Z80 and from `$F717` on the 8085. Disk variables begin at `$F750` on both. The bytes between the stub RAM and `$F750` are unused. That gap is smaller than the 128-byte copy block, so the block stays in the CCP, inside the TPA, and does not push `0006h` down. `fatwin` is the 512-byte sector window, at `$F830`. The sixteen drive clusters, A: through P:, are the first 64 bytes of the FAT block.
 
-On the SIO products the two transmit rings are 32 bytes each and the two receive rings are 128 bytes each, finishing at `$FFFF`. The ACIA receive ring is 256 bytes. The UART receive rings are 128 bytes. The rings are aligned so the index wraps with `inc l` and a mask. The usable depth is one byte under that allocation, which is the 31, 127, and 255 in the front README. They are not inside the TPA.
+On the SIO products the two transmit rings are 32 bytes each and the two receive rings are 128 bytes each, finishing at `$FFFF`. The ACIA receive ring is 256 bytes. The UART receive rings are 128 bytes. The rings are aligned so the index wraps with `inc l` and a mask. The usable depth is one byte under that allocation, which is the 31, 127, and 255 in [Hardware](hardware.md). They are not inside the TPA.
 
 ## Why the ceiling is `$F206`
 
 The linker does not know about `PHASE`. A `PHASE` block is stored in the ROM at whatever address the linker reached, and its labels resolve at the high address where it will run. The preamble copies the CCP, the BDOS stub, and the BIOS to those addresses before the shell prompt. A warm boot with the canary still `$AA55` copies the CCP and the stub code again, clears the stub RAM and the disk variables, and leaves the FAT block and the BIOS where they are. The mounted directories survive that path. `EXIT` has changed the canary to `$5555`. That path clears the FAT block, copies the BIOS again, and returns to the shell. The code in the ROM image is the master. The high RAM is the working copy.
 
+A reset that leaves RAM intact is not a fresh power-on. The preamble reads the canary before `main`. The bytes `$55` `$AA` jump to `qboot`, which keeps the volume and enters the CCP. `$55` `$55` is the `EXIT` path. Any other value, including a cleared RAM, is a cold start. The ROM latch has to be in a state where that preamble actually runs. The shell procedure is in [Getting started](getting-started.md).
+
 Mini-FAT, the disk BDOS, and the IDE driver are not phased. They run at the address where they were linked, inside the 32 KiB window. A disk call pages that window in, uses them, and pages RAM back. The TPA does not have to hold them.
 
-v2.6 kept the whole disk BDOS and the disk half of the BIOS in high RAM, because the drive was an 8 MB file and the BIOS did the sector arithmetic. On the SIO ROMs the TPA stopped at `$E200`. Moving that work into the ROM raised the ceiling by about 4 KB, to `$F206`, on every product.
+v2.6 kept the whole disk BDOS and the disk half of the BIOS in high RAM, because the drive was an 8 MB file and the BIOS did the sector arithmetic. On the SIO ROMs the word at `0006h` was `$E206`. Moving that work into the ROM raised the ceiling to `$F206` on every product. That is 4 KB.
 
-The CCP is inside the TPA on purpose. Reserving it above `0006h` would shrink every program by the size of the CCP, `$820` bytes on the Z80 and `$880` bytes on the 8085, whether or not the program touched it. A program that stays below the CCP leaves it intact. A program that overwrites it leaves through address 0, and that warm boot copies the CCP back.
+The CCP is inside the TPA on purpose. Reserving it above `0006h` would shrink every program by the size of the CCP, `$820` bytes on the Z80 and `$880` bytes on the 8085, whether or not the program touched it. A program that stays below the CCP leaves it intact. A program that overwrites it leaves through address 0, and that warm boot copies the CCP back. The ceiling a program should trust is the word at `0006h`. That word is an address limit. It is not a promise that every program can occupy every byte below it and still return.
 
 ## The 32 KiB budget
 
@@ -62,17 +70,17 @@ The burned image has to hold all of this at once:
 - the IDE or Compact Flash driver
 - the stored CCP, BDOS stub, and BIOS
 
-A binary over 32768 bytes is rejected. On the 8085 the code also has to finish by `$7F81`. The HEX files in the tree are commit `3e63979`. The largest is the Z80 PATA SIO image, 32593 bytes, 175 bytes under the limit. The 8085 PATA image ends its code at `$7D38`, 585 bytes below `$7F81`.
+A binary over 32768 bytes is rejected. On the 8085 the code also has to finish by `$7F81`. The HEX files in the tree are commit `59503f1`. The largest is the Z80 PATA SIO image, 32615 bytes. That rebuild left 153 bytes, the smallest slack of the seven. The 8085 PATA image ends its code at `$7D49`, 568 bytes below `$7F81`.
 
 | Product | Bytes | Code end | Left in the 32 KiB |
 | --- | ---: | ---: | ---: |
-| Z80 CF ACIA | 31827 | `$7BB0` | 941 |
-| Z80 CF UART | 32244 | `$7D25` | 524 |
-| Z80 CF SIO | 32435 | `$7DE4` | 333 |
-| Z80 PATA SIO | 32593 | `$7E81` | 175 |
-| 8085 CF ACIA | 31803 | `$7BDC` | 965 |
-| 8085 CF UART | 32004 | `$7CA5` | 764 |
-| 8085 PATA UART | 32151 | `$7D38` | 617 |
+| Z80 CF ACIA | 31849 | `$7BC6` | 919 |
+| Z80 CF UART | 32267 | `$7D3B` | 501 |
+| Z80 CF SIO | 32456 | `$7DFA` | 312 |
+| Z80 PATA SIO | 32615 | `$7E97` | 153 |
+| 8085 CF ACIA | 31820 | `$7BED` | 948 |
+| 8085 CF UART | 32021 | `$7CB6` | 747 |
+| 8085 PATA UART | 32168 | `$7D49` | 600 |
 
 The shell stayed in every image. So did `xget`, the CCP, and both FAT types. The fit is what decided that the disk BDOS and mini-FAT live in the ROM rather than in a second bank or in the TPA.
 
@@ -119,7 +127,7 @@ Mini-FAT is the FAT16 and FAT32 code in the ROM. The shell and the disk BDOS bot
 
 Every directory entry and every FAT entry passes through `fatwin`. A dirty window is written before a different sector is loaded. Four consecutive 128-byte CP/M records that sit in the same 512-byte sector are one disk read, while that sector remains the window. A sequential read continues from the cluster it already reached, so it does not walk the chain from the start of the file for every record. A seek behind that point walks from the start. A new cluster is taken at the next number when that cluster is free, so a file written here tends to be one run and the FAT sector stays in the window. A fragmented file is still a normal file. The shell follows the chain, and so does the BDOS.
 
-The IDE driver underneath is the z88dk RC2014 driver. One call reads or writes one sector. LBA in BCDE, buffer in HL, carry set when the sector completed. The PATA path is the 8255 at `$20`–`$23`. The Compact Flash path is ports `$10`–`$17`. The front README has the measured rates for that driver. CP/M does not add a second layer of blocking on top of it.
+The IDE driver underneath is the z88dk RC2014 driver. One call reads or writes one sector. LBA in BCDE, buffer in HL, carry set when the sector completed. The PATA path is the 8255 at `$20`–`$23`. The Compact Flash path is ports `$10`–`$17`. [Hardware](hardware.md) has the measured rates for that driver. CP/M does not add a second layer of blocking on top of it.
 
 The public C header is `common/fatfs.h`. The calls, and the cases mini-FAT refuses, are in [Mini-FAT](mini-fat.md).
 

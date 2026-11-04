@@ -2,13 +2,31 @@
 
 v2.6 is the ROM that mounts container files. Tag `cpm-ide-v2.6` is commit `f093809`. Branch `cpm-ide-2.6` is that release, and it is where a later fix to that ROM belongs. The current ROM mounts directories. This note is the v2.6 procedure, kept so the container files in [CPM Drives](../CPM%20Drives) still have a manual.
 
-Hardware, the serial modules, and the HEX files are in the front README. Those parts did not change with the disk. What changed is the meaning of a drive.
+Hardware, the serial modules, and the HEX files are in [Hardware](hardware.md). Those parts did not change with the disk. What changed is the meaning of a drive.
+
+## Beside the current ROM
+
+| | v2.6 | Current ROM |
+| --- | --- | --- |
+| Drive letters | A: through D:, up to four files | A: through P:, up to sixteen directories |
+| One drive | An 8,388,608-byte `.CPM` file | A FAT directory, described to CP/M as 8 MB |
+| One program file | Extents and blocks inside the container | An ordinary 8.3 FAT file |
+| Placement | Each container is one contiguous run. The four files stay separate | A file may be fragmented |
+| Disk BDOS | Digital Research, with the RC2014 ports | The FAT-aware CP/M 2.2 interface in ROM |
+| Disk BIOS | Track and sector arithmetic, and `hstbuf` | `read` and `write` return an error |
+| Users | The CP/M user field in the container directory | User 0 only. No user directories |
+| Block a program is told | 4 KB, 2048 directory entries | 2 KB, 512 directory entries |
+| Host access | cpmtools, with the `rc2014-8MB` diskdef | Copy the 8.3 files with any FAT tool |
+
+The diskdef describes the container. It is not the current 2 KB block and 512-entry disk. Calling the v2.6 path a raw LBA drive describes the arithmetic after the file is mounted. The four files are not four partitions at fixed 8 MB offsets. The shell finds each file and remembers that file's base LBA.
 
 ## A drive is an 8 MB file
 
-On v2.6 each CP/M drive is one file on the FAT volume, 8388608 bytes, usually named `SOMETHING.CPM`. The BIOS adds the CP/M track and sector to that file's base LBA. The file has to be one contiguous cluster run. `cpm` will not mount a file that `frag` reports as more than one run.
+On v2.6 each CP/M drive is one file on the FAT volume, 8388608 bytes, usually named `SOMETHING.CPM`. The BIOS adds the CP/M track and sector to that file's base LBA. It does not ask the FAT for the next cluster on every read, so that one file has to be one contiguous cluster run. `cpm` will not mount a file that `frag` reports as more than one run. The four files do not have to form one contiguous unit. Other files and free space may sit between them. The current ROM, drawn beside it below, stores each CP/M file as a normal FAT file and may fragment it.
 
-Up to four files, on A: through D:. The letters are independent. The file on A: is the one CP/M falls back to when a program selects a letter that is not mounted. There is no special system disk. People call the utilities disk `SYS.CPM` and mount it on A: by habit.
+![v2.6 reads inside a container. The current ROM reads the FAT directory.](disk-models.svg)
+
+Up to four files, on A: through D:. Each file is checked on its own, and a gap between two drives is normal. The file on A: is the one CP/M falls back to when a program selects a letter that is not mounted. There is no special system disk. People call the utilities disk `SYS.CPM` and mount it on A: by habit.
 
 Cold boot and warm boot both come from ROM. There is no CP/M boot sector.
 
@@ -26,7 +44,7 @@ cpm SYS.CPM WORK.CPM
 cpm GAMES/ZORK.CPM
 ```
 
-`cpm` takes one to four paths. The first file is A:, the second is B:, and so on through D:. Give a path when the file is not in the working directory. Each file has to be a single cluster run.
+`cpm` takes one to four paths. The first file is A:, the second is B:, and so on through D:. Give a path when the file is not in the working directory. Each file has to be a single cluster run. The files do not have to form one contiguous unit.
 
 `EXIT` from the CCP returns to the shell. You can then start CP/M with a different set of files.
 
@@ -97,6 +115,17 @@ cpmcp -f rc2014-8MB SYS.CPM 0:*.* ./SYS/
 
 `mkfs.cpm -f rc2014-8MB` writes the directory and leaves the file at 128 KB. `truncate -s 8388608 file.cpm` extends it to a full drive. The directory already written stays in place. Unzipping `TEMPLATE.CPM.zip` produces the same empty 8 MB image.
 
+## Moving a container onto the current ROM
+
+Keep the `.CPM` files. On the host, extract the user area you want with the same diskdef. User 0 of the utilities disk is the usual first extract.
+
+```bash
+mkdir -p extracted-user0
+cpmcp -f rc2014-8MB SYS.CPM '0:*.*' extracted-user0/
+```
+
+Copy those 8.3 names into the directory that will be A: on a FAT volume. Do not copy `SYS.CPM` into that directory and expect the current BDOS to open the files inside it. This BDOS does not keep CP/M user areas as separate directories. If several users held the same name, choose which copy becomes the file in that letter. `CPM Drives/DRI-CPM22` is already a set of ordinary files for this approach. The zip archives stay the v2.6 images. A RunCPM tree, with folders such as `A/0`, is one directory too deep for this BDOS. The files belong in the letter directory itself.
+
 An example host serial line, for a later XMODEM of a `.COM` file once CP/M is up:
 
 ```text
@@ -107,7 +136,7 @@ picocom -b 115200 -f h --stopbits 2 --send-cmd "sz -vv --xmodem" --receive-cmd "
 
 The shell is `common/yash.c`. Backspace and DEL stop at the prompt. CR+LF, or LF+CR, is one end of line. Ctrl-P and Ctrl-N recall up to 8 lines of 80 characters.
 
-- `cpm file.a [file.b] [file.c] [file.d]` — mount 1 to 4 contiguous `.CPM` files on A: through D:.
+- `cpm file.a [file.b] [file.c] [file.d]` — mount 1 to 4 `.CPM` files on A: through D:. Each file is one cluster run. The files do not have to form one contiguous unit.
 - `mkdrv <file>` — create an empty 8 MB drive. `frag` must report one run before `cpm` mounts it.
 - `frag <file>` — cluster-run count.
 - `xget <file>` — receive an XMODEM-128 checksum file onto the FAT volume.
@@ -122,7 +151,7 @@ The BDOS on that ROM is the Digital Research BDOS, deblocking 128-byte records i
 
 ## Applications, and ChaN FatFs
 
-The v2.6 BDOS writes only inside the mounted container. It does not create a file on the FAT volume. The shell does that (`mkdrv`, `cp`, `xget`). A `.COM` that has to read or write the card as a FAT volume links [ChaN FatFs](http://elm-chan.org/fsw/ff/00index_e.html). The current ROM's BDOS writes ordinary FAT directories, so a `.COM` uses the BDOS and does not need ChaN. That build is in the front README, under Building a CP/M application.
+The v2.6 BDOS writes only inside the mounted container. It does not create a file on the FAT volume. The shell does that (`mkdrv`, `cp`, `xget`). The published v2.6 shell calls mini-FAT for that surrounding volume. Older releases used the read-only ChaN package for the same job. A `.COM` that has to read or write the card as a FAT volume still links [ChaN FatFs](http://elm-chan.org/fsw/ff/00index_e.html), because the BDOS never leaves the container. The shell having mini-FAT does not make v2.6 "the ChaN ROM", and it does not make this ROM the first assembly FAT. The current ROM's BDOS writes ordinary FAT directories, so a `.COM` uses the BDOS and does not need ChaN. That build is in [Building](building.md#building-a-cpm-application).
 
 A `.COM` for this ROM is the same CP/M subtype. Unprefixed `open`, `read`, `write`, `lseek`, and `close` use the BDOS FCB, which is the interior of the container.
 

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1082" viewBox="0 0 1200 1082" role="img" aria-labelledby="title desc">
+<title id="title">Current CP/M-IDE: the two service paths</title><desc id="desc">b8c6d96 · CP/M 2.2 interface · fixed 32 KiB ROM product · serial terminal outside the guest OS</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#49637c"/></marker></defs>
+<rect width="1200" height="100%" rx="18" fill="#f7fafc"/>
+<g font-family="DejaVu Sans, sans-serif" fill="#18324c">
+<text x="36" y="46" font-size="29" fill="#18324c" font-weight="bold">Current CP/M-IDE: the two service paths</text>
+<text x="36" y="78" font-size="17" fill="#48617a">b8c6d96 · CP/M 2.2 interface · fixed 32 KiB ROM product · serial terminal outside the guest OS</text>
+<rect x="400" y="110" width="400" height="95" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="600.0" y="153.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">CP/M application / CCP</text>
+<text x="600.0" y="182.0" font-size="18" fill="#18324c" text-anchor="middle">CALL 5: function in C, argument in DE</text>
+<rect x="400" y="255" width="400" height="110" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="600.0" y="293.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Resident BDOS stub</text>
+<text x="600.0" y="322.0" font-size="18" fill="#18324c" text-anchor="middle">Always-visible high RAM</text>
+<text x="600.0" y="347.0" font-size="18" fill="#18324c" text-anchor="middle">Console, staging buffers and page gate</text>
+<polyline points="600,205 600,255" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polyline points="400,310 210,310 210,420" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polyline points="600,365 600,420" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<text x="65" y="390" font-size="19" fill="#18324c" font-weight="bold">Character calls</text>
+<text x="630" y="397" font-size="19" fill="#18324c" font-weight="bold">File calls: page ROM in</text>
+<rect x="45" y="420" width="330" height="100" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="210.0" y="465.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Resident BIOS</text>
+<text x="210.0" y="494.5" font-size="18" fill="#18324c" text-anchor="middle">IOBYTE and serial routines</text>
+<rect x="425" y="420" width="350" height="100" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
+<text x="600.0" y="465.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">ROM disk BDOS</text>
+<text x="600.0" y="494.5" font-size="18" fill="#18324c" text-anchor="middle">FCB / record → FAT file</text>
+<rect x="425" y="570" width="350" height="100" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
+<text x="600.0" y="615.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">ROM mini-FAT</text>
+<text x="600.0" y="644.5" font-size="18" fill="#18324c" text-anchor="middle">Entries, cluster chains, fatwin</text>
+<rect x="425" y="720" width="350" height="100" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="600.0" y="765.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">z88dk IDE driver</text>
+<text x="600.0" y="794.5" font-size="18" fill="#18324c" text-anchor="middle">CF byte I/O or 8255 PATA</text>
+<rect x="425" y="870" width="350" height="100" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="600.0" y="915.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">One FAT16 / FAT32 volume</text>
+<text x="600.0" y="944.5" font-size="18" fill="#18324c" text-anchor="middle">A: … P: are directories</text>
+<polyline points="600,520 600,570" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polyline points="600,670 600,720" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polyline points="600,820 600,870" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="45" y="570" width="330" height="100" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="210.0" y="615.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">ACIA / SIO / UART</text>
+<text x="210.0" y="644.5" font-size="18" fill="#18324c" text-anchor="middle">Registers, interrupts, rings</text>
+<rect x="45" y="720" width="330" height="100" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="210.0" y="765.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Serial character stream</text>
+<text x="210.0" y="794.5" font-size="18" fill="#18324c" text-anchor="middle">Keyboard input / screen output</text>
+<rect x="45" y="870" width="330" height="100" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="210.0" y="915.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Terminal endpoint</text>
+<text x="210.0" y="944.5" font-size="18" fill="#18324c" text-anchor="middle">PC terminal or 7xtgv</text>
+<polyline points="210,520 210,570" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polyline points="210,670 210,720" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polyline points="210,820 210,870" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="840" y="420" width="315" height="170" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
+<text x="997.5" y="475.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">ROM also contains</text>
+<text x="997.5" y="504.5" font-size="18" fill="#18324c" text-anchor="middle">YASH startup shell</text>
+<text x="997.5" y="529.5" font-size="18" fill="#18324c" text-anchor="middle">Stored CCP / stub / BIOS</text>
+<text x="997.5" y="554.5" font-size="18" fill="#18324c" text-anchor="middle">CRT and copy preamble</text>
+<rect x="840" y="650" width="315" height="155" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="997.5" y="698.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Current BIOS disk calls</text>
+<text x="997.5" y="727.0" font-size="18" fill="#18324c" text-anchor="middle">READ / WRITE return error</text>
+<text x="997.5" y="752.0" font-size="18" fill="#18324c" text-anchor="middle">Disk BDOS calls mini-FAT</text>
+<text x="997.5" y="777.0" font-size="18" fill="#18324c" text-anchor="middle">No CP/M deblock buffer</text>
+<text x="36" y="1026" font-size="16" fill="#48617a">The shell also calls mini-FAT. The terminal consumes no CP/M guest ROM for screen rendering.</text>
+<text x="36" y="1058" font-size="16" fill="#48617a">Graphics by Petr Antos</text>
+</g></svg>

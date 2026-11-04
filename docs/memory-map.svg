@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="992" viewBox="0 0 1200 992" role="img" aria-labelledby="title desc">
+<title id="title">One address space, two memory views</title><desc id="desc">Current ROM · schematic regions, not to scale · upper RAM is reachable during ROM paging</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#49637c"/></marker></defs>
+<rect width="1200" height="100%" rx="18" fill="#f7fafc"/>
+<g font-family="DejaVu Sans, sans-serif" fill="#18324c">
+<text x="36" y="46" font-size="29" fill="#18324c" font-weight="bold">One address space, two memory views</text>
+<text x="36" y="78" font-size="17" fill="#48617a">Current ROM · schematic regions, not to scale · upper RAM is reachable during ROM paging</text>
+<text x="308" y="125" font-size="24" fill="#18324c" text-anchor="middle" font-weight="bold">YASH / ROM service view</text>
+<text x="892" y="125" font-size="24" fill="#18324c" text-anchor="middle" font-weight="bold">CP/M application view</text>
+<rect x="45" y="155" width="525" height="100" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="307.5" y="200.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">$FB00 … $FFFF</text>
+<text x="307.5" y="229.5" font-size="18" fill="#18324c" text-anchor="middle">BIOS, stacks and serial rings</text>
+<rect x="630" y="155" width="525" height="100" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="892.5" y="200.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">$FB00 … $FFFF</text>
+<text x="892.5" y="229.5" font-size="18" fill="#18324c" text-anchor="middle">BIOS, stacks and serial rings</text>
+<rect x="45" y="270" width="525" height="125" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="307.5" y="328.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">$F200 … $FAFF</text>
+<text x="307.5" y="357.0" font-size="18" fill="#18324c" text-anchor="middle">Resident stub + BDOS/FAT state</text>
+<rect x="630" y="270" width="525" height="125" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="892.5" y="328.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">$F200 … $FAFF</text>
+<text x="892.5" y="357.0" font-size="18" fill="#18324c" text-anchor="middle">Resident stub + BDOS/FAT state</text>
+<rect x="45" y="410" width="525" height="100" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="307.5" y="455.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">$E9E0 Z80 / $E980 8085</text>
+<text x="307.5" y="484.5" font-size="18" fill="#18324c" text-anchor="middle">CCP copy; shell stack below it</text>
+<rect x="630" y="410" width="525" height="100" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="892.5" y="455.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">$E9E0 Z80 / $E980 8085</text>
+<text x="892.5" y="484.5" font-size="18" fill="#18324c" text-anchor="middle">CCP copy (may be overwritten)</text>
+<rect x="45" y="525" width="525" height="115" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="307.5" y="578.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">$8000 … below CCP</text>
+<text x="307.5" y="607.0" font-size="18" fill="#18324c" text-anchor="middle">Shell variables, heap and stack</text>
+<rect x="630" y="525" width="525" height="115" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="892.5" y="578.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">$8000 … below CCP</text>
+<text x="892.5" y="607.0" font-size="18" fill="#18324c" text-anchor="middle">Application RAM / TPA</text>
+<rect x="45" y="655" width="525" height="145" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
+<text x="307.5" y="723.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">$0000 … $7FFF</text>
+<text x="307.5" y="752.0" font-size="18" fill="#18324c" text-anchor="middle">ROM: shell, FAT, disk BDOS</text>
+<rect x="630" y="655" width="525" height="145" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="892.5" y="723.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">$0000 … $7FFF</text>
+<text x="892.5" y="752.0" font-size="18" fill="#18324c" text-anchor="middle">RAM: page zero + application</text>
+<rect x="45" y="830" width="1110" height="75" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="600.0" y="863.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">TPA: $0100 … $F205 = 61,702 bytes</text>
+<text x="600.0" y="892.0" font-size="18" fill="#18324c" text-anchor="middle">FBASE = word at $0006 = $F206; warm boot restores CCP from ROM</text>
+<text x="36" y="936" font-size="16" fill="#48617a">Port $38 changes the lower window. The standard pageable-ROM model toggles; match the actual board.</text>
+<text x="36" y="968" font-size="16" fill="#48617a">Graphics by Petr Antos</text>
+</g></svg>

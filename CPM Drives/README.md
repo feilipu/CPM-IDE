@@ -1,8 +1,8 @@
 # CP/M-IDE Drive Files
 
-This directory contains example CP/M disk images stored as compressed zip files. Each image is 8388608 bytes. Read and extract them on the host with cpmtools. The ROM command `cpm` mounts FAT directories. It does not mount these files. Use `CPMIDE.CFG`, or directories named `A` through `P` under one parent. The front README explains both.
+This directory contains example CP/M disk images stored as compressed zip files. Each image is 8388608 bytes. Read and extract them on the host with cpmtools. The ROM command `cpm` mounts FAT directories. It does not mount these files. Use `CPMIDE.CFG`, or directories named `A` through `P` under one parent. [Getting started](../docs/getting-started.md) explains both.
 
-The shell follows a file's cluster chain, so a file that occupies more than one run needs no separate fragmentation check.
+On the current ROM the shell follows a file's cluster chain, so a file that occupies more than one run needs no separate fragmentation check. On v2.6 each `.CPM` file has to be one contiguous run of clusters. The four files mounted together do not have to form one contiguous unit.
 
 __`ls`__ lists these image files when they are stored on the FAT volume. __`cd`__ and __`pwd`__ move through sub-directories. To run the programs inside an image, extract that image into a letter directory. Start CP/M with `cpm` and a `CPMIDE.CFG` line for that directory, or with `cpm <directory>` when the directory's children are named `A` through `P`.
 

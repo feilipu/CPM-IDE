@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1042" viewBox="0 0 1200 1042" role="img" aria-labelledby="title desc">
+<title id="title">What does a CP/M drive letter mean?</title><desc id="desc">The same ATA/LBA sector device can support two very different file models</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#49637c"/></marker></defs>
+<rect width="1200" height="100%" rx="18" fill="#f7fafc"/>
+<g font-family="DejaVu Sans, sans-serif" fill="#18324c">
+<text x="36" y="46" font-size="29" fill="#18324c" font-weight="bold">What does a CP/M drive letter mean?</text>
+<text x="36" y="78" font-size="17" fill="#48617a">The same ATA/LBA sector device can support two very different file models</text>
+<text x="310" y="125" font-size="24" fill="#18324c" text-anchor="middle" font-weight="bold">v2.6: each file is one run</text>
+<text x="890" y="125" font-size="24" fill="#18324c" text-anchor="middle" font-weight="bold">Current: ordinary FAT files</text>
+<rect x="45" y="160" width="520" height="115" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="305.0" y="213.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">DRI-style disk BDOS</text>
+<text x="305.0" y="242.0" font-size="18" fill="#18324c" text-anchor="middle">CP/M directory, users, extents</text>
+<polyline points="305,275 305,315" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="45" y="315" width="520" height="115" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="305.0" y="355.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Disk BIOS</text>
+<text x="305.0" y="384.5" font-size="18" fill="#18324c" text-anchor="middle">128-byte records ↔ 512-byte hstbuf</text>
+<text x="305.0" y="409.5" font-size="18" fill="#18324c" text-anchor="middle">Container base LBA + sector offset</text>
+<polyline points="305,430 305,470" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="45" y="470" width="520" height="115" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="305.0" y="523.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">ATA device</text>
+<text x="305.0" y="552.0" font-size="18" fill="#18324c" text-anchor="middle">CF or PATA · 512-byte sectors</text>
+<polyline points="305,585 305,625" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="45" y="625" width="520" height="115" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
+<text x="305.0" y="665.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">FAT volume holds the .CPM files</text>
+<text x="305.0" y="694.5" font-size="18" fill="#18324c" text-anchor="middle">Each file: one contiguous run</text>
+<text x="305.0" y="719.5" font-size="18" fill="#18324c" text-anchor="middle">Inside: CP/M metadata + files</text>
+<polyline points="305,740 305,780" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="45" y="780" width="520" height="115" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="305.0" y="820.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Drive selection</text>
+<text x="305.0" y="849.5" font-size="18" fill="#18324c" text-anchor="middle">A: SYS.CPM     B: WORK.CPM</text>
+<text x="305.0" y="874.5" font-size="18" fill="#18324c" text-anchor="middle">Up to four separate files</text>
+<rect x="635" y="160" width="520" height="115" rx="12" fill="#eee6ff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="895.0" y="213.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Custom ROM disk BDOS</text>
+<text x="895.0" y="242.0" font-size="18" fill="#18324c" text-anchor="middle">FCB / record → FAT name / offset</text>
+<polyline points="895,275 895,315" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="635" y="315" width="520" height="115" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="895.0" y="355.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">mini-FAT</text>
+<text x="895.0" y="384.5" font-size="18" fill="#18324c" text-anchor="middle">FAT entries / chains / allocation</text>
+<text x="895.0" y="409.5" font-size="18" fill="#18324c" text-anchor="middle">One 512-byte sector window</text>
+<polyline points="895,430 895,470" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="635" y="470" width="520" height="115" rx="12" fill="#dcecff" stroke="#7890a6" stroke-width="1.5"/>
+<text x="895.0" y="523.0" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">ATA device</text>
+<text x="895.0" y="552.0" font-size="18" fill="#18324c" text-anchor="middle">CF or PATA · 512-byte sectors</text>
+<polyline points="895,585 895,625" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="635" y="625" width="520" height="115" rx="12" fill="#fff0cc" stroke="#7890a6" stroke-width="1.5"/>
+<text x="895.0" y="665.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">FAT volume holds directories</text>
+<text x="895.0" y="694.5" font-size="18" fill="#18324c" text-anchor="middle">/SET1/A/HELLO.TXT</text>
+<text x="895.0" y="719.5" font-size="18" fill="#18324c" text-anchor="middle">No nested CP/M disk filesystem</text>
+<polyline points="895,740 895,780" fill="none" stroke="#49637c" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="635" y="780" width="520" height="115" rx="12" fill="#dff3e8" stroke="#7890a6" stroke-width="1.5"/>
+<text x="895.0" y="820.5" font-size="21" fill="#18324c" text-anchor="middle" font-weight="bold">Drive selection</text>
+<text x="895.0" y="849.5" font-size="18" fill="#18324c" text-anchor="middle">A: /SET1/A     P: /SET1/P</text>
+<text x="895.0" y="874.5" font-size="18" fill="#18324c" text-anchor="middle">Up to sixteen: A … P</text>
+<text x="36" y="986" font-size="16" fill="#48617a">v2.6: host tools extract files from containers. Current: host tools copy ordinary 8.3 FAT files.</text>
+<text x="36" y="1018" font-size="16" fill="#48617a">Graphics by Petr Antos</text>
+</g></svg>
