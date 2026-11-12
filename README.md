@@ -77,6 +77,8 @@ The shell commands, the config file, and the other ways to choose the drives are
 
 Example programs are in [CPM Drives](CPM%20Drives). Host tools for the old images are in [`cpmtools/readme_cpmtools.md`](cpmtools/readme_cpmtools.md).
 
+The same notes are on the [wiki](https://github.com/feilipu/CPM-IDE/wiki).
+
 ## Licence
 
 The repository licence is [`LICENSE.txt`](LICENSE.txt). It is the MIT licence for this tree, and the Bryan Sparks grant for the Digital Research CP/M 2.2 Console Command Processor and Basic Input/Output System. Each product BIOS is derived from that CP/M BIOS.

@@ -30,7 +30,9 @@ Up to four files, on A: through D:. Each file is checked on its own, and a gap b
 
 Cold boot and warm boot both come from ROM. There is no CP/M boot sector.
 
-Format the card FAT32, or FAT16 if it is small. Unzip the example images from [CPM Drives](../CPM%20Drives) and copy them to the card. Check that each file occupies 8388608 bytes. They can sit in the root or in any directory. At least `SYS.CPM` is worth having. It holds PIP, STAT, XMODEM, and the rest of the usual set.
+Format the card FAT32, or FAT16 if it is small. Unzip `SYS.CPM.zip` from [CPM Drives](../CPM%20Drives) and copy `SYS.CPM` onto the drive. PIP, STAT, XMODEM, and the rest of the usual set are already in that container. Copying those programs out into a directory called A: is how the current ROM is started. Other example images copy the same way. Check that each file occupies 8388608 bytes. They can sit in the root or in any directory.
+
+When the drive cannot be attached to a host PC, receive `SYS.CPM` with `xget`. At 115200 baud, XMODEM of that 8 MB file takes upwards of 33 minutes. The steps are in [Sending a container to the RC2014](#sending-a-container-to-the-rc2014).
 
 The [NGS Microshell](http://www.z80.eu/microshell.html) is on that disk as `SH`. It replaces the CCP for that session. Leave the DRI CCP in place. Replacing it removes `EXIT`, and `EXIT` is the clean way back to the shell. NZ-COM, on `NZCOM.CPM`, can be loaded for a session. On this ROM the CCP and the BDOS both sit in RAM, so NZ-COM overwrites them until the next warm boot from ROM. The manual is the [NZ-COM User's Manual](http://cpmarchives.classiccmp.org/trs80/Miscellany/Emulatrs/Z-System/nzcom.pdf). The current disk BDOS stays in ROM, so that load is not available there.
 
@@ -58,7 +60,7 @@ frag WORK.CPM
 cpm SYS.CPM WORK.CPM
 ```
 
-`mkdrv` writes an empty 8 MB drive with 2048 directory entries. `frag` has to report one run before `cpm` will mount it. On the first session, mount `SYS.CPM` and the new file, and `PIP` the commands you want onto the working drive. Later you can mount only the working drive on A:. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`.
+`mkdrv` writes an empty 8 MB drive with 2048 directory entries. `frag` has to report one run before `cpm` will mount it. On the first session, mount `SYS.CPM` and the new file, and `PIP` the commands you want onto the working drive. Those commands are already on `SYS.CPM`. Later you can mount only the working drive on A:. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`.
 
 `cp`, `mv`, `rm`, `mkdir`, and `rmdir` change the FAT volume. `mv` of a fragmented file keeps the old chains. It does not join them. `cp` can. Copy the file, then copy that result again if `frag` still reports more than one run. On a fragmented disk this can take several copies. Leave every copy in place until one of them is a single chain, and delete the others only after that. The commands are in [Sending a container to the RC2014](#sending-a-container-to-the-rc2014).
 
@@ -119,7 +121,7 @@ cpmcp -f rc2014-8MB SYS.CPM 0:*.* ./SYS/
 
 ## Moving a container onto the current ROM
 
-Keep the `.CPM` files. On the host, extract the user area you want with the same diskdef. User 0 of the utilities disk is the usual first extract.
+This section is for the current ROM. v2.6 mounts the `SYS.CPM` container itself. Keep the `.CPM` files. On the host, extract the user area you want with the same diskdef. User 0 of the utilities disk is the usual first extract.
 
 ```bash
 mkdir -p extracted-user0
