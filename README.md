@@ -33,7 +33,7 @@ Each HEX file in this directory is one complete ROM for one combination of CPU, 
 
 A program sees an ordinary CP/M 2.2 machine. The transient program area runs from `$0100` up to the word at `0006h`, which is `$F206`. How the ROM and the RAM fit together is in [How CP/M-IDE fits](docs/how-it-works.md).
 
-v2.6, still published, mounts up to four 8 MB containers. The `cpm` command names those containers. The first container named is drive A:, and each further container is the next drive, through D:. Each container has to be one contiguous run of clusters. The four containers do not have to form one contiguous unit. That procedure is in [CP/M-IDE v2.6](docs/CPM-IDE-v2.6.md).
+v2.6, still published, mounts up to four 8 MB container files. The `cpm` command names those files. The first file named is drive A:, and each further file is the next drive, through D:. Each file has to be one contiguous run of clusters. The four files do not have to form one contiguous unit. That procedure is in [CP/M-IDE v2.6](docs/CPM-IDE-v2.6.md).
 
 ## Hardware
 
@@ -69,7 +69,7 @@ The shell commands, the config file, and the other ways to choose the drives are
 | [Hardware](docs/hardware.md) | Modules, jumpers, serial, and the disk interface. |
 | [How CP/M-IDE fits](docs/how-it-works.md) | The memory map, paging, and the TPA. |
 | [Building](docs/building.md) | The seven ROM command lines, a `.COM`, and CF versus PATA. |
-| [CP/M-IDE v2.6](docs/CPM-IDE-v2.6.md) | Containers, `frag`, and `mkdrv`. |
+| [CP/M-IDE v2.6](docs/CPM-IDE-v2.6.md) | Container files, `frag`, and `mkdrv`. |
 | [The CP/M 2.2 BDOS](docs/bdos.md) | What each call returns. |
 | [Mini-FAT](docs/mini-fat.md) | The sector and directory layer. |
 | [Modifications to the CCP and BDOS](docs/readme_ccp_bdos.md) | `EXIT`, the A: fallback, and the origins. |

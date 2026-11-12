@@ -1,10 +1,10 @@
 # CP/M-IDE Drive Files
 
-This directory contains example containers stored as compressed zip files. Each container is 8388608 bytes. Read and extract them on the host with cpmtools. The ROM command `cpm` mounts FAT directories. It does not mount these containers. Use `CPMIDE.CFG`, or directories named `A` through `P` under one parent. [Getting started](../docs/getting-started.md) explains both.
+This directory contains example container files stored as compressed zip files. Each file is 8388608 bytes. Read and extract them on the host with cpmtools. The ROM command `cpm` mounts FAT directories. It does not mount these files. Use `CPMIDE.CFG`, or directories named `A` through `P` under one parent. [Getting started](../docs/getting-started.md) explains both.
 
-On the current ROM the shell follows a file's cluster chain, so a file that occupies more than one run needs no separate fragmentation check. On v2.6 each container has to be one contiguous run of clusters. The four containers mounted together do not have to form one contiguous unit.
+On the current ROM the shell follows a file's cluster chain, so a file that occupies more than one run needs no separate fragmentation check. On v2.6 each container file has to be one contiguous run of clusters. The four files mounted together do not have to form one contiguous unit.
 
-__`ls`__ lists these containers when they are stored on the FAT volume. __`cd`__ and __`pwd`__ move through sub-directories. To run the programs inside a container, extract that container into a letter directory. Start CP/M with `cpm` and a `CPMIDE.CFG` line for that directory, or with `cpm <directory>` when the directory's children are named `A` through `P`.
+__`ls`__ lists these files when they are stored on the FAT volume. __`cd`__ and __`pwd`__ move through sub-directories. To run the programs inside a container file, extract that file into a letter directory. Start CP/M with `cpm` and a `CPMIDE.CFG` line for that directory, or with `cpm <directory>` when the directory's children are named `A` through `P`.
 
 
 ```
@@ -220,7 +220,7 @@ SQUARO  .COB   4k
 
 ## NZCOM.CPM
 
-This container is for the v2.6 ROM. NZ-COM overwrites the CCP and the BDOS, and that ROM keeps both in RAM for the session. The load, and the [NZ-COM User's Manual](http://cpmarchives.classiccmp.org/trs80/Miscellany/Emulatrs/Z-System/nzcom.pdf), are in [CP/M-IDE v2.6](../docs/CPM-IDE-v2.6.md).
+This container file is for the v2.6 ROM. NZ-COM overwrites the CCP and the BDOS, and that ROM keeps both in RAM for the session. The load, and the [NZ-COM User's Manual](http://cpmarchives.classiccmp.org/trs80/Miscellany/Emulatrs/Z-System/nzcom.pdf), are in [CP/M-IDE v2.6](../docs/CPM-IDE-v2.6.md).
 
 ```
 !VERS--1.2H    0k : ALIAS   .CMD   4k : ARUNZ   .COM   8k : BGZRDS19.LBR   4k

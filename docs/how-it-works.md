@@ -55,7 +55,7 @@ A reset that leaves RAM intact is not a fresh power-on. The preamble reads the c
 
 Mini-FAT, the disk BDOS, and the IDE driver are not phased. They run at the address where they were linked, inside the 32 KiB window. A disk call pages that window in, uses them, and pages RAM back. The TPA does not have to hold them.
 
-v2.6 kept the whole disk BDOS and the disk half of the BIOS in high RAM, because the drive was an 8 MB container and the BIOS did the sector arithmetic. On the SIO ROMs the word at `0006h` was `$E206`. Moving that work into the ROM raised the ceiling to `$F206` on every product. That is 4 KB.
+v2.6 kept the whole disk BDOS and the disk half of the BIOS in high RAM, because the drive was an 8 MB container file and the BIOS did the sector arithmetic. On the SIO ROMs the word at `0006h` was `$E206`. Moving that work into the ROM raised the ceiling to `$F206` on every product. That is 4 KB.
 
 The CCP is inside the TPA on purpose. Reserving it above `0006h` would shrink every program by the size of the CCP, `$820` bytes on the Z80 and `$880` bytes on the 8085, whether or not the program touched it. A program that stays below the CCP leaves it intact. A program that overwrites it leaves through address 0, and that warm boot copies the CCP back. The ceiling a program should trust is the word at `0006h`. That word is an address limit. It is not a promise that every program can occupy every byte below it and still return.
 

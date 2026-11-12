@@ -2,7 +2,7 @@
 
 This file is the design and build record. It keeps the decisions, the rejected alternatives, and the size of each link as that link was made. It is not the description of the machine as it stands. That description is [How CP/M-IDE fits](how-it-works.md).
 
-How the machine starts is in [Getting started](getting-started.md). The FAT layer is [mini-fat.md](mini-fat.md). What each BDOS call returns is [bdos.md](bdos.md). The CCP changes are [readme_ccp_bdos.md](readme_ccp_bdos.md). v2.6 containers are [CPM-IDE-v2.6.md](CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is `f093809`.
+How the machine starts is in [Getting started](getting-started.md). The FAT layer is [mini-fat.md](mini-fat.md). What each BDOS call returns is [bdos.md](bdos.md). The CCP changes are [readme_ccp_bdos.md](readme_ccp_bdos.md). v2.6 container files are [CPM-IDE-v2.6.md](CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is `f093809`.
 
 Where an older paragraph names `hget`, the command in the ROM is `xget`.
 
@@ -164,7 +164,7 @@ Closed items stay here so a later edit does not reopen them. The others are stil
 5. **The board command pass is still open.** The host `A>` is issue 4: a RAM disk, with the ACIA console traps, and with no write to port `$38`. ticks emulates the ACIA. The CF taskfile (`$10`–`$17`) and the 8255 PPIDE (`$20`–`$23`) stay outside that session. The 8085 CF ACIA board runs this branch. The directory-search crash is closed. A ticks shell banner is `ya_loop`, a different gate from this `A>`.
    Future run: a board pass in the order already written under Tests (CCP `DIR`, `ERA`, `REN`, `TYPE`, `SAVE`, `USER`, then PIP, STAT, ASM, LOAD, DDT), or a taskfile emulator that can mount. Report that pass from the board or from that emulator.
 
-6. **Master and this branch are different shells.** Master is the container line. Its 8085 PATA image still has `hget` and is 11 bytes under 32768. This branch mounts letter directories, reads `CPMIDE.CFG` when `cpm` has no arguments, and includes `hget` because `md`, `dd`, and `mount` are gone. The automatic-frame trial on master was reverted. `origin/master` is now `5db3e30`. `864f590` is the `ya_md` commit under that tag.
+6. **Master and this branch are different shells.** Master is the container-file line. Its 8085 PATA image still has `hget` and is 11 bytes under 32768. This branch mounts letter directories, reads `CPMIDE.CFG` when `cpm` has no arguments, and includes `hget` because `md`, `dd`, and `mount` are gone. The automatic-frame trial on master was reverted. `origin/master` is now `5db3e30`. `864f590` is the `ya_md` commit under that tag.
    Future run: leave the branched functions static on `master`. Do not push `master` from this branch. Leave tag `cpm-ide-v2.6` at `5db3e30`.
 
 7. **`hg_sum` stays file-scope.** `hg_hexbyte`, `hg_record`, and `hg_cksum` share it. A pointer parameter would give the frameless helpers their first automatic. The symbol is in the ROM.
@@ -311,7 +311,7 @@ Buffers:
 
 Function 27’s allocation vector is rebuilt into `fatwin` and is valid until the next disk call. The call then invalidates the sector window, so the bitmap is not served as the next sector. The DPB is the 2 KB / EXM 0 / DSM 4095 disk in the contracts section (8 MB reported, 512 bitmap bytes, the whole of `fatwin`). Function 31 returns that block from the resident stub, which is still readable after the latch restores. The 8 MB record-number cap is the same size as this disk. The free-block count is the smaller of the capped FAT free count and the blocks left on this drive. A file on the current drive rounds up to the next 2 KB block. The count skips a deleted entry, a volume label, a directory, and a long name. An empty drive on a large card still fills the vector. Both BDOS files read that directory. A permanent bitmap would lower `0006h` on every program, including ones that never ask for free space.
 
-The first link measures `0006h`. The old origins (`$D9E0` / `$E200` / `$F100` and the two higher sets) are the size of the disk BDOS plus the PHASE disk BIOS. They are not a target to preserve. BIOS code still has to leave the serial rings on their current alignment. `_cpm_dsk0_base` at `$F800` was the four container LBA bases; this branch has one volume and does not keep that table. The product image does not reserve `SERIAL_DISPATCH`. Those three bytes are emitted only when `BDOS_STUB_ORG` is undefined, which is the +test stub.
+The first link measures `0006h`. The old origins (`$D9E0` / `$E200` / `$F100` and the two higher sets) are the size of the disk BDOS plus the PHASE disk BIOS. They are not a target to preserve. BIOS code still has to leave the serial rings on their current alignment. `_cpm_dsk0_base` at `$F800` was the four container-file LBA bases; this branch has one volume and does not keep that table. The product image does not reserve `SERIAL_DISPATCH`. Those three bytes are emitted only when `BDOS_STUB_ORG` is undefined, which is the +test stub.
 
 ## Files
 

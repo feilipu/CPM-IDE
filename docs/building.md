@@ -21,7 +21,7 @@ The ROM images and a CP/M `.COM` are different builds. A ROM uses a bare RC2014 
 
 The assembly is written for the two CPUs on purpose. The labels and the branches match. The Z80 files use `ldir` and the Z80 shifts. The 8085 files use `copy_mem`, `rra`, and `rl de`. A dword cluster or LBA is BCDE, with E the low byte.
 
-Mini-FAT is the layer under ChaN's `f_open` and `f_read`. It is not that API. The calls, and what it refuses, are in [Mini-FAT](mini-fat.md). There is no separate mini-FAT archive to install. Older notes that say the shell links `ff_ro` or `ff_85_ro` describe an earlier shell. This one links mini-FAT directly. The published v2.6 shell did too. A `.COM` on v2.6 that had to create a file on the FAT volume still linked the full ChaN library, because the v2.6 BDOS only wrote inside the container.
+Mini-FAT is the layer under ChaN's `f_open` and `f_read`. It is not that API. The calls, and what it refuses, are in [Mini-FAT](mini-fat.md). There is no separate mini-FAT archive to install. Older notes that say the shell links `ff_ro` or `ff_85_ro` describe an earlier shell. This one links mini-FAT directly. The published v2.6 shell did too. A `.COM` on v2.6 that had to create a file on the FAT volume still linked the full ChaN library, because the v2.6 BDOS only wrote inside the container file.
 
 ## Building a CP/M application
 
@@ -31,7 +31,7 @@ A `.COM` runs in the TPA under the CCP. Build it with the RC2014 CP/M subtype. `
 zcc +rc2014 -subtype=cpm -clib=new app.c -o app -m
 ```
 
-On v2.6 the BDOS could write only inside a container. A program that had to create a file on the FAT volume itself linked ChaN FatFs. That recipe is in [CP/M-IDE v2.6](CPM-IDE-v2.6.md).
+On v2.6 the BDOS could write only inside a container file. A program that had to create a file on the FAT volume itself linked ChaN FatFs. That recipe is in [CP/M-IDE v2.6](CPM-IDE-v2.6.md).
 
 This ROM does not link ChaN. The shell and the disk BDOS call mini-FAT. The public header is [`common/fatfs.h`](../common/fatfs.h). Link `common/fatfs.asm` on the Z80, or `common/fatfs_85.asm` on the 8085, together with `common/fat_bss.asm`. Supply `asm_disk_initialize`, `ide_read_sector`, and `ide_write_sector`. One call moves one 512-byte sector. LBA in BCDE, buffer in HL, carry set when the sector completed. Replacing those three keeps the FAT code and stops being a test of the RC2014 ATA driver. The calls are in [Mini-FAT](mini-fat.md).
 
@@ -86,6 +86,6 @@ The Z80 `A>` under ticks is `sh test/cli/a.sh`. The script builds `test/cli/out/
 
 Those harnesses link flat `+test` images and RAM-backed sectors. They check the algorithms. They do not boot a product HEX, and they do not speak the CF taskfile at `$10` or the 8255 at `$20`. `z88dk-ticks -ide0` is a host trap. It is not that hardware. Some retained deblock runs load the v2.6 BIOS. They do not exercise this ROM's `read` and `write`, which return an error. `test/fatfs/run.sh` prints `MINIFAT_OK` on Z80 and 8085.
 
-The example containers in `CPM Drives` are extracted with cpmtools. The diskdef describes those containers. It is not the 2 KB block, 512-entry disk this ROM tells a program about. The recipes are in [`cpmtools/readme_cpmtools.md`](../cpmtools/readme_cpmtools.md) and [CP/M-IDE v2.6](CPM-IDE-v2.6.md).
+The example container files in `CPM Drives` are extracted with cpmtools. The diskdef describes those files. It is not the 2 KB block, 512-entry disk this ROM tells a program about. The recipes are in [`cpmtools/readme_cpmtools.md`](../cpmtools/readme_cpmtools.md) and [CP/M-IDE v2.6](CPM-IDE-v2.6.md).
 
 <p><a href="../README.md">Back</a></p>
