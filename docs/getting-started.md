@@ -8,11 +8,11 @@ The CP/M-IDE system mounts up to 16 drives, A: through P:, as directories on one
 
 A `CPMIDE.CFG` in the root of that volume starts CP/M when the machine boots, and only when that file names drive A. A copy in any other directory does not start CP/M. A directory named `A` in the root does not start CP/M by itself. `EXIT` returns to the shell and stays there. Change to the directory that holds the file and type `cpm` on its own. Type `cpm` and a directory name to use the folders `A` through `P` inside that directory. A letter with no directory is not mounted. Selecting it inside CP/M is a select error, not a blank disk you can write. Drive A has to be present or CP/M does not start.
 
-CP/M-IDE v2.6 mounted up to four 8 MB container files. Each file is one contiguous run of clusters. The four files do not have to form one contiguous unit. That procedure, including `frag` and `mkdrv`, is in [CP/M-IDE v2.6](CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is the published v2.6 ROM.
+CP/M-IDE v2.6 mounted up to four 8 MB containers. Each container is one contiguous run of clusters. The four containers do not have to form one contiguous unit. That procedure, including `frag` and `mkdrv`, is in [CP/M-IDE v2.6](CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is the published v2.6 ROM.
 
-Both arrangements move 512-byte sectors. v2.6 uses the FAT directory only to find each container, then reads a CP/M filesystem inside that file. Each file has to be one contiguous run of clusters, which is why `frag` exists. Other files and free space may sit between the four drives. This ROM keeps the CP/M names in the FAT directory itself. A file may be fragmented. A name copied onto the card from a PC is a name `DIR` can list.
+Both arrangements move 512-byte sectors. v2.6 uses the FAT directory only to find each container, then reads a CP/M filesystem inside that container. Each container has to be one contiguous run of clusters, which is why `frag` exists. Other files and free space may sit between the four drives. This ROM keeps the CP/M names in the FAT directory itself. A file may be fragmented. A name copied onto the card from a PC is a name `DIR` can list.
 
-![A container file and a FAT directory, as CP/M sees them](disk-models.svg)
+![A container and a FAT directory, as CP/M sees them](disk-models.svg)
 
 A CP/M program uses the TPA, from `$0100` up to FBASE. FBASE is the word at `0006h` (`$F206`, `jp fbase`). Read that word. Do not hard-code the CCP address. The CCP sits inside the TPA. A program may overwrite it. A jump to address 0 copies the CCP back before the next prompt. How the ROM, the RAM, and that ceiling fit together is in [How CP/M-IDE fits](how-it-works.md). The CCP and BDOS changes are in [Modifications to the CCP and BDOS](readme_ccp_bdos.md).
 

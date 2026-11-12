@@ -1,6 +1,6 @@
 # CP/M-IDE v2.6
 
-v2.6 is the ROM that mounts container files. Tag `cpm-ide-v2.6` is commit `f093809`. Branch `cpm-ide-2.6` is that release, and it is where a later fix to that ROM belongs. The current ROM mounts directories. This note is the v2.6 procedure, kept so the container files in [CPM Drives](../CPM%20Drives) still have a manual.
+v2.6 is the ROM that mounts containers. Tag `cpm-ide-v2.6` is commit `f093809`. Branch `cpm-ide-2.6` is that release, and it is where a later fix to that ROM belongs. The current ROM mounts directories. This note is the v2.6 procedure, kept so the containers in [CPM Drives](../CPM%20Drives) still have a manual.
 
 Hardware, the serial modules, and the HEX files are in [Hardware](hardware.md). Those parts did not change with the disk. What changed is the meaning of a drive.
 
@@ -8,31 +8,33 @@ Hardware, the serial modules, and the HEX files are in [Hardware](hardware.md). 
 
 | | v2.6 | Current ROM |
 | --- | --- | --- |
-| Drive letters | A: through D:, up to four files | A: through P:, up to sixteen directories |
-| One drive | An 8,388,608-byte `.CPM` file | A FAT directory, described to CP/M as 8 MB |
-| One program file | Extents and blocks inside the container | An ordinary 8.3 FAT file |
-| Placement | Each container is one contiguous run. The four files stay separate | A file may be fragmented |
+| Drive letters | A: through D:, up to four containers | A: through P:, up to sixteen directories |
+| One drive | An 8,388,608-byte container | A FAT directory, described to CP/M as 8 MB |
+| One program | Extents and blocks inside the container | An ordinary 8.3 FAT file |
+| Placement | Each container is one contiguous run. The four containers stay separate | A file may be fragmented |
 | Disk BDOS | Digital Research, with the RC2014 ports | The FAT-aware CP/M 2.2 interface in ROM |
 | Disk BIOS | Track and sector arithmetic, and `hstbuf` | `read` and `write` return an error |
 | Users | The CP/M user field in the container directory | User 0 only. No user directories |
 | Block a program is told | 4 KB, 2048 directory entries | 2 KB, 512 directory entries |
 | Host access | cpmtools, with the `rc2014-8MB` diskdef | Copy the 8.3 files with any FAT tool |
 
-The diskdef describes the container. It is not the current 2 KB block and 512-entry disk. Calling the v2.6 path a raw LBA drive describes the arithmetic after the file is mounted. The four files are not four partitions at fixed 8 MB offsets. The shell finds each file and remembers that file's base LBA.
+The diskdef describes the container. It is not the current 2 KB block and 512-entry disk. Calling the v2.6 path a raw LBA drive describes the arithmetic after the container is mounted. The four containers are not four partitions at fixed 8 MB offsets. The shell finds each container and writes its LBA into the drive table.
 
-## A drive is an 8 MB file
+## A drive is an 8 MB container
 
-On v2.6 each CP/M drive is one file on the FAT volume, 8388608 bytes, usually named `SOMETHING.CPM`. The BIOS adds the CP/M track and sector to that file's base LBA. It does not ask the FAT for the next cluster on every read, so that one file has to be one contiguous cluster run. `cpm` will not mount a file that `frag` reports as more than one run. The four files do not have to form one contiguous unit. Other files and free space may sit between them. The current ROM, drawn beside it below, stores each CP/M file as a normal FAT file and may fragment it.
+On v2.6 each CP/M drive is one container on the FAT volume, 8388608 bytes, usually named `SOMETHING.CPM`. The BIOS adds the CP/M track and sector to that container's base LBA. It does not ask the FAT for the next cluster on every read, so that container has to be one contiguous cluster run. `cpm` will not mount a container that `frag` reports as more than one run. The four containers do not have to form one contiguous unit. Other files and free space may sit between them. The current ROM, drawn beside it below, stores each program as a normal FAT file and may fragment it.
 
 ![v2.6 reads inside a container. The current ROM reads the FAT directory.](disk-models.svg)
 
-Up to four files, on A: through D:. Each file is checked on its own, and a gap between two drives is normal. The file on A: is the one CP/M falls back to when a program selects a letter that is not mounted. There is no special system disk. People call the utilities disk `SYS.CPM` and mount it on A: by habit.
+Up to four containers, on A: through D:. Each container is checked on its own, and a gap between two drives is normal. The container on A: is the one CP/M falls back to when a program selects a letter that is not mounted. There is no special system disk. People call the utilities disk `SYS.CPM` and mount it on A: by habit.
 
 Cold boot and warm boot both come from ROM. There is no CP/M boot sector.
 
-Format the card FAT32, or FAT16 if it is small. Unzip `SYS.CPM.zip` from [CPM Drives](../CPM%20Drives) and copy `SYS.CPM` onto the drive. `cpm` opens that file and uses its first sector as the drive. PIP, STAT, XMODEM, and the rest of the usual set stay in the file. Other example images are container files too. Copy each file onto the drive. Check that each file occupies 8388608 bytes. They can sit in the root or in any directory.
+Format the card FAT32, or FAT16 if it is small. Unzip `SYS.CPM.zip` from [CPM Drives](../CPM%20Drives) and copy the container onto the drive. PIP, STAT, XMODEM, and the rest of the usual set stay in that container. The other examples in CPM Drives are containers too. Copy each container onto the drive. Check that each container occupies 8388608 bytes. A container can sit in the root or in any directory.
 
-When the drive cannot be attached to a host PC, receive `SYS.CPM` with `xget`. At 115200 baud, XMODEM of that 8 MB file takes upwards of 33 minutes. The steps are in [Sending a container to the RC2014](#sending-a-container-to-the-rc2014).
+When `cpm` is issued, FAT reads the volume and takes the containers named on the command. The first container is drive A:. Up to three further containers are B:, C:, and D:. The LBA of each container is written into the drive table, starting at `dsk0`. The programs stay in those containers.
+
+When the drive cannot be attached to a host PC, receive `SYS.CPM` with `xget`. At 115200 baud, XMODEM of that 8 MB container takes upwards of 33 minutes. The steps are in [Sending a container to the RC2014](#sending-a-container-to-the-rc2014).
 
 The [NGS Microshell](http://www.z80.eu/microshell.html) is on that disk as `SH`. It replaces the CCP for that session. Leave the DRI CCP in place. Replacing it removes `EXIT`, and `EXIT` is the clean way back to the shell. NZ-COM, on `NZCOM.CPM`, can be loaded for a session. On this ROM the CCP and the BDOS both sit in RAM, so NZ-COM overwrites them until the next warm boot from ROM. The manual is the [NZ-COM User's Manual](http://cpmarchives.classiccmp.org/trs80/Miscellany/Emulatrs/Z-System/nzcom.pdf). The current disk BDOS stays in ROM, so that load is not available there.
 
@@ -46,13 +48,13 @@ cpm SYS.CPM WORK.CPM
 cpm GAMES/ZORK.CPM
 ```
 
-`cpm` takes one to four paths. The first file is A:, the second is B:, and so on through D:. Give a path when the file is not in the working directory. Each file has to be a single cluster run. The files do not have to form one contiguous unit.
+`cpm` takes one to four containers. The first container is A:, the second is B:, and so on through D:. Give a path when the container is not in the working directory. Each container has to be a single cluster run. The containers do not have to form one contiguous unit.
 
-`EXIT` from the CCP returns to the shell. You can then start CP/M with a different set of files.
+`EXIT` from the CCP returns to the shell. You can then start CP/M with a different set of containers.
 
 ## A new working drive
 
-The shell can build the file on the card.
+The shell can build the container on the card.
 
 ```text
 mkdrv WORK.CPM
@@ -60,19 +62,19 @@ frag WORK.CPM
 cpm SYS.CPM WORK.CPM
 ```
 
-`mkdrv` writes an empty 8 MB drive with 2048 directory entries. `frag` has to report one run before `cpm` will mount it. On the first session, mount `SYS.CPM` and the new file, and `PIP` the commands you want onto the working drive. Those commands are already on `SYS.CPM`. Later you can mount only the working drive on A:. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`.
+`mkdrv` writes an empty 8 MB container with 2048 directory entries. `frag` has to report one run before `cpm` will mount it. On the first session, mount `SYS.CPM` and the new container, and `PIP` the commands you want onto the working drive. Those commands are already on `SYS.CPM`. Later you can mount only the working drive on A:. The CCP already has `DIR`, `REN`, `ERA`, `TYPE`, and `EXIT`.
 
-`cp`, `mv`, `rm`, `mkdir`, and `rmdir` change the FAT volume. `mv` of a fragmented file keeps the old chains. It does not join them. `cp` can. Copy the file, then copy that result again if `frag` still reports more than one run. On a fragmented disk this can take several copies. Leave every copy in place until one of them is a single chain, and delete the others only after that. The commands are in [Sending a container to the RC2014](#sending-a-container-to-the-rc2014).
+`cp`, `mv`, `rm`, `mkdir`, and `rmdir` change the FAT volume. `mv` of a fragmented container keeps the old chains. It does not join them. `cp` can. Copy the container, then copy that result again if `frag` still reports more than one run. On a fragmented disk this can take several copies. Leave every copy in place until one of them is a single chain, and delete the others only after that. The commands are in [Sending a container to the RC2014](#sending-a-container-to-the-rc2014).
 
 ## Sending a container to the RC2014
 
-`xget` receives one file with XMODEM-128 checksum. The link is 115200 baud, 8 data bits, 2 stop bits, and hardware flow control. The shell sends `NAK`, which selects checksum mode. CRC is not used.
+`xget` receives one container with XMODEM-128 checksum. The link is 115200 baud, 8 data bits, 2 stop bits, and hardware flow control. The shell sends `NAK`, which selects checksum mode. CRC is not used.
 
 ```text
 xget DRIVE.CPM
 ```
 
-The shell prints `Waiting for XMODEM`. Send the file with `sx --checksum` (in minicom, Ctrl-A S, then xmodem). A good block is acknowledged after its 128 bytes are in the sector buffer. `EOT` finishes the receive and the shell prints the byte count. A full drive is `8388608 bytes`. A quiet line prints `timeout`. `CAN` prints `cancelled`. Do not type on the console during the transfer.
+The shell prints `Waiting for XMODEM`. Send the container with `sx --checksum` (in minicom, Ctrl-A S, then xmodem). A good block is acknowledged after its 128 bytes are in the sector buffer. `EOT` finishes the receive and the shell prints the byte count. A full drive is `8388608 bytes`. A quiet line prints `timeout`. `CAN` prints `cancelled`. Do not type on the console during the transfer.
 
 Then:
 
@@ -80,7 +82,7 @@ Then:
 frag DRIVE.CPM
 ```
 
-`frag` prints the cluster count, the run count, and the size. `cpm` mounts the file only when that is one run. When it is more than one run, copy it with `cp`. Each copy takes a new chain. On a fragmented disk that chain can still be more than one run, so copy again and check the new name with `frag`. Keep repeating the copy until one file is a single chain. Do not delete the earlier copies until that has happened.
+`frag` prints the cluster count, the run count, and the size. `cpm` mounts the container only when that is one run. When it is more than one run, copy it with `cp`. Each copy takes a new chain. On a fragmented disk that chain can still be more than one run, so copy again and check the new name with `frag`. Keep repeating the copy until one container is a single chain. Do not delete the earlier copies until that has happened.
 
 ```text
 cp DRIVE.CPM DRIVE2.CPM
@@ -89,15 +91,15 @@ cp DRIVE2.CPM DRIVE3.CPM
 frag DRIVE3.CPM
 ```
 
-Stop when `frag` reports one run. Mount that file. The other names can be removed afterwards.
+Stop when `frag` reports one run. Mount that container. The other names can be removed afterwards.
 
-A received file has to be 16 MB or less. The name stored on the card is the `xget` argument, in 8.3 form.
+A received container has to be 16 MB or less. The name stored on the card is the `xget` argument, in 8.3 form.
 
-FAT32 can hold more than 65,000 files in one directory. A 128 GB card holds about 16,000 of these 8 MB drives. A larger disk can hold more. That upper limit has not been tested.
+FAT32 can hold more than 65,000 directory entries in one directory. A 128 GB card holds about 16,000 of these 8 MB drives. A larger disk can hold more. That upper limit has not been tested.
 
-## Building an image on the host
+## Building a container on the host
 
-[`cpmtools`](http://www.moria.de/~michael/cpmtools/) reads and writes the files inside an image. The geometry is the `rc2014-8MB` diskdef. Append it to `/etc/cpmtools/diskdefs`. The same text is in [`cpmtools/readme_cpmtools.md`](../cpmtools/readme_cpmtools.md), together with the two upstream bugs in the packaged build.
+[`cpmtools`](http://www.moria.de/~michael/cpmtools/) reads and writes the programs inside a container. The geometry is the `rc2014-8MB` diskdef. Append it to `/etc/cpmtools/diskdefs`. The same text is in [`cpmtools/readme_cpmtools.md`](../cpmtools/readme_cpmtools.md), together with the two upstream bugs in the packaged build.
 
 ```text
 diskdef rc2014-8MB
@@ -117,33 +119,16 @@ cpmls -f rc2014-8MB SYS.CPM
 cpmcp -f rc2014-8MB SYS.CPM 0:*.* ./SYS/
 ```
 
-`mkfs.cpm -f rc2014-8MB` writes the directory and leaves the file at 128 KB. `truncate -s 8388608 file.cpm` extends it to a full drive. The directory already written stays in place. Unzipping `TEMPLATE.CPM.zip` produces the same empty 8 MB image.
-
-## Moving a container onto the current ROM
-
-This section is for the current ROM. v2.6 mounts the `SYS.CPM` container itself. Keep the `.CPM` files. On the host, extract the user area you want with the same diskdef. User 0 of the utilities disk is the usual first extract.
-
-```bash
-mkdir -p extracted-user0
-cpmcp -f rc2014-8MB SYS.CPM '0:*.*' extracted-user0/
-```
-
-Copy those 8.3 names into the directory that will be A: on a FAT volume. Do not copy `SYS.CPM` into that directory and expect the current BDOS to open the files inside it. This BDOS does not keep CP/M user areas as separate directories. If several users held the same name, choose which copy becomes the file in that letter. `CPM Drives/DRI-CPM22` is already a set of ordinary files for this approach. The zip archives stay the v2.6 images. A RunCPM tree, with folders such as `A/0`, is one directory too deep for this BDOS. The files belong in the letter directory itself.
-
-An example host serial line, for a later XMODEM of a `.COM` file once CP/M is up:
-
-```text
-picocom -b 115200 -f h --stopbits 2 --send-cmd "sz -vv --xmodem" --receive-cmd "rz -vv -E --xmodem" /dev/ttyUSB0
-```
+`mkfs.cpm -f rc2014-8MB` writes the directory and leaves the container at 128 KB. `truncate -s 8388608 file.cpm` extends the container to a full drive. The directory already written stays in place. Unzipping `TEMPLATE.CPM.zip` produces the same empty 8 MB container.
 
 ## Shell commands on that ROM
 
 The shell is `common/yash.c`. Backspace and DEL stop at the prompt. CR+LF, or LF+CR, is one end of line. Ctrl-P and Ctrl-N recall up to 8 lines of 80 characters.
 
-- `cpm file.a [file.b] [file.c] [file.d]` — mount 1 to 4 `.CPM` files on A: through D:. Each file is one cluster run. The files do not have to form one contiguous unit.
-- `mkdrv <file>` — create an empty 8 MB drive. `frag` must report one run before `cpm` mounts it.
-- `frag <file>` — cluster-run count.
-- `xget <file>` — receive an XMODEM-128 checksum file onto the FAT volume.
+- `cpm <container> [<container> ...]` — mount 1 to 4 containers on A: through D:. Each container is one cluster run. The containers do not have to form one contiguous unit.
+- `mkdrv <container>` — create an empty 8 MB container. `frag` must report one run before `cpm` mounts it.
+- `frag <container>` — cluster-run count.
+- `xget <name>` — receive an XMODEM-128 checksum transfer onto the FAT volume.
 - `ls`, `cd`, `pwd`, `rm`, `rmdir`, `mkdir`, `cp`, `mv` — the FAT volume.
 - `mount` — mount the FAT file system.
 - `ds` — disk status. `dd` — dump a sector. `md` — dump memory.
@@ -155,7 +140,7 @@ The BDOS on that ROM is the Digital Research BDOS, deblocking 128-byte records i
 
 ## Applications, and ChaN FatFs
 
-The v2.6 BDOS writes only inside the mounted container. It does not create a file on the FAT volume. The shell does that (`mkdrv`, `cp`, `xget`). The published v2.6 shell calls mini-FAT for that surrounding volume. Older releases used the read-only ChaN package for the same job. A `.COM` that has to read or write the card as a FAT volume still links [ChaN FatFs](http://elm-chan.org/fsw/ff/00index_e.html), because the BDOS never leaves the container. The shell having mini-FAT does not make v2.6 "the ChaN ROM", and it does not make this ROM the first assembly FAT. The current ROM's BDOS writes ordinary FAT directories, so a `.COM` uses the BDOS and does not need ChaN. That build is in [Building](building.md#building-a-cpm-application).
+The v2.6 BDOS writes only inside the mounted container. It does not create a FAT file. The shell creates the container (`mkdrv`, `cp`, `xget`). The published v2.6 shell calls mini-FAT for that surrounding volume. Older releases used the read-only ChaN package for the same job. A `.COM` that has to read or write the card as a FAT volume still links [ChaN FatFs](http://elm-chan.org/fsw/ff/00index_e.html), because the BDOS never leaves the container. The shell having mini-FAT does not make v2.6 "the ChaN ROM", and it does not make this ROM the first assembly FAT. The current ROM's BDOS writes ordinary FAT directories, so a `.COM` uses the BDOS and does not need ChaN. That build is in [Building](building.md#building-a-cpm-application).
 
 A `.COM` for this ROM is the same CP/M subtype. Unprefixed `open`, `read`, `write`, `lseek`, and `close` use the BDOS FCB, which is the interior of the container.
 
@@ -171,7 +156,7 @@ zcc +rc2014 -subtype=cpm -clib=new app.c \
   -llib/rc2014/ff -llib/rc2014/time -o app -m
 ```
 
-Both stacks may be used in one binary (BDOS files inside the container, and FatFs volumes such as `0:`). The current ROM does not link ChaN `ff_ro`. Its shell and disk BDOS call mini-FAT. That is the sector and directory layer under ChaN's `f_open` and `f_read`. The public header is [`common/fatfs.h`](../common/fatfs.h). The calls are in [Mini-FAT](mini-fat.md).
+Both stacks may be used in one binary (programs inside the container, and FatFs volumes such as `0:`). The current ROM does not link ChaN `ff_ro`. Its shell and disk BDOS call mini-FAT. That is the sector and directory layer under ChaN's `f_open` and `f_read`. The public header is [`common/fatfs.h`](../common/fatfs.h). The calls are in [Mini-FAT](mini-fat.md).
 
 * [z88dk wiki — Newlib File I/O and FatFs](https://github.com/z88dk/z88dk/wiki/Newlib_File_IO_and_FatFs)
 * Package sources: [feilipu/z88dk-libraries](https://github.com/feilipu/z88dk-libraries)

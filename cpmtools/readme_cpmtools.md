@@ -1,11 +1,11 @@
 # cpmtools on the host — diskdef, and two upstream bugs
 
-Host-side `cpmtools` reads and writes the CP/M files inside an 8 MB `.CPM` image.
-v2.6 mounted these images as drives. That procedure is `docs/CPM-IDE-v2.6.md`.
-The host operating system copies the `.CPM`
-files themselves on the FAT volume. It does not see the files stored inside an image.
-The ROM command `cpm` does not mount these images. It mounts FAT directories named
-`A` through `P`. Use `cpmcp` to extract an image into such a directory.
+Host-side `cpmtools` reads and writes the programs inside an 8 MB container.
+v2.6 mounted these containers as drives. That procedure is `docs/CPM-IDE-v2.6.md`.
+The host operating system copies the containers
+themselves on the FAT volume. It does not see the programs stored inside a container.
+The ROM command `cpm` does not mount these containers. It mounts FAT directories named
+`A` through `P`. Use `cpmcp` to extract a container into such a directory.
 
 This file records the `rc2014-8MB` diskdef, the two bugs found while validating it, and
 the recipes to rebuild the tools. The reusable procedure lives in
@@ -15,7 +15,7 @@ the recipes to rebuild the tools. The reusable procedure lives in
 
 Appended to the host `/etc/cpmtools/diskdefs`. The geometry matches the old 8 MB
 containers and the synthesized v3 DPB (4 KB blocks, 64 tracks × 256 sectors = 8,388,608
-bytes exactly, which is the size of the images in `CPM Drives/*.CPM.zip`).
+bytes exactly, which is the size of the containers in `CPM Drives/*.CPM.zip`).
 
 ```
 diskdef rc2014-8MB

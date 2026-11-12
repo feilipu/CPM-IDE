@@ -2,7 +2,7 @@
 
 This file is the design and build record. It keeps the decisions, the rejected alternatives, and the size of each link as that link was made. It is not the description of the machine as it stands. That description is [How CP/M-IDE fits](how-it-works.md).
 
-How the machine starts is in [Getting started](getting-started.md). The FAT layer is [mini-fat.md](mini-fat.md). What each BDOS call returns is [bdos.md](bdos.md). The CCP changes are [readme_ccp_bdos.md](readme_ccp_bdos.md). v2.6 container files are [CPM-IDE-v2.6.md](CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is `f093809`.
+How the machine starts is in [Getting started](getting-started.md). The FAT layer is [mini-fat.md](mini-fat.md). What each BDOS call returns is [bdos.md](bdos.md). The CCP changes are [readme_ccp_bdos.md](readme_ccp_bdos.md). v2.6 containers are [CPM-IDE-v2.6.md](CPM-IDE-v2.6.md). Branch `cpm-ide-2.6` tracks that release. Tag `cpm-ide-v2.6` is `f093809`.
 
 Where an older paragraph names `hget`, the command in the ROM is `xget`.
 
