@@ -35,7 +35,7 @@ Entry files in those trees (index only; do not ingest every skill they list):
 | `zcc` flags, subtypes, parallel cwd | `tool-zcc` |
 | 8085 ROM and 8085 `+test` (`-compiler=80cc`) | `compiler-80cc` |
 | Z80 `+test` host lines (sccz80) | `compiler-sccz80` |
-| zsdcc / `sdcc_ix` / `sdcc_iy` (Z80 ROM) | `compiler-zsdcc` |
+| zsdcc / `sdcc_ix` (Z80 ROM; `-clib=sdcc_iy` reserves IY and links this library) | `compiler-zsdcc` |
 | 80cc only if that compiler is in play | `compiler-80cc` |
 | `z88dk-ticks`, TIMER A/B | `tool-ticks`, `methodology-measure` |
 | `+rc2014` CRT, serial, diskio | `target-rc2014` |

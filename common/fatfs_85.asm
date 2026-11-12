@@ -56,6 +56,10 @@
 ;   FAT16 EOC $FFF8..$FFFF; FAT32 EOC $0FFFFFF8..F (put_fat keeps bits 28-31)
 ;   nclst <= $0FF5 is rejected as FAT12 (spec 1.03 treats 4085 as FAT16)
 ;   nclst == $FFF5 stays FAT16 (ChaN MAX_FAT16; spec 1.03 would use FAT32)
+;   nclst > $0FFFFFF5 is rejected (ChaN MAX_FAT32; put_fat keeps 28 bits)
+;   fatsz >= $200000 is rejected (ChaN ff16p2, before fatsz is doubled)
+;   a partition, fatbase, database, or active FAT at LBA >= $10000000 fails
+;   an FSInfo LBA >= $10000000 leaves the hint clear; the mount still succeeds
 ;   Neither boundary is built by test/fatfs. BPB_Media is never read.
 ;   FAT16 root count is a non-zero multiple of 16. A FAT32-shaped VBR
 ;   whose cluster count falls in the FAT16 band is rejected.
@@ -204,6 +208,9 @@ DEFC    FS_FAT16        = 2
 DEFC    FS_FAT32        = 3
 DEFC    MAX_FAT12       = $0FF5
 DEFC    MAX_FAT16       = $FFF5
+DEFC    MAX_FAT32       = $0FFFFFF5
+DEFC    MAX_FATSZ       = $1FFFFF
+DEFC    MAX_LBA28       = $0FFFFFFF
 DEFC    BPB_BytsPerSec  = 11
 DEFC    BPB_SecPerClus  = 13
 DEFC    BPB_RsvdSecCnt  = 14
@@ -651,6 +658,9 @@ fat_mount_trypt:
     or      d
     or      e
     jr      Z,fat_mount_nextpt      ;empty partition
+    ld      a,b
+    cp      (MAX_LBA28>>24)+1       ;high byte past $0FFFFFFF
+    jr      NC,fat_mount_nextpt     ;start LBA above 28 bits
     call    fat_move_window         ;read that partition VBR
     jr      NC,fat_mount_nextpt     ;partition unread
     call    fat_check_vbr           ;C: this PTE is a FAT VBR
@@ -690,6 +700,12 @@ fat_mount_fsz32:
     ld      (_cpm_fat_vol+20),hl    ;fatsz
     ld      hl,bc
     ld      (_cpm_fat_vol+22),hl
+    ld      a,b
+    or      a
+    jp      NZ,fat_mount_fail       ;fatsz >= $01000000
+    ld      a,c
+    cp      (MAX_FATSZ+1)>>16       ;high byte of $200000
+    jp      NC,fat_mount_fail       ;fatsz >= $200000
     ld      hl,(fatwin+BPB_TotSec16)
     ld      a,h
     or      l
@@ -853,6 +869,21 @@ fat_mount_ncl:
     or      e
     jp      Z,fat_mount_fail        ;no data clusters
     ld      a,h
+    or      a
+    jp      NZ,fat_mount_fail       ;nclst >= $01000000
+    ld      a,l
+    cp      $10
+    jp      NC,fat_mount_fail       ;nclst >= $00100000
+    cp      $0F
+    jr      NZ,fat_mount_band       ;high word is not $0FFF
+    ld      a,d
+    inc     a
+    jr      NZ,fat_mount_band       ;low word < $FF00
+    ld      a,e
+    cp      (MAX_FAT32 & $FF)+1     ;low byte past $0FFFFFF5
+    jp      NC,fat_mount_fail       ;nclst > $0FFFFFF5
+fat_mount_band:
+    ld      a,h
     or      l
     jr      NZ,fat_mount_fat32      ;nclst above 65535
     ld      hl,de                   ;low still in DE
@@ -955,6 +986,8 @@ fat_mount_needc:
     ld      l,a
     ld      a,h
     adc     a,b
+    cp      (MAX_LBA28>>24)+1       ;high byte past $0FFFFFFF
+    jp      NC,fat_mount_fail       ;fatbase above 28 bits
     ld      h,a
     ld      (_cpm_fat_vol+10),hl
     ld      hl,(fat_work+8)
@@ -970,6 +1003,8 @@ fat_mount_needc:
     ld      l,a
     ld      a,h
     adc     a,b
+    cp      (MAX_LBA28>>24)+1       ;high byte past $0FFFFFFF
+    jp      NC,fat_mount_fail       ;database above 28 bits
     ld      h,a
     ld      (_cpm_fat_vol+18),hl
     ld      a,(_cpm_fat_vol+26)     ;pending type
@@ -1060,6 +1095,8 @@ fat_mount_r32:
     ld      l,a
     ld      a,h
     adc     a,d
+    cp      (MAX_LBA28>>24)+1       ;high byte past $0FFFFFFF
+    jp      NC,fat_mount_fail       ;active FAT above 28 bits
     ld      h,a
     ld      (_cpm_fat_vol+10),hl
 fat_mount_act0:
@@ -1132,6 +1169,8 @@ fat_seed_fsinfo:
     ld      l,a
     ld      a,h
     adc     a,0
+    cp      (MAX_LBA28>>24)+1       ;high byte past $0FFFFFFF
+    ret     NC                      ;FSInfo above 28 bits; mount ok
     ld      h,a
     ld      bc,hl
     push    bc

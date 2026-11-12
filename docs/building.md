@@ -35,7 +35,7 @@ On v2.6 the BDOS could write only inside a container file. A program that had to
 
 This ROM does not link ChaN. The shell and the disk BDOS call mini-FAT. The public header is [`common/fatfs.h`](../common/fatfs.h). Link `common/fatfs.asm` on the Z80, or `common/fatfs_85.asm` on the 8085, together with `common/fat_bss.asm`. Supply `asm_disk_initialize`, `ide_read_sector`, and `ide_write_sector`. One call moves one 512-byte sector. LBA in BCDE, buffer in HL, carry set when the sector completed. Replacing those three keeps the FAT code and stops being a test of the RC2014 ATA driver. The calls are in [Mini-FAT](mini-fat.md).
 
-A program that still wants ChaN's `f_*` links the `ff` library. That is a second filesystem and a second cache on the same media. It is not an extension of the ROM BDOS. Do not assume the two caches agree if one program writes through both. The link line is in the v2.6 note.
+A program that still wants ChaN's `f_*` links the `ff` library. That is a second filesystem and a second cache on the same media. It is not an extension of the ROM BDOS. Do not assume the two caches agree if one program writes through both. The link line is in the v2.6 note. That line uses `-clib=new`, the sccz80 newlib. An SDCC FatFs object is built with `-clib=sdcc_iy` and installed under `lib/clibs/sdcc_ix`. That is the SDCC library tree z88dk builds.
 
 ## Building the ROM
 
@@ -51,6 +51,8 @@ First though, refer to the library, disk and buffer configuration notes below.
 
 `zcc +rc2014 -subtype=acia -SO3 --opt-code-speed -m --max-allocs-per-node400000 @cpm22.lst -o ../rc2014-cpm22-z80-cf-acia -create-app`
 
+Those four lines leave the library selection to the RC2014 target. The default is `-clib=sdcc_iy`. That switch reserves IY and links `lib/clibs/sdcc_ix/rc2014.lib`. z88dk no longer builds a separate `sdcc_iy` library. `lib/clibs/sdcc_iy/rc2014.lib` is not part of the install. When the IDE driver changes, rebuild `rc2014.lib` in `lib/clibs/sdcc_ix`.
+
 The z88dk command lines to build the CP/M-IDE for the 8085 CPU Module are below. These three images use 80cc (`-compiler=80cc`), with locals on the stack and no `-fframe-pointer`. The `rc2014` target and relevant subtype should be selected, from within the relevant directory. Set `Z88DK` to your z88dk install root. The `-I${Z88DK}/include` path must precede the `_DEVELOPMENT/common` include path so classic `<stdio.h>` is used (required for `stdin`/`stdout` on the hybrid 8085 CRT).
 
 `zcc +rc2014 -subtype=uart85 -compiler=80cc -O2 -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-pata-uart -create-app`
@@ -59,7 +61,7 @@ The z88dk command lines to build the CP/M-IDE for the 8085 CPU Module are below.
 
 `zcc +rc2014 -subtype=acia85 -compiler=80cc -O2 -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
 
-A binary over 32768 bytes is rejected. On the 8085 the code also has to finish by `$7F81`. The tightest image is Z80 PATA SIO. That rebuild left 153 bytes under 32768, the smallest slack of the seven. The seven sizes are in [How CP/M-IDE fits](how-it-works.md#the-32-kib-budget). The length of the Intel HEX text is not that size. Two text characters encode one byte, and each record adds an address and a checksum. The script that builds all seven, and checks the size, the gate, and the IDE port bytes, is `.agents/scripts/rebuild-hex.sh`.
+A binary over 32768 bytes is rejected. On the 8085 the code also has to finish by `$7F81`. The tightest image is Z80 PATA SIO. That rebuild left 91 bytes under 32768, the smallest slack of the seven. The seven sizes are in [How CP/M-IDE fits](how-it-works.md#the-32-kib-budget). The length of the Intel HEX text is not that size. Two text characters encode one byte, and each record adds an address and a checksum. The script that builds all seven, and checks the size, the gate, and the IDE port bytes, is `.agents/scripts/rebuild-hex.sh`.
 
 The sizes of the serial transmit and receive buffers are set within the z88dk RC2014 target configuration files for the [ACIA](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_acia.m4), [SIO/2](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_sio.m4), and [UART](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_uart.m4) respectively. What those buffers do on the board is in [Hardware](hardware.md).
 

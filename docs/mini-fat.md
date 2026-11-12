@@ -51,7 +51,9 @@ The directory entry layout is Microsoft's. Byte 0 is the name. `$00` ends the di
 
 `n_fatent` is the cluster count plus 2. Cluster numbers below 2 are not data. `csize` is a power of two. `SecPerClus` of 65 or more is refused, because a 64 KiB cluster is 0 in the 16-bit sector arithmetic.
 
-Two boundaries follow ChaN rather than Microsoft FAT specification 1.03. A cluster count of `$0FF5` or below is rejected as FAT12. The specification would still call 4085 clusters FAT16. A count of `$FFF5` stays FAT16. The specification would call that FAT32. The mount tests do not build either boundary.
+Two boundaries follow ChaN rather than Microsoft FAT specification 1.03. A cluster count of `$0FF5` or below is rejected as FAT12. The specification would still call 4085 clusters FAT16. A count of `$FFF5` stays FAT16. The specification would call that FAT32. The mount tests do not build either boundary. A count above `$0FFFFFF5` is rejected. `put_fat` stores 28 bits and would truncate a higher link. A FAT of `$200000` sectors or more is rejected before the copies are added.
+
+The IDE address is 28 bits. A partition, FAT, or data area at LBA `$10000000` or above fails the mount. An FSInfo sector past that LBA leaves the hint clear and the mount still succeeds. `$0FFFFFFF` is the last sector the interface can name.
 
 A FAT16 root entry count has to be a non-zero multiple of 16. 2048 entries is the whole 16-bit directory offset. FAT32 requires `FATSz16 = 0`, `FSVer = 0`, and a root entry count of 0. The root cluster is `BPB_RootClus`. When mirroring is off, the active FAT is the one in `BPB_ExtFlags`, and the other copy is not written. FAT32 FSInfo is read at mount. A sync writes the free count and the next free cluster when either has changed.
 

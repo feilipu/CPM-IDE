@@ -633,6 +633,33 @@ int main(void)
     rc = fat_mount();
     expect("mount_fat16_as_32", rc != 0 && cpm_fat_vol.fs_type == 0);
 
+    /* FAT of $200000 sectors. The same shape with a smaller FAT still mounts. */
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_fat32(ram_image, 1, 0, 0);
+    put_le32(ram_image + 36, 0x00200000u);
+    put_le32(ram_image + 32, 0x00200000u + 1u + 0xFFF6u);
+    rc = fat_mount();
+    expect("mount_fatsz_cap", rc == 1 && cpm_fat_vol.fs_type == 0);
+
+    /* fatsz $001FFFFF is the last size under that cap. nclst $FFF6 is FAT32. */
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_fat32(ram_image, 1, 0, 0);
+    put_le32(ram_image + 36, 0x001FFFFFu);
+    put_le32(ram_image + 32, 0x001FFFFFu + 1u + 0xFFF6u);
+    rc = fat_mount();
+    expect("mount_fatsz_fit", rc == 0 && cpm_fat_vol.fs_type == 3);
+
+    /* nclst past 28 bits. fatsz stays under the cap, so the cover check would pass. */
+    memset(ram_image, 0, sizeof ram_image);
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_fat32(ram_image, 1, 0, 0);
+    put_le32(ram_image + 36, 0x001FFFFFu);
+    put_le32(ram_image + 32, 0xFFFFFFFFu);
+    rc = fat_mount();
+    expect("mount_nclst_max", rc == 1 && cpm_fat_vol.fs_type == 0);
+
     /* 2048 FAT16 root entries: 65536 bytes must not wrap to an empty root. */
     rt_invalidate();
     memset(ram_image, 0, sizeof ram_image);

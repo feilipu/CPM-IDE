@@ -46,7 +46,7 @@ Commit only when asked. One subject line, no body, no trailer. As of this 2026-1
 | `6ae97e9` | Record the function-18 root cause and fix in the two fault notes | The two fault notes, since removed. |
 | `71eb321` | Fold cheap synthetics and relink the seven ROMs | Seven HEX files. Head of this branch on 2026-10-11. |
 
-This table stops at `71eb321`. Later links changed the image. `xget` replaced `hget`. Function 27 was added on both CPUs, and those seven HEX files were rebuilt as `3e63979`. That image is the first table under Installed image. It is not the HEX in the tree. Commit `59503f1` rebuilt all seven. The Z80 PATA SIO image is 32615 bytes, and 153 bytes is the smallest slack. Those sizes are in [How CP/M-IDE fits](how-it-works.md).
+This table stops at `71eb321`. Later links changed the image. `xget` replaced `hget`. Function 27 was added on both CPUs, and those seven HEX files were rebuilt as `3e63979`. That image is the first table under Installed image. It is not the HEX in the tree. Commit `59503f1` rebuilt all seven. That Z80 PATA SIO image was 32615 bytes, and 153 bytes was the smallest slack. The sizes of the HEX in the tree are in [How CP/M-IDE fits](how-it-works.md).
 
 A full rebuild on 2026-10-11, `rebuild-hex.sh` mode `all`, zcc `v25461-415806f08c-20260813`, 19:47–19:55, finished `ok=7 fail=0` and printed `UNCHANGED` for every HEX against `9dad56e`. `__IO_CF_8_BIT` was left at `0x01`. Gate: `0006h` `$F206`, CCP tail `$F200`, BIOS `$FB00`. `71eb321` relinked all seven after `latch_next`. Later links changed those sizes. The function 27 image is the first table under Installed image. The HEX in the tree is the later rebuild recorded in [How CP/M-IDE fits](how-it-works.md).
 
@@ -80,7 +80,7 @@ Commit `3e63979` ("BDOS - update function 27", 2026-11-01) is the function 27 li
 | 8085-cf-uart | 32004 | `$7CA5` | 764 | 732 |
 | 8085-pata-uart | 32151 | `$7D38` | 617 | 585 |
 
-On that link Z80 PATA is 175 bytes under 32768. 8085 PATA `__CODE_END` `$7D38` is 585 bytes below the `$7F81` gate. The HEX files in the tree are commit `59503f1`. Z80 PATA SIO is 32615 bytes, `__CODE_END` `$7E97`, 153 bytes under 32768. That is the smallest slack. 8085 PATA is 32168 bytes, `__CODE_END` `$7D49`, 568 bytes below `$7F81`. The seven sizes are in [How CP/M-IDE fits](how-it-works.md). Function 27 on both CPUs walks the current directory and fills `fatwin`. The disk harness that matches this BDOS printed `BDOS_DISK_OK`: Z80 `disk.bin` 64294 bytes at 63536166 ticks, 8085 `disk85.bin` 65279 bytes at 75478339 ticks.
+On that link Z80 PATA is 175 bytes under 32768. 8085 PATA `__CODE_END` `$7D38` is 585 bytes below the `$7F81` gate. Commit `59503f1` left Z80 PATA SIO at 32615 bytes, `__CODE_END` `$7E97`, 153 bytes under 32768, and 8085 PATA at 32168 bytes, `__CODE_END` `$7D49`, 568 bytes below `$7F81`. The HEX now in the tree is recorded in [How CP/M-IDE fits](how-it-works.md). Function 27 on both CPUs walks the current directory and fills `fatwin`. The disk harness that matches this BDOS printed `BDOS_DISK_OK`: Z80 `disk.bin` 64294 bytes at 63536166 ticks, 8085 `disk85.bin` 65279 bytes at 75478339 ticks.
 
 The next table is the `71eb321` image. It is not the HEX in the tree. `YASH_HGET` was 1. `read_cfg` was linked. Gate addresses were already `$F206`, `$F200`, `$FB00`, `$F7D0`.
 
@@ -116,7 +116,7 @@ Every gate line from that cfg run: `0006h` `$F106`, Z80 CCP tail `$F100`, 8085 C
 
 The `676d65b` image, from `/tmp/cpm-ide-hgv`, had no `hget` and BIOS `$F960`: z80-cf-acia 31378 / `$79D2`, through 8085 PATA 32533 / `$7E7C`. On that HEX the stub was stored at `$7110`. That address belongs to that image. The stub in the tree is the later BDOS at `$F200`.
 
-The earlier links are kept in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026-10-09 (see git history). "ROM rebuild" is the pre-hget run (z80-cf-acia 32631 installed, six images over 32768). "hget compiled out" is the 31306-byte table, md counters still static, `_main` `$662A`. "Repair results" and "8085-cf-acia does not fit" (bin 33703, `__CODE_END` `$8308`, `_main` `$6B35`) are the repair history. "Image at 676d65b" in that review is the `$F960` link. The first table in this section is the function 27 link (`3e63979`). The HEX in the tree is `59503f1`, recorded in [How CP/M-IDE fits](how-it-works.md). The second table is the `71eb321` link. The cfg table is the `$F106` link.
+The earlier links are kept in `BDOS-ISA-REVIEW.md`, removed from the tree on 2026-10-09 (see git history). "ROM rebuild" is the pre-hget run (z80-cf-acia 32631 installed, six images over 32768). "hget compiled out" is the 31306-byte table, md counters still static, `_main` `$662A`. "Repair results" and "8085-cf-acia does not fit" (bin 33703, `__CODE_END` `$8308`, `_main` `$6B35`) are the repair history. "Image at 676d65b" in that review is the `$F960` link. The first table in this section is the function 27 link (`3e63979`). The HEX in the tree is recorded in [How CP/M-IDE fits](how-it-works.md). `59503f1` is the previous rebuild. The second table is the `71eb321` link. The cfg table is the `$F106` link.
 
 ### Entry
 
@@ -547,7 +547,7 @@ Function 27 fills `fatwin` and returns its address. The bitmap is `(DSM/8)+1` by
 
 ## Mini-FAT
 
-Keep the mount checks, both-FAT mirror, `0x05`/`0xE5`, FAT16 root multiple of 16, FAT32 version 0 and root count 0, cluster size at most 32 KB, and the two ChaN cluster-count rules (`$0FF5` rejected, `$FFF5` stays FAT16).
+Keep the mount checks, both-FAT mirror, `0x05`/`0xE5`, FAT16 root multiple of 16, FAT32 version 0 and root count 0, cluster size at most 32 KB, the ChaN cluster-count rules (`$0FF5` rejected, `$FFF5` stays FAT16, above `$0FFFFFF5` rejected), the FAT size cap (`$200000` sectors), and the 28-bit LBA ceiling (`$10000000`).
 
 These three are in both FAT files and in `test/fatfs/test_minifat.c`:
 

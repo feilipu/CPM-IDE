@@ -123,6 +123,8 @@ build_ff() {
 }
 
 SCCZ80='-clib=new -x -O2 --opt-code-speed=all --math32'
+# -clib=sdcc_iy reserves IY. The SDCC library z88dk builds and links is
+# lib/clibs/sdcc_ix. There is no separate sdcc_iy library (issue 2814).
 SDCCIY='-clib=sdcc_iy -x -SO3 --max-allocs-per-node400000 --math32'
 SCCZ80_85='-clib=new -m8085 -x -O2 --opt-code-speed=all -D__DISABLE_BUILTIN --math32'
 
