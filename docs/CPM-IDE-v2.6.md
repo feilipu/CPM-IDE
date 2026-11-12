@@ -30,7 +30,7 @@ Up to four files, on A: through D:. Each file is checked on its own, and a gap b
 
 Cold boot and warm boot both come from ROM. There is no CP/M boot sector.
 
-Format the card FAT32, or FAT16 if it is small. Unzip `SYS.CPM.zip` from [CPM Drives](../CPM%20Drives) and copy `SYS.CPM` onto the drive. PIP, STAT, XMODEM, and the rest of the usual set are already in that container. Copying those programs out into a directory called A: is how the current ROM is started. Other example images copy the same way. Check that each file occupies 8388608 bytes. They can sit in the root or in any directory.
+Format the card FAT32, or FAT16 if it is small. Unzip `SYS.CPM.zip` from [CPM Drives](../CPM%20Drives) and copy `SYS.CPM` onto the drive. `cpm` opens that file and uses its first sector as the drive. PIP, STAT, XMODEM, and the rest of the usual set stay in the file. Other example images are container files too. Copy each file onto the drive. Check that each file occupies 8388608 bytes. They can sit in the root or in any directory.
 
 When the drive cannot be attached to a host PC, receive `SYS.CPM` with `xget`. At 115200 baud, XMODEM of that 8 MB file takes upwards of 33 minutes. The steps are in [Sending a container to the RC2014](#sending-a-container-to-the-rc2014).
 
