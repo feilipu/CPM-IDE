@@ -2569,23 +2569,23 @@ dc_loop:
     jr      Z,dc_at_end             ;clean end: stretch or fail
     jr      dc_full                 ;disk or chain error: do not stretch
 dc_resume:
-    ld      hl,10
-    add     hl,sp
+    ld      de,sp+10
+    ex      de,hl
     ld      sp,hl
     jr      dc_loop
 dc_at_end:
     call    dir_stretch             ;C: FAT32 grew a cluster
     jr      C,dc_stretched          ;new cluster is zeroed
 dc_full:
-    ld      hl,10
-    add     hl,sp
+    ld      de,sp+10
+    ex      de,hl
     ld      sp,hl
     ld      hl,1
     or      a                       ;NC: directory is full
     ret
 dc_stretched:
-    ld      hl,10
-    add     hl,sp
+    ld      de,sp+10
+    ex      de,hl
     ld      sp,hl
     jr      dc_loop
 dc_fill:
@@ -3030,11 +3030,8 @@ fc_mask:
     jp      NZ,fc_mask              ;mask bits left
     push    hl                      ;mask
     push    bc                      ;shift in C
-    ld      hl,4
-    add     hl,sp                   ;saved pointer
-    ld      a,(hl+)
-    ld      h,(hl)
-    ld      l,a
+    ld      de,sp+4                 ;saved pointer
+    ld      hl,(de)
     call    fat_ld32                ;BCDE = bytes
     ld      a,b
     or      c
