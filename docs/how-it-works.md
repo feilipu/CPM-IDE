@@ -70,17 +70,17 @@ The burned image has to hold all of this at once:
 - the IDE or Compact Flash driver
 - the stored CCP, BDOS stub, and BIOS
 
-A binary over 32768 bytes is rejected. On the 8085 the code also has to finish by `$7F81`. The largest image is Z80 PATA SIO, 32677 bytes. That leaves 91 bytes, the smallest slack of the seven. The 8085 PATA image ends its code at `$7CCF`, 690 bytes below `$7F81`.
+A binary over 32768 bytes is rejected. On the 8085 the code also has to finish by `$7F81`. The largest image is Z80 PATA SIO, 32741 bytes. That leaves 27 bytes, the smallest slack of the seven. The 8085 PATA image ends its code at `$7D14`, 621 bytes below `$7F81`.
 
 | Product | Bytes | Code end | Left in the 32 KiB |
 | --- | ---: | ---: | ---: |
-| Z80 CF ACIA | 31913 | `$7C05` | 855 |
-| Z80 CF UART | 32330 | `$7D7A` | 438 |
-| Z80 CF SIO | 32520 | `$7E39` | 248 |
-| Z80 PATA SIO | 32677 | `$7ED6` | 91 |
-| 8085 CF ACIA | 31698 | `$7B73` | 1070 |
-| 8085 CF UART | 31899 | `$7C3C` | 869 |
-| 8085 PATA UART | 32046 | `$7CCF` | 722 |
+| Z80 CF ACIA | 31978 | `$7C45` | 790 |
+| Z80 CF UART | 32393 | `$7DBA` | 375 |
+| Z80 CF SIO | 32585 | `$7E79` | 183 |
+| Z80 PATA SIO | 32741 | `$7F16` | 27 |
+| 8085 CF ACIA | 31767 | `$7BB8` | 1001 |
+| 8085 CF UART | 31968 | `$7C81` | 800 |
+| 8085 PATA UART | 32115 | `$7D14` | 653 |
 
 The shell stayed in every image. So did `xget`, the CCP, and both FAT types. The fit is what decided that the disk BDOS and mini-FAT live in the ROM rather than in a second bank or in the TPA.
 

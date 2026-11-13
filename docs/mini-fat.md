@@ -22,7 +22,7 @@ ChaN's [application interface](http://elm-chan.org/fsw/ff/00index_e.html) opens 
 
 Also out of scope: FAT12, exFAT, long file names, GPT, extended partitions, volume labels as a feature, `f_chmod`, `f_utime`, `f_getlabel`, `f_findfirst`, `f_forward`, `f_expand`, and a current directory stack. `BPB_Media` is not read. The jump instruction at the start of the boot sector is not required. The `55 AA` signature is required. ChaN accepts some boot sectors that have no signature. This code does not.
 
-`dir_next` does not grow a directory. `dir_create` grows a FAT32 directory when the chain is already at its end. A FAT16 root and a FAT16 subdirectory stay the size they were formatted.
+`dir_next` does not grow a directory. `dir_create` grows a FAT32 directory only when that walk reaches a clean end. A disk or chain error does not grow it. A FAT16 root and a FAT16 subdirectory stay the size they were formatted.
 
 ## Calling it from your own program
 
@@ -55,7 +55,7 @@ Two boundaries follow ChaN rather than Microsoft FAT specification 1.03. A clust
 
 The IDE address is 28 bits. A partition, FAT, or data area at LBA `$10000000` or above fails the mount. An FSInfo sector past that LBA leaves the hint clear and the mount still succeeds. `$0FFFFFFF` is the last sector the interface can name.
 
-A FAT16 root entry count has to be a non-zero multiple of 16. 2048 entries is the whole 16-bit directory offset. FAT32 requires `FATSz16 = 0`, `FSVer = 0`, and a root entry count of 0. The root cluster is `BPB_RootClus`. When mirroring is off, the active FAT is the one in `BPB_ExtFlags`, and the other copy is not written. FAT32 FSInfo is read at mount. A sync writes the free count and the next free cluster when either has changed.
+A FAT16 root entry count has to be a non-zero multiple of 16. 2048 entries is the whole 16-bit directory offset. FAT32 requires `FATSz16 = 0`, `FSVer = 0`, and a root entry count of 0. The root cluster is `BPB_RootClus`. A value below 2, or at or past `n_fatent`, fails the mount. When mirroring is off, the active FAT is the one in `BPB_ExtFlags`, and the other copy is not written. FAT32 FSInfo is read at mount. A sync writes the free count and the next free cluster when either has changed.
 
 ## The volume block
 

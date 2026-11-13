@@ -75,7 +75,12 @@
 ;   A long-name entry is attribute $0F, which includes the volume bit.
 ;   The volume-bit test therefore skips both labels and long names.
 ;   dir_next stops on 16-bit ofs wrap (2048 dirents) for long directories
+;   dir_next: carry set is the next entry. Carry clear and Z is a
+;   clean end. Carry clear and NZ is a disk or chain error.
+;   dir_create stretches a FAT32 directory only on that clean end.
 ;   FAT32 root is BPB_RootClus32; cluster 0 means that root (ff dir_sdi)
+;   RootClus below 2, or at or past n_fatent, fails the mount.
+;   A file cluster index past 65535, or past a 16-bit n_fatent, fails.
 ;   FAT16 root is static dirbase LBA
 ;   SFD (VBR at LBA 0) then four MBR primary partitions
 ;   1 or 2 FATs; csize power of 2; BytsPerSec == 512
@@ -509,6 +514,7 @@ fat_ide_br1:
 ; nclst from (tsect - reserved - fats - rootsecs) / csize.
 ; nclst <= $0FF5 fails as FAT12. Spec 1.03 would call 4085 FAT16.
 ; nclst == $FFF5 stays FAT16. Spec 1.03 would call it FAT32. Above that, FAT32.
+; nclst > $0FFFFFF5 fails. RootClus below 2 or at or past n_fatent fails.
 ; FAT32 dirbase = BPB_RootClus32 (cluster); FAT16 dirbase = root LBA.
 ; OUT: C OK
 ;------------------------------------------------------------------------------
@@ -738,17 +744,17 @@ fat_mount_ncl:
     or      d
     or      e
     jp      Z,fat_mount_fail        ;volume has no clusters
-    ld      a,d
-    or      a
-    jp      NZ,fat_mount_fail       ;nclst >= $01000000
-    ld      a,e
+    ld      a,d                     ;HLDE is nclst. D is the high byte
     cp      $10
-    jp      NC,fat_mount_fail       ;nclst >= $00100000
+    jp      NC,fat_mount_fail       ;nclst >= $10000000
     cp      $0F
-    jr      NZ,fat_mount_band       ;high word is not $0FFF
+    jr      NZ,fat_mount_band       ;high byte is not $0F
+    ld      a,e
+    inc     a
+    jr      NZ,fat_mount_band       ;byte 2 is not $FF
     ld      a,h
     inc     a
-    jr      NZ,fat_mount_band       ;low word < $FF00
+    jr      NZ,fat_mount_band       ;byte 1 is not $FF
     ld      a,l
     cp      (MAX_FAT32 & $FF)+1     ;low byte past $0FFFFFF5
     jp      NC,fat_mount_fail       ;nclst > $0FFFFFF5
@@ -876,7 +882,7 @@ fat_mount_needc:
     ld      bc,0
     sbc     hl,bc
     ld      (_cpm_fat_vol+14),hl
-    jr      fat_mount_ok
+    jp      fat_mount_ok
 fat_mount_r32:
     ld      hl,(fatwin+BPB_RootClus32)
     ld      a,l
@@ -889,6 +895,22 @@ fat_mount_r32:
     ld      a,d
     sbc     a,0
     jp      C,fat_mount_fail        ;RootClus < 2
+    ld      hl,(fatwin+BPB_RootClus32)
+    ld      de,(_cpm_fat_vol+4)     ;n_fatent low
+    or      a
+    ld      a,l
+    sub     e
+    ld      a,h
+    sbc     a,d
+    push    af
+    ld      hl,(fatwin+BPB_RootClus32+2)
+    ld      de,(_cpm_fat_vol+6)     ;n_fatent high
+    pop     af
+    ld      a,l
+    sbc     a,e
+    ld      a,h
+    sbc     a,d
+    jp      NC,fat_mount_fail       ;RootClus >= n_fatent
     ld      hl,(fatwin+BPB_RootClus32)
     ld      (_cpm_fat_vol+12),hl
     ld      hl,(fatwin+BPB_RootClus32+2)
@@ -1414,6 +1436,7 @@ fat_st32:
 
 ; IN: HL -> {sclust:4, fptr:4} LE
 ; OUT C: BCDE = cluster containing fptr
+; NC: the index does not fit in 16 bits, or it is past a 16-bit n_fatent.
 ; Cluster index is (fptr >> 9) / csize. Sequential CP/M I/O hits
 ; clst_cache_* so we do not re-walk from sclust.
 clst_from_off:
@@ -1447,6 +1470,19 @@ cfo_shr:
     rr      e
     djnz    cfo_shr                 ;index is still shifting
 cfo_ci:
+    ld      a,c
+    or      a
+    jp      NZ,cfo_bad              ;cluster index does not fit in 16 bits
+    ld      a,(_cpm_fat_vol+6)
+    ld      hl,_cpm_fat_vol+7
+    or      (hl)
+    jr      NZ,cfo_ci_ok            ;n_fatent above 65535
+    ld      hl,(_cpm_fat_vol+4)
+    or      a
+    sbc     hl,de                   ;n_fatent - index
+    jp      C,cfo_bad               ;index is past the FAT
+    jp      Z,cfo_bad               ;index equals n_fatent
+cfo_ci_ok:
     ld      (fat_work+4),de         ;want_ci — kept for the cache store
     ld      hl,clst_cache_sclust
     ld      a,(fat_work)
@@ -2103,7 +2139,7 @@ dir_next_dyn:
     ld      de,(dir_clust)
     ld      bc,(dir_clust+2)
     call    get_fat                 ;next cluster of this directory
-    jp      NC,dir_next_end         ;bad cluster or unreadable
+    jp      NC,dir_next_io          ;bad cluster or unreadable
     ld      a,b
     cp      $0F                     ;top nibble vs $0F
     jr      NZ,dir_next_got         ;not an end mark
@@ -2121,24 +2157,28 @@ dir_next_got:
     sbc     a,0
     ld      a,b
     sbc     a,0
-    jp      C,dir_next_end          ;cluster < 2
+    jp      C,dir_next_io           ;cluster < 2
     ld      (dir_clust),de
     ld      (dir_clust+2),bc
     call    clst2sect               ;LBA of the next cluster
-    jp      NC,dir_next_end         ;next cluster has no LBA
+    jp      NC,dir_next_io          ;next cluster has no LBA
     ld      (dir_sect),de
     ld      (dir_sect+2),bc
 dir_next_win:
     ld      de,(dir_sect)
     ld      bc,(dir_sect+2)
     call    fat_move_window         ;directory sector into fatwin
-    ret     NC                      ;directory sector not read
+    jp      NC,dir_next_io          ;directory sector not read
     ld      hl,fatwin               ;ofs % 512 == 0
     ld      (dir_ptr),hl
     scf
     ret
 dir_next_end:
-    or      a
+    xor     a                       ;carry clear and Z. This is a clean end.
+    ret
+dir_next_io:
+    ld      a,1
+    or      a                       ;carry clear and NZ. Disk or chain error.
     ret
 
 ; A is folded to A-Z. Other bytes stay as they are.
@@ -2270,7 +2310,10 @@ dc_loop:
     ld      hl,(dir_sect+2)
     push    hl
     call    dir_next                ;next dirent
-    jr      NC,dc_at_end            ;table has no free slot
+    jr      C,dc_resume             ;another entry
+    jr      Z,dc_at_end             ;clean end: stretch or fail
+    jr      dc_full                 ;disk or chain error: do not stretch
+dc_resume:
     ld      hl,10
     add     hl,sp
     ld      sp,hl
@@ -2278,6 +2321,7 @@ dc_loop:
 dc_at_end:
     call    dir_stretch             ;grow a FAT32 directory
     jr      C,dc_stretched          ;new cluster is ready
+dc_full:
     ld      hl,10
     add     hl,sp
     ld      sp,hl
