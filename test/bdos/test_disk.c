@@ -754,7 +754,8 @@ static void test_io(void)
     expect("seq_w0 FAIL", call(21) == 0 && fcb[32] == 1 && fcb[15] == 1 && fcb[14] == 0);
     expect("seq_w1 FAIL", call(21) == 0 && fcb[32] == 2 && fcb[15] == 2);
     expect("seq_w2 FAIL", call(21) == 0 && fcb[32] == 3 && fcb[15] == 3);
-    expect("seq_dir FAIL", slot(0)[26] == 2 && slot(0)[28] == 128 && slot(0)[29] == 1 &&
+    /* The directory keeps the first record until close. */
+    expect("seq_dir FAIL", slot(0)[26] == 2 && slot(0)[28] == 128 && slot(0)[29] == 0 &&
            (slot(0)[11] & 0x20) == 0x20);
     fcb[32] = 0;
     rc = call(20);
@@ -790,7 +791,7 @@ static void test_io(void)
     fill_dma(0x22);
     for (i = 0; i < 4; i++)
         expect("frag_b FAIL", call(21) == 0);
-    expect("frag_sz FAIL", fcb[32] == 8 && slot(0)[28] == 0 && slot(0)[29] == 4);
+    expect("frag_sz FAIL", fcb[32] == 8 && slot(0)[28] == 128 && slot(0)[29] == 0);
     expect("frag_fat FAIL", ram_image[516] == 4 && ram_image[517] == 0 &&
            ram_image[518] == 0xFF && ram_image[520] == 0xFF && ram_image[521] == 0xFF);
     fcb[32] = 0;
@@ -879,14 +880,14 @@ static void test_io(void)
     }
     expect("seq_ext FAIL", i == 128 && rc == 0 && fcb[32] == 0 && fcb[12] == 1 &&
            (fcb[14] & 0x80) != 0 && fcb[15] == 0);
-    expect("seq_ext_sz FAIL", slot(0)[28] == 0 && slot(0)[29] == 0x40 && slot(0)[30] == 0);
+    expect("seq_ext_sz FAIL", slot(0)[28] == 128 && slot(0)[29] == 0 && slot(0)[30] == 0);
     expect("seq_ext_fat FAIL", ram_image[516] == 3 && ram_image[517] == 0 &&
            ram_image[578] == 0xFF && ram_image[579] == 0xFF &&
            ram_image[580] == 0 && ram_image[581] == 0);
     hits = fcb[14];
     rc = call(21);
     expect("seq_full FAIL", rc == 2 && fcb[32] == 0 && fcb[12] == 1 && fcb[14] == hits &&
-           slot(0)[28] == 0 && slot(0)[29] == 0x40);
+           slot(0)[28] == 128 && slot(0)[29] == 0);
     fcb[33] = 127;
     fcb[34] = 0;
     fcb[35] = 0;

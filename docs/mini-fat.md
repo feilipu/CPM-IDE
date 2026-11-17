@@ -42,7 +42,7 @@ Then:
 
 1. Call `fat_mount` (C: `fat_mount()`). On success `_cpm_fat_vol` describes the volume. `fs_type` is stored only after every check has passed, so a failed mount leaves it zero.
 2. Open a directory with `fat_dir_open`. Cluster 0 is the FAT32 root. A FAT16 root is the fixed `dirbase` LBA, and the shell treats cluster 0 as that root as well.
-3. `dir_find` looks up an 11-byte name in the directory you opened. `fat_dir_read` copies one 32-byte entry and returns 0 at the end of the directory.
+3. `dir_find` looks up an 11-byte name in the directory you opened. `fat_dir_read` copies one 32-byte entry and returns 0. At the end of the directory it returns 1 and writes 0 into the caller's buffer.
 4. To read a file, take its start cluster and size from the entry (`fat_found_sclust`, `fat_found_size` after a successful find). `fat_next` is `get_fat`. `fat_clst2sect` is the first sector of that cluster. Read `csize` sectors, then ask for the next cluster. The end of a FAT16 chain is `$FFF8`–`$FFFF`. The end of a FAT32 chain is `$0FFFFFF8` and up. A bad cluster (`$FFF7` / `$0FFFFFF7`) is an error, not a link.
 5. To write a new file, `dir_create` makes an 8.3 entry, `fat_alloc` / `create_chain` links clusters, you write the sectors, you store the size back into the directory entry, and `fat_sync` commits the window. `dir_zap` marks the entry `$E5`. It does not free the chain. Call `fat_free` yourself.
 6. `fat_getfree` counts free clusters into the dword you point at. `fat_clusters` turns a byte length into the number of clusters that length needs.
@@ -53,9 +53,9 @@ The directory entry layout is Microsoft's. Byte 0 is the name. `$00` ends the di
 
 Two boundaries follow ChaN rather than Microsoft FAT specification 1.03. A cluster count of `$0FF5` or below is rejected as FAT12. The specification would still call 4085 clusters FAT16. A count of `$FFF5` stays FAT16. The specification would call that FAT32. The mount tests do not build either boundary. A count above `$0FFFFFF5` is rejected. `put_fat` stores 28 bits and would truncate a higher link. A FAT of `$200000` sectors or more is rejected before the copies are added.
 
-The IDE address is 28 bits. A partition, FAT, or data area at LBA `$10000000` or above fails the mount. An FSInfo sector past that LBA leaves the hint clear and the mount still succeeds. `$0FFFFFFF` is the last sector the interface can name.
+The IDE address is 28 bits. `$0FFFFFFF` is the last sector the interface can name. Mount rejects a partition, the FAT, the data area, or the active FAT whose start is at `$10000000` or above. A region that starts below that LBA and whose last sector is at or past it is still mounted. A later sector sum is checked for a 32-bit wrap, not for this 28-bit limit, and the IDE driver keeps the low 28 bits. A cluster outside the mounted volume is still rejected. An FSInfo sector past that LBA leaves the hint clear and the mount still succeeds.
 
-A FAT16 root entry count has to be a non-zero multiple of 16. 2048 entries is the whole 16-bit directory offset. FAT32 requires `FATSz16 = 0`, `FSVer = 0`, and a root entry count of 0. The root cluster is `BPB_RootClus`. A value below 2, or at or past `n_fatent`, fails the mount. When mirroring is off, the active FAT is the one in `BPB_ExtFlags`, and the other copy is not written. FAT32 FSInfo is read at mount. A sync writes the free count and the next free cluster when either has changed.
+A FAT16 root entry count has to be a non-zero multiple of 16. The directory offset is 16 bits, so a walk stops at 2048 entries. That limit is the FAT16 root, the FAT32 root, and a subdirectory. `dir_next` treats the wrap as a clean end and does not advance. `dir_create` does not add a cluster past it. FAT32 requires `FATSz16 = 0`, `FSVer = 0`, and a root entry count of 0. The root cluster is `BPB_RootClus`. A value below 2, or at or past `n_fatent`, fails the mount. When mirroring is off, the active FAT is the one in `BPB_ExtFlags`, and the other copy is not written. FAT32 FSInfo is read at mount. A sync writes the free count and the next free cluster when either has changed.
 
 ## The volume block
 

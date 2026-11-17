@@ -58,7 +58,9 @@
 ;   nclst == $FFF5 stays FAT16 (ChaN MAX_FAT16; spec 1.03 would use FAT32)
 ;   nclst > $0FFFFFF5 is rejected (ChaN MAX_FAT32; put_fat keeps 28 bits)
 ;   fatsz >= $200000 is rejected (ChaN ff16p2, before fatsz is doubled)
-;   a partition, fatbase, database, or active FAT at LBA >= $10000000 fails
+;   a partition, fatbase, database, or active FAT whose start is
+;   >= $10000000 fails. A region that starts below that and ends at
+;   or past it is not rejected. A later sum checks 32-bit wrap only.
 ;   an FSInfo LBA >= $10000000 leaves the hint clear; the mount still succeeds
 ;   Neither boundary is built by test/fatfs. BPB_Media is never read.
 ;   FAT16 root count is a non-zero multiple of 16. A FAT32-shaped VBR

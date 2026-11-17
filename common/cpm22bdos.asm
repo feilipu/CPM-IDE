@@ -951,7 +951,7 @@ ra_none:
 
 ;
 ; HL src, DE dst, BC count. BC = 0 copies 65536, as ldir does.
-; Z80: ldir. 8085: nested ld a,(hl+) / ld (de+),a.
+; The 8085 file copies fixed lengths and does not use this count.
 ;
 bdos_move:
     ldir                            ;HL to DE, BC bytes
@@ -2632,8 +2632,10 @@ load_info:
     ld      de,28                   ;size at byte 28
     add     hl,de                   ;point at it
     ld      de,io_size              ;io_size
-    ld      bc,4                    ;four bytes
-    call    bdos_move               ;size follows the file
+    ldi                             ;size byte 0
+    ldi                             ;size byte 1
+    ldi                             ;size byte 2
+    ldi                             ;size byte 3
     xor     a                       ;cluster is the one already in the entry
     ld      (io_new),a              ;io_new set only when create_chain runs
     ret
@@ -2757,8 +2759,10 @@ c4ret:
 end128:
     ld      hl,io_fptr              ;cursor
     ld      de,io_end               ;io_end
-    ld      bc,4                    ;four bytes
-    call    bdos_move               ;end starts as a copy of the cursor
+    ldi                             ;cursor byte 0
+    ldi                             ;cursor byte 1
+    ldi                             ;cursor byte 2
+    ldi                             ;cursor byte 3
     ld      hl,io_end               ;that copy
     ld      a,(hl)                  ;low byte
     add     a,128                   ;plus one record
@@ -3029,12 +3033,16 @@ zero_gap:
     jp      nc,zg_ok                ;size already reaches the cursor: no hole
     ld      hl,io_fptr              ;cursor we must reach
     ld      de,io_mark              ;saved end of the record
-    ld      bc,4                    ;four bytes
-    call    bdos_move               ;io_mark = cursor
+    ldi                             ;mark byte 0
+    ldi                             ;mark byte 1
+    ldi                             ;mark byte 2
+    ldi                             ;mark byte 3
     ld      hl,io_size              ;old size
     ld      de,io_fptr              ;fill starts at the old EOF
-    ld      bc,4                    ;four bytes
-    call    bdos_move               ;cursor = size
+    ldi                             ;cursor byte 0
+    ldi                             ;cursor byte 1
+    ldi                             ;cursor byte 2
+    ldi                             ;cursor byte 3
 zg_lp:
     ld      hl,io_fptr              ;fill cursor
     ld      de,io_mark              ;saved end
@@ -3091,8 +3099,10 @@ zg_z:
 zg_restore:
     ld      hl,io_mark              ;saved end of the record
     ld      de,io_fptr              ;cursor
-    ld      bc,4                    ;four bytes
-    call    bdos_move               ;cursor is back where the write starts
+    ldi                             ;cursor byte 0
+    ldi                             ;cursor byte 1
+    ldi                             ;cursor byte 2
+    ldi                             ;cursor byte 3
 zg_ok:
     scf                             ;gap closed
     ret
@@ -3185,9 +3195,14 @@ dir_update:
     jr      nc,du_keep              ;size already covers this record
     ld      hl,io_end               ;new size
     ld      de,io_size              ;io_size
-    ld      bc,4                    ;four bytes
-    call    bdos_move               ;size becomes the end of this record
+    ldi                             ;size byte 0
+    ldi                             ;size byte 1
+    ldi                             ;size byte 2
+    ldi                             ;size byte 3
 du_keep:
+    ld      a,(io_new)              ;set when the start cluster was allocated
+    or      a                       ;later records stay in io_size
+    jr      z,du_ok                 ;close writes the final size
     ld      hl,(io_ofs)             ;directory offset saved at open
     call    root_at                 ;that entry
     jr      nc,du_fail              ;cannot see the entry: return 3
@@ -3222,8 +3237,10 @@ du_sz:
     add     hl,de                   ;point at it
     ex      de,hl                   ;DE = size field
     ld      hl,io_size              ;io_size
-    ld      bc,4                    ;four bytes
-    call    bdos_move               ;size into the entry
+    ldi                             ;size byte 0
+    ldi                             ;size byte 1
+    ldi                             ;size byte 2
+    ldi                             ;size byte 3
     ld      hl,(dir_ptr)            ;entry
     ld      de,11                   ;attribute byte
     add     hl,de                   ;point at it
@@ -3233,7 +3250,12 @@ du_sz:
     ld      a,1                     ;directory dirty
     ld      (fat_wflag),a           ;one dirty sector
     call    fat_sync_window         ;sync
-    ret     c                       ;carry: directory is on the card
+    jr      nc,du_fail              ;sync failed: io_new stays set
+    xor     a                       ;published
+    ld      (io_new),a              ;one directory write for this chain
+du_ok:
+    scf                             ;the record is in the file
+    ret
 du_fail:
     ld      a,3                     ;sync or directory failure
     or      a                       ;carry clear, A = 3

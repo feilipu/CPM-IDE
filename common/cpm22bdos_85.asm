@@ -971,11 +971,55 @@ ra_none:
     ret
 
 ;
-; HL src, DE dst, BC count. BC = 0 copies 65536, the same as ldir.
-; Z80: ldir. 8085: nested ld a,(hl+) / ld (de+),a.
+; HL is the source and DE is the destination. mv_32 copies 32 bytes:
+; it calls mv_16 and then falls into mv_16. mv_128 pushes mv_32 three
+; times and falls into mv_32, so the copy is 128 bytes. mv_11 is the
+; last 11 of those 16. A 36-byte copy calls mv_32 and copies the last
+; four bytes at the caller. A short read of 1..127 uses copy_mem.
+; BC is not a count. DMA and the stub FCB copies stay on copy_mem.
 ;
-bdos_move:
-    jp      copy_mem                ;forward copy (Z80 ldir)
+mv_128:
+    ld      bc,mv_32                ;address of the 32-byte copy
+    push    bc                      ;another 32 bytes
+    push    bc                      ;another 32 bytes
+    push    bc                      ;another 32 bytes
+mv_32:
+    call    mv_16                   ;16 bytes, then 16 more
+mv_16:
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+mv_11:
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;next source byte
+    ld      (de+),a                 ;store and step
+    ret
 
 ;
 ; A is folded to A-Z. Other bytes stay as they are.
@@ -1441,8 +1485,7 @@ sy_ex:
     ld      (ent_buf+14),a          ;store scratch S2
     pop     de                      ;destination
     ld      hl,ent_buf              ;address of scratch entry
-    ld      bc,32                   ;32-byte directory entry
-    jp      bdos_move               ;copy the extent image (Z80 ldir)
+    jp      mv_32                   ;copy the 32-byte extent image
 
 fill_rec:
     ld      hl,bdos_rec             ;address of staged 128-byte record
@@ -1604,8 +1647,15 @@ fn_search:
 fn17_save:
     ld      hl,bdos_fcb             ;address of staged FCB
     ld      de,srch_fcb             ;address of saved search FCB
-    ld      bc,36                   ;36-byte FCB
-    call    bdos_move               ;save the search FCB (Z80 ldir)
+    call    mv_32                   ;save 32 bytes of the search FCB
+    ld      a,(hl+)                 ;FCB CR
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;FCB R0
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;FCB R1
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;FCB R2
+    ld      (de+),a                 ;store and step
     xor     a                       ;zero
     ld      h,a                     ;high byte
     ld      l,a                     ;low byte
@@ -1622,8 +1672,15 @@ fn_next:
     jp      z,ret_ff                ;no search is in progress: return FF
     ld      hl,srch_fcb             ;address of saved search FCB
     ld      de,bdos_fcb             ;address of staged FCB
-    ld      bc,36                   ;36-byte FCB
-    call    bdos_move               ;reload the search FCB (Z80 ldir)
+    call    mv_32                   ;reload 32 bytes of the search FCB
+    ld      a,(hl+)                 ;FCB CR
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;FCB R0
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;FCB R1
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;FCB R2
+    ld      (de+),a                 ;store and step
     jp      srch_from               ;walk from the saved offset
 
 ;
@@ -2075,8 +2132,7 @@ rn2:
     ld      hl,(dir_ptr)            ;directory entry
     ex      de,hl                   ;DE = entry name
     ld      hl,ent_buf              ;address of scratch entry
-    ld      bc,11                   ;11-byte name
-    call    bdos_move               ;write the new name (Z80 ldir)
+    call    mv_11                   ;write the 11-byte name
     ld      a,1                     ;flag value 1
     ld      (fat_wflag),a           ;store window is dirty
     ld      a,(srch_idx)            ;DMA slot 0..3
@@ -2694,8 +2750,14 @@ load_info:
     ld      de,28                   ;directory file size
     add     hl,de                   ;point at it
     ld      de,io_size              ;address of directory file size
-    ld      bc,4                    ;four-byte file offset
-    call    bdos_move               ;copy the four-byte size (Z80 ldir)
+    ld      a,(hl+)                 ;size byte 0
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;size byte 1
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;size byte 2
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;size byte 3
+    ld      (de+),a                 ;store and step
     xor     a                       ;cluster is the one already in the entry
     ld      (io_new),a              ;store start cluster was allocated
     ret
@@ -2819,8 +2881,14 @@ c4ret:
 end128:
     ld      hl,io_fptr              ;address of byte offset in the file
     ld      de,io_end               ;address of end of this transfer
-    ld      bc,4                    ;four-byte file offset
-    call    bdos_move               ;copy io_fptr to io_end (Z80 ldir)
+    ld      a,(hl+)                 ;cursor byte 0
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;cursor byte 1
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;cursor byte 2
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;cursor byte 3
+    ld      (de+),a                 ;store and step
     ld      hl,io_end               ;address of end of this transfer
     ld      a,(hl)                  ;low byte
     add     a,128                   ;io_end is 128 bytes past io_fptr
@@ -3092,12 +3160,24 @@ zero_gap:
     jp      nc,zg_ok                ;size already reaches this record
     ld      hl,io_fptr              ;address of byte offset in the file
     ld      de,io_mark              ;address of saved file offset
-    ld      bc,4                    ;four-byte file offset
-    call    bdos_move               ;copy the four-byte offset (Z80 ldir)
+    ld      a,(hl+)                 ;mark byte 0
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;mark byte 1
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;mark byte 2
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;mark byte 3
+    ld      (de+),a                 ;store and step
     ld      hl,io_size              ;address of directory file size
     ld      de,io_fptr              ;address of byte offset in the file
-    ld      bc,4                    ;four-byte file offset
-    call    bdos_move               ;copy the four-byte offset (Z80 ldir)
+    ld      a,(hl+)                 ;cursor byte 0
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;cursor byte 1
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;cursor byte 2
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;cursor byte 3
+    ld      (de+),a                 ;store and step
 zg_lp:
     ld      hl,io_fptr              ;address of byte offset in the file
     ld      de,io_mark              ;address of saved file offset
@@ -3154,8 +3234,14 @@ zg_z:
 zg_restore:
     ld      hl,io_mark              ;address of saved file offset
     ld      de,io_fptr              ;address of byte offset in the file
-    ld      bc,4                    ;four-byte file offset
-    call    bdos_move               ;restore io_fptr (Z80 ldir)
+    ld      a,(hl+)                 ;cursor byte 0
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;cursor byte 1
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;cursor byte 2
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;cursor byte 3
+    ld      (de+),a                 ;store and step
 zg_ok:
     scf                             ;no gap before this record
     ret
@@ -3171,8 +3257,11 @@ xfer_read:
     ld      de,io_end               ;address of end of this transfer
     call    cmp4                    ;left below right sets carry
     jp      c,xr_short              ;record crosses EOF
-    ld      bc,128                  ;one 128-byte record
-    jp      xr_cp                   ;copy the bytes that exist
+xr_128:
+    call    add_offb                ;fatwin plus the byte offset
+    ld      de,bdos_rec             ;address of staged 128-byte record
+    call    mv_128                  ;copy one 128-byte record
+    jp      xr_ok                   ;record is in bdos_rec
 xr_short:
     ld      hl,io_fptr              ;address of byte offset in the file
     ld      a,(io_size)             ;directory file size
@@ -3181,25 +3270,18 @@ xr_short:
     ld      a,(io_size+1)           ;directory file size +1
     sbc     a,(hl)
     or      a                       ;nonzero: 256 or more bytes remain
-    jp      z,xr_b0                 ;the short count fits in C
-    ld      bc,128                  ;one 128-byte record
-    jp      xr_cp                   ;copy the bytes that exist
-xr_b0:
-    ld      b,0                     ;high byte of a short tail is 0
-xr_cp:
-    ld      a,b                     ;count
-    or      c                       ;zero bytes
+    jp      nz,xr_128               ;copy one 128-byte record
+    ld      a,c                     ;live bytes
+    or      a                       ;zero bytes
     jp      z,xr_z128               ;no live bytes: a zero record
-    push    bc                      ;count
+    ld      b,0                     ;high byte of a short tail is 0
+    push    bc                      ;count across the window address
     call    add_offb                ;fatwin plus the byte offset
     pop     bc                      ;count
-    push    bc                      ;count
+    push    bc                      ;count across the copy
     ld      de,bdos_rec             ;address of staged 128-byte record
-    call    bdos_move               ;copy the live bytes (Z80 ldir)
+    call    copy_mem                ;copy the live bytes
     pop     bc                      ;count
-    ld      a,b                     ;128 has B = 0
-    or      a                       ;B set only if the count did not fit in C
-    jp      nz,xr_ok                ;short read is padded
     ld      a,128                   ;bytes still to pad
     sub     c                       ;bytes not copied
     jp      z,xr_ok                 ;short read is padded
@@ -3228,8 +3310,7 @@ xfer_write:
     call    add_offb                ;fatwin plus the byte offset
     ex      de,hl                   ;DE = that address
     ld      hl,bdos_rec             ;address of staged 128-byte record
-    ld      bc,128                  ;one 128-byte record
-    call    bdos_move               ;copy the record into fatwin (Z80 ldir)
+    call    mv_128                  ;copy the record into fatwin
     ld      a,1                     ;dirty window, or a new cluster
     ld      (fat_wflag),a           ;store window is dirty
     scf                             ;record is in the sector
@@ -3247,9 +3328,18 @@ dir_update:
     jp      nc,du_keep              ;size already covers this record
     ld      hl,io_end               ;address of end of this transfer
     ld      de,io_size              ;address of directory file size
-    ld      bc,4                    ;four-byte size
-    call    bdos_move               ;copy the size into the entry (Z80 ldir)
+    ld      a,(hl+)                 ;size byte 0
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;size byte 1
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;size byte 2
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;size byte 3
+    ld      (de+),a                 ;store and step
 du_keep:
+    ld      a,(io_new)              ;start cluster was allocated
+    or      a                       ;later records stay in io_size
+    jp      z,du_ok                 ;close writes the final size
     ld      hl,(io_ofs)             ;saved directory offset
     call    root_at                 ;directory entry at this offset
     jp      nc,du_fail              ;drive is not mounted: return 3
@@ -3284,8 +3374,14 @@ du_sz:
     add     hl,de                   ;point at it
     ex      de,hl                   ;DE = size field
     ld      hl,io_size              ;address of directory file size
-    ld      bc,4                    ;four-byte file offset
-    call    bdos_move               ;copy the size into the entry (Z80 ldir)
+    ld      a,(hl+)                 ;size byte 0
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;size byte 1
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;size byte 2
+    ld      (de+),a                 ;store and step
+    ld      a,(hl+)                 ;size byte 3
+    ld      (de+),a                 ;store and step
     ld      hl,(dir_ptr)            ;directory entry
     ld      de,11                   ;directory attribute
     add     hl,de                   ;point at it
@@ -3295,7 +3391,12 @@ du_sz:
     ld      a,1                     ;dirty window, or a new cluster
     ld      (fat_wflag),a           ;store window is dirty
     call    fat_sync_window         ;write the dirty directory window
-    ret     c                       ;directory written
+    jp      nc,du_fail              ;sync failed: io_new stays set
+    xor     a                       ;published
+    ld      (io_new),a              ;one directory write for this chain
+du_ok:
+    scf                             ;the record is in the file
+    ret
 du_fail:
     ld      a,3                     ;error 3: directory write failed
     or      a                       ;directory update failed

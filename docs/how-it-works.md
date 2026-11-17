@@ -43,7 +43,7 @@ The addresses that do not depend on the CPU are the same on all seven ROMs. The 
 | FAT volume, directory cursors, `fatwin` | `$F7D0`–`$FA84` | the same |
 | BIOS jump table | `$FB00` | `$FB00` |
 
-The 8085 stub is longer because `copy_mem` lives in it. A copy has to run while the window is RAM, and the 8085 has no `ldir`. The Z80 stub uses `ldir`. The stack grows down from `$F6E8` on the Z80 and from `$F717` on the 8085. Disk variables begin at `$F750` on both. The bytes between the stub RAM and `$F750` are unused. That gap is smaller than the 128-byte copy block, so the block stays in the CCP, inside the TPA, and does not push `0006h` down. `fatwin` is the 512-byte sector window, at `$F830`. The sixteen drive clusters, A: through P:, are the first 64 bytes of the FAT block.
+The 8085 stub is longer because `copy_mem` lives in it. A copy has to run while the window is RAM, and the 8085 has no `ldir`. The Z80 stub uses `ldir`. The disk half in the ROM copies fixed lengths on the 8085: 128, 32, and 11 bytes, and the caller finishes a 36-byte search image with four bytes. A short read still uses `copy_mem`. The Z80 disk half uses `ldir`, and a four-byte field is four `ldi`. The stack grows down from `$F6E8` on the Z80 and from `$F717` on the 8085. Disk variables begin at `$F750` on both. The bytes between the stub RAM and `$F750` are unused. That gap is smaller than the 128-byte copy block, so the block stays in the CCP, inside the TPA, and does not push `0006h` down. `fatwin` is the 512-byte sector window, at `$F830`. The sixteen drive clusters, A: through P:, are the first 64 bytes of the FAT block.
 
 On the SIO products the two transmit rings are 32 bytes each and the two receive rings are 128 bytes each, finishing at `$FFFF`. The ACIA receive ring is 256 bytes. The UART receive rings are 128 bytes. The rings are aligned so the index wraps with `inc l` and a mask. The usable depth is one byte under that allocation, which is the 31, 127, and 255 in [Hardware](hardware.md). They are not inside the TPA.
 
@@ -70,17 +70,17 @@ The burned image has to hold all of this at once:
 - the IDE or Compact Flash driver
 - the stored CCP, BDOS stub, and BIOS
 
-A binary over 32768 bytes is rejected. On the 8085 the code also has to finish by `$7F81`. The largest image is Z80 PATA SIO, 32741 bytes. That leaves 27 bytes, the smallest slack of the seven. The 8085 PATA image ends its code at `$7D0C`, 629 bytes below `$7F81`.
+A binary over 32768 bytes is rejected. On the 8085 the code also has to finish by `$7F81`. The largest image is Z80 PATA SIO, 32768 bytes. That leaves no bytes, the smallest slack of the seven. The 8085 PATA image ends its code at `$7DB4`, 461 bytes below `$7F81`.
 
 | Product | Bytes | Code end | Left in the 32 KiB |
 | --- | ---: | ---: | ---: |
-| Z80 CF ACIA | 31978 | `$7C45` | 790 |
-| Z80 CF UART | 32393 | `$7DBA` | 375 |
-| Z80 CF SIO | 32585 | `$7E79` | 183 |
-| Z80 PATA SIO | 32741 | `$7F16` | 27 |
-| 8085 CF ACIA | 31759 | `$7BB0` | 1009 |
-| 8085 CF UART | 31960 | `$7C79` | 808 |
-| 8085 PATA UART | 32107 | `$7D0C` | 661 |
+| Z80 CF ACIA | 32005 | `$7C60` | 763 |
+| Z80 CF UART | 32420 | `$7DD5` | 348 |
+| Z80 CF SIO | 32612 | `$7E94` | 156 |
+| Z80 PATA SIO | 32768 | `$7F31` | 0 |
+| 8085 CF ACIA | 31927 | `$7C58` | 841 |
+| 8085 CF UART | 32128 | `$7D21` | 640 |
+| 8085 PATA UART | 32275 | `$7DB4` | 493 |
 
 The shell stayed in every image. So did `xget`, the CCP, and both FAT types. The fit is what decided that the disk BDOS and mini-FAT live in the ROM rather than in a second bank or in the TPA.
 
@@ -125,7 +125,7 @@ Warm boot is the BIOS job. It pages the ROM in, copies the CCP and the stub code
 
 Mini-FAT is the FAT16 and FAT32 code in the ROM. The shell and the disk BDOS both call it. There is one volume, 512-byte sectors, and short 8.3 names. A cluster number and an LBA are a 32-bit value in BCDE, with E as the low byte.
 
-Every directory entry and every FAT entry passes through `fatwin`. A dirty window is written before a different sector is loaded. Four consecutive 128-byte CP/M records that sit in the same 512-byte sector are one disk read, while that sector remains the window. A sequential read continues from the cluster it already reached, so it does not walk the chain from the start of the file for every record. A seek behind that point walks from the start. A new cluster is taken at the next number when that cluster is free, so a file written here tends to be one run and the FAT sector stays in the window. A fragmented file is still a normal file. The shell follows the chain, and so does the BDOS.
+Every directory entry and every FAT entry passes through `fatwin`. A dirty window is written before a different sector is loaded. Four consecutive 128-byte CP/M records that sit in the same 512-byte sector are one disk read, and one disk write, while that sector remains the window. A sequential write does not flush the directory on each record, so the data sector stays until the file moves to the next one. A new cluster is wiped, and its FAT entry is written, when it is taken. The directory size, the start cluster, and the archive bit are written when the file receives its first cluster. Close writes the final size. A sequential read continues from the cluster it already reached, so it does not walk the chain from the start of the file for every record. A seek behind that point walks from the start. A new cluster is taken at the next number when that cluster is free, so a file written here tends to be one run and the FAT sector stays in the window. A fragmented file is still a normal file. The shell follows the chain, and so does the BDOS.
 
 The IDE driver underneath is the z88dk RC2014 driver. One call reads or writes one sector. LBA in BCDE, buffer in HL, carry set when the sector completed. The PATA path is the 8255 at `$20`–`$23`. The Compact Flash path is ports `$10`–`$17`. [Hardware](hardware.md) has the measured rates for that driver. CP/M does not add a second layer of blocking on top of it.
 
@@ -137,7 +137,7 @@ The public C header is `common/fatfs.h`. The calls, and the cases mini-FAT refus
 
 Console, reader, punch, list, IOBYTE, version, the current drive, the DMA address, and the user number run in the stub. Function 10 pages once, as the serial section says. Any other disk function pages the ROM in and runs the matching routine next to mini-FAT. The ROM routine returns HL. The stub publishes that word and pages RAM back.
 
-A CP/M file on the card is one FAT directory entry: the 8.3 name, the attribute, the start cluster, and the size. The FCB the program holds is filled from that entry. It is not stored as a 32-byte CP/M extent. The sixteen allocation bytes in the FCB are zeros. `DIR` lists the name. `STAT`'s per-file size column reads those zeros and looks empty. Function 35 returns the size. Read and write use the cluster chain.
+A CP/M file on the card is one FAT directory entry: the 8.3 name, the attribute, the start cluster, and the size. The FCB the program holds is filled from that entry. It is not stored as a 32-byte CP/M extent. The sixteen allocation bytes in the FCB are zeros. `DIR` lists the name. `STAT`'s per-file size column reads those zeros and looks empty. Function 35 returns the size. Read and write use the cluster chain. A write keeps the new length in memory. The directory entry is stored when the first cluster is allocated, and the final length is stored at close. Until close, function 35 and `DIR` show the length already on the card.
 
 The disk is told as 8 MB even when the card is larger. Free space, function 27, builds its 512-byte allocation vector in `fatwin` and returns that address. The vector is valid until the next disk call, which needs the window for a real sector. Keeping the vector there, instead of reserving 512 bytes under `0006h`, is worth 512 bytes of TPA for every program, including the ones that never ask. The count is the smaller of the free clusters on the card, capped at 8 MB, and the space not yet used by files on that letter. An empty letter on a large card reports 8192k. Each file reduces the figure by its size, rounded up to 2 KB. User 0 is the only user that can see or create files. The directory has no user field.
 
