@@ -76,24 +76,26 @@ run_master_disk 8085-pata-uart 8085
 
 if [ -f "$ROOT/common/fatfs.asm" ]; then
 echo "=== mini-FAT ticks (FAT12-sized mount must fail) ==="
+    dd if=/dev/zero of="$HERE/out/minifat.img" bs=512 count=48 status=none
     ( cd /tmp && zcc +test -vn -m \
         -I"$ROOT/common" \
-        "$HERE/test_minifat.c" "$HERE/ide_ram.asm" "$HERE/bss_ram.asm" \
+        "$HERE/test_minifat.c" "$HERE/ide_ticks.asm" "$HERE/bss_ram.asm" \
         "$HERE/bios_disk.asm" "$HERE/redteam_wipe.asm" \
         "$ROOT/common/fatfs.asm" \
         -o "$HERE/out/minifat.bin" -lndos )
-        z88dk-ticks "$HERE/out/minifat.bin" -x "$HERE/out/minifat.map" \
-            -counter 999999999 | tee "$HERE/out/minifat.txt"
+    z88dk-ticks -x "$HERE/out/minifat.map" -ide0 "$HERE/out/minifat.img" \
+        "$HERE/out/minifat.bin" -counter 999999999 | tee "$HERE/out/minifat.txt"
     grep -q 'MINIFAT_OK' "$HERE/out/minifat.txt"
     echo "=== mini-FAT 8085 ticks ==="
+    dd if=/dev/zero of="$HERE/out/minifat85.img" bs=512 count=48 status=none
     ( cd /tmp && zcc +test -clib=8085 -m8085 -compiler=80cc -vn -m \
         -I"$ROOT/common" \
-        "$HERE/test_minifat.c" "$HERE/ide_ram_8085.asm" "$HERE/bss_ram.asm" \
+        "$HERE/test_minifat.c" "$HERE/ide_ticks.asm" "$HERE/bss_ram.asm" \
         "$HERE/bios_disk_85.asm" "$HERE/redteam_wipe.asm" \
         "$ROOT/common/fatfs_85.asm" \
         -o "$HERE/out/minifat85.bin" -lndos )
-    z88dk-ticks -m8085 "$HERE/out/minifat85.bin" -x "$HERE/out/minifat85.map" \
-        -counter 999999999 | tee "$HERE/out/minifat85.txt"
+    z88dk-ticks -m8085 -x "$HERE/out/minifat85.map" -ide0 "$HERE/out/minifat85.img" \
+        "$HERE/out/minifat85.bin" -counter 999999999 | tee "$HERE/out/minifat85.txt"
     grep -q 'MINIFAT_OK' "$HERE/out/minifat85.txt"
 
 echo "=== compare mount-fail on small image ==="

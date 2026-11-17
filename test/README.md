@@ -1,6 +1,6 @@
 # Testing CP/M-IDE v3 under z88dk-ticks
 
-The suites here run the v3 BDOS and mini-FAT as a flat `+test` image. The disk is a RAM image. The pass line is printed on the terminal by the `+test` console trap. The three scripts below do not load a product HEX file, and they do not start the CCP. The CCP session is the last section, `sh test/cli/a.sh`.
+The suites here run the v3 BDOS and mini-FAT as a flat `+test` image. The BDOS disk group and the shell-config group keep the volume in a RAM image. The mini-FAT group keeps it in a host file attached with `-ide0`. The pass line is printed on the terminal by the `+test` console trap. The three scripts below do not load a product HEX file, and they do not start the CCP. The CCP session is the last section, `sh test/cli/a.sh`.
 
 Run them from the repository root, one after another. Each script builds Z80, then 8085. Each build changes to `/tmp` before `zcc`, and `/tmp/zcc_opt.def` is one file, so two scripts at once corrupt the link.
 
@@ -31,9 +31,11 @@ The script then runs four groups.
 | Mini-FAT, Z80 and 8085 | `MINIFAT_OK` |
 | Shell config (`test/fatfs/test_cfg.c` plus `common/yash.c`) | `YASH_CFG_OK` |
 
-Mini-FAT must reject the small image. ChaN still mounts that image as FAT12. That difference is the point of the compare.
+Mini-FAT links `test/fatfs/ide_ticks.asm`. The script writes a 48-sector file and passes it as `-ide0`. Sector reads and writes are ticks commands 42 and 43. The glue still rejects an LBA at or past `ram_nsect`. Mini-FAT must reject the small image. ChaN still mounts that image as FAT12. That difference is the point of the compare.
 
 The config group checks `CPMIDE.CFG`, letter directories, and `ya_boot_root`. Its `cpm_boot` only counts calls. It does not enter the CCP. Its `disk_write` returns an error.
+
+`sh test/fatfs/bench_rw.sh` times one 16384-byte transfer on Z80 and on 8085, at cluster sizes 1 and 8. It links the ROM mini-FAT and the ROM BDOS unchanged. The shell rows allocate one cluster at a time and transfer whole sectors. The BDOS rows use functions 21 and 20, 128 records. `ide_bench.asm` counts hook commands 42 and 43. The printed `rd` and `wr` are those counts. A second ticks run prints the cycles between `TIMER_START` and `TIMER_STOP`. Pass text is `BENCH_OK`. The host performs the 512-byte copy, so that cycle count leaves out the cost of `inir` or `otir` on a real IDE port.
 
 ## test/bdos/run.sh
 
@@ -68,7 +70,7 @@ A suite binary is ordinary Z80 or 8085 code loaded at address 0. `printf` and `p
 
 On a terminal, command 2 reads with echo and line editing off. Enter arrives as byte 10. Command 3 is not a non-blocking poll in this ticks: the idle return of the key check is `-1`, the hook treats that as a waiting key, and the following read waits. The suites never use command 3.
 
-`-ide0` and `-ide1` attach a host file to commands 40–43 (`CMD_IDE_READ` / `CMD_IDE_WRITE`). The RAM disk does not issue those commands. The product IDE driver does not either. It talks to the CF taskfile at `$10`–`$17`, or to the 8255 PPIDE at `$20`–`$23`. Ticks does not implement those ports.
+`-ide0` and `-ide1` attach a host file to commands 40–43 (`CMD_IDE_SELECT`, `CMD_IDE_ID`, `CMD_IDE_READ`, `CMD_IDE_WRITE`). The mini-FAT group issues select, read, and write through `test/fatfs/ide_ticks.asm`. The BDOS disk group and the shell-config group use `ide_ram.asm` and leave the host file closed. The product IDE driver talks to the CF taskfile at `$10`–`$17`, or to the 8255 PPIDE at `$20`–`$23`. Ticks does not implement those ports.
 
 The ACIA data port is `$81` and the status port is `$80`. Ticks does implement those, so an ACIA product's `conout` can reach the terminal if execution gets that far. Nothing in these suites uses that path.
 
