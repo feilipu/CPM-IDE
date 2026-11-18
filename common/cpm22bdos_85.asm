@@ -1654,8 +1654,8 @@ fn17_save:
     ld      (de+),a                 ;store and step
     ld      a,(hl+)                 ;FCB R1
     ld      (de+),a                 ;store and step
-    ld      a,(hl+)                 ;FCB R2
-    ld      (de+),a                 ;store and step
+    ld      a,(hl)                  ;FCB R2
+    ld      (de),a                  ;store
     xor     a                       ;zero
     ld      h,a                     ;high byte
     ld      l,a                     ;low byte
@@ -1679,8 +1679,8 @@ fn_next:
     ld      (de+),a                 ;store and step
     ld      a,(hl+)                 ;FCB R1
     ld      (de+),a                 ;store and step
-    ld      a,(hl+)                 ;FCB R2
-    ld      (de+),a                 ;store and step
+    ld      a,(hl)                  ;FCB R2
+    ld      (de),a                  ;store
     jp      srch_from               ;walk from the saved offset
 
 ;
@@ -2756,8 +2756,8 @@ load_info:
     ld      (de+),a                 ;store and step
     ld      a,(hl+)                 ;size byte 2
     ld      (de+),a                 ;store and step
-    ld      a,(hl+)                 ;size byte 3
-    ld      (de+),a                 ;store and step
+    ld      a,(hl)                  ;size byte 3
+    ld      (de),a                  ;store
     xor     a                       ;cluster is the one already in the entry
     ld      (io_new),a              ;store start cluster was allocated
     ret
@@ -2887,8 +2887,8 @@ end128:
     ld      (de+),a                 ;store and step
     ld      a,(hl+)                 ;cursor byte 2
     ld      (de+),a                 ;store and step
-    ld      a,(hl+)                 ;cursor byte 3
-    ld      (de+),a                 ;store and step
+    ld      a,(hl)                  ;cursor byte 3
+    ld      (de),a                  ;store
     ld      hl,io_end               ;address of end of this transfer
     ld      a,(hl)                  ;low byte
     add     a,128                   ;io_end is 128 bytes past io_fptr
@@ -3166,8 +3166,8 @@ zero_gap:
     ld      (de+),a                 ;store and step
     ld      a,(hl+)                 ;mark byte 2
     ld      (de+),a                 ;store and step
-    ld      a,(hl+)                 ;mark byte 3
-    ld      (de+),a                 ;store and step
+    ld      a,(hl)                  ;mark byte 3
+    ld      (de),a                  ;store
     ld      hl,io_size              ;address of directory file size
     ld      de,io_fptr              ;address of byte offset in the file
     ld      a,(hl+)                 ;cursor byte 0
@@ -3176,8 +3176,8 @@ zero_gap:
     ld      (de+),a                 ;store and step
     ld      a,(hl+)                 ;cursor byte 2
     ld      (de+),a                 ;store and step
-    ld      a,(hl+)                 ;cursor byte 3
-    ld      (de+),a                 ;store and step
+    ld      a,(hl)                  ;cursor byte 3
+    ld      (de),a                  ;store
 zg_lp:
     ld      hl,io_fptr              ;address of byte offset in the file
     ld      de,io_mark              ;address of saved file offset
@@ -3240,8 +3240,8 @@ zg_restore:
     ld      (de+),a                 ;store and step
     ld      a,(hl+)                 ;cursor byte 2
     ld      (de+),a                 ;store and step
-    ld      a,(hl+)                 ;cursor byte 3
-    ld      (de+),a                 ;store and step
+    ld      a,(hl)                  ;cursor byte 3
+    ld      (de),a                  ;store
 zg_ok:
     scf                             ;no gap before this record
     ret
@@ -3334,8 +3334,8 @@ dir_update:
     ld      (de+),a                 ;store and step
     ld      a,(hl+)                 ;size byte 2
     ld      (de+),a                 ;store and step
-    ld      a,(hl+)                 ;size byte 3
-    ld      (de+),a                 ;store and step
+    ld      a,(hl)                  ;size byte 3
+    ld      (de),a                  ;store
 du_keep:
     ld      a,(io_new)              ;start cluster was allocated
     or      a                       ;later records stay in io_size
@@ -3380,8 +3380,8 @@ du_sz:
     ld      (de+),a                 ;store and step
     ld      a,(hl+)                 ;size byte 2
     ld      (de+),a                 ;store and step
-    ld      a,(hl+)                 ;size byte 3
-    ld      (de+),a                 ;store and step
+    ld      a,(hl)                  ;size byte 3
+    ld      (de),a                  ;store
     ld      hl,(dir_ptr)            ;directory entry
     ld      de,11                   ;directory attribute
     add     hl,de                   ;point at it
