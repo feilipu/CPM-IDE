@@ -19,7 +19,7 @@ The ROM images and a CP/M `.COM` are different builds. A ROM uses a bare RC2014 
 
 `main.c` is first for a reason. The phased CCP, stub, and BIOS take their run addresses from the pragmas in that file. Build each product in its own directory. A shared `zcc_opt.def` in one directory will mix those origins if two builds run together.
 
-The assembly is written for the two CPUs on purpose. The labels and the branches match. The Z80 files use `ldir` and the Z80 shifts. The 8085 files use `copy_mem`, `rra`, and `rl de`. A dword cluster or LBA is BCDE, with E the low byte.
+The assembly is written for the two CPUs on purpose. The labels and the branches match. The Z80 files use `ldir` and the Z80 shifts. The 8085 files use `copy_mem` for a counted copy, fixed-length copies in the disk BDOS, `rra`, and `rl de`. A dword cluster or LBA is BCDE, with E the low byte.
 
 Mini-FAT is the layer under ChaN's `f_open` and `f_read`. It is not that API. The calls, and what it refuses, are in [Mini-FAT](mini-fat.md). There is no separate mini-FAT archive to install. Older notes that say the shell links `ff_ro` or `ff_85_ro` describe an earlier shell. This one links mini-FAT directly. The published v2.6 shell did too. A `.COM` on v2.6 that had to create a file on the FAT volume still linked the full ChaN library, because the v2.6 BDOS only wrote inside the container file.
 

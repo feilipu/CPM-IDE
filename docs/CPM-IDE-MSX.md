@@ -62,7 +62,7 @@ On that date the seven HEX files included `hget`. `md`, `dd`, and `mount` are no
 
 On `fd57ad9`, `YASH_HGET` was 0 and `ya_mkdrv` still called `hg_open`. A rebuild then, `WORK=/tmp/cpm-ide-hgv`, zcc `v25461-415806f08c-20260813`, 2026-10-08 12:56–13:03, finished `ok=7 fail=0` and printed `UNCHANGED` for every HEX. `__IO_CF_8_BIT` was left at `0x01`. Those blobs are `676d65b`, not the HEX files in the tree now.
 
-The same automatic split was tried on `master`, where `hget` is still compiled in. 8085 PATA grew to 32981 bytes, `__CODE_END` `$8036` (213 bytes over 32768, code overlapping DATA at `$8000`). The committed master 8085 PATA image is 32757 bytes, 11 under the limit. The smallest new frame on that object, `hg_wr`, was +16 bytes, so no partial of those frames fits. The trial was reverted in the working tree. `864f590` is the `ya_md` comment on top of tag `cpm-ide-v2.6`. Master's branched helpers stay static.
+The same automatic split was tried on the v2.6 `master` of 2026-10-11, where `hget` was still compiled in. 8085 PATA grew to 32981 bytes, `__CODE_END` `$8036` (213 bytes over 32768, code overlapping DATA at `$8000`). The committed 8085 PATA image on that master was 32757 bytes, 11 under the limit. The smallest new frame on that object, `hg_wr`, was +16 bytes, so no partial of those frames fits. The trial was reverted in the working tree. `864f590` is the `ya_md` comment on top of the tag as it stood then. That master's branched helpers stayed static.
 
 That size trial left the product boot path as it was. CRT page zero is the ROM-in vector. `cboot` plants the RAM vector after the latch, with interrupts off, and `rboot` passes `$0004` in C. Z80 and 8085 CRT0 stay different.
 
@@ -120,7 +120,7 @@ The earlier links are kept in `BDOS-ISA-REVIEW.md`, removed from the tree on 202
 
 ### Entry
 
-`common/cpm22bdos.asm` is the Z80 BDOS. `common/cpm22bdos_85.asm` is the 8085 BDOS. Same labels and the same branches. Z80 shifts and block moves use `ldir`, `srl`/`rr`, and `sla`/`rl`. 8085 uses `copy_mem`, `rra` through A, and `rl de`. The disk entry is seven shapes (`latch_reg`, `latch_fcb`, `latch_open`, `latch_find`, `latch_next`, `latch_read`, `latch_write`) plus `go_line`. Function 18 is `latch_next`: it does not stage the caller's `DE` and it does not copy an FCB back. `functns` names those shapes. `rom_go` indexes `romfns` after the latch.
+`common/cpm22bdos.asm` is the Z80 BDOS. `common/cpm22bdos_85.asm` is the 8085 BDOS. Same labels and the same branches. Z80 shifts and block moves use `ldir`, `srl`/`rr`, and `sla`/`rl`. 8085 uses fixed-length copies for 128, 32, and 11 bytes, `copy_mem` for a short read, `rra` through A, and `rl de`. The disk entry is seven shapes (`latch_reg`, `latch_fcb`, `latch_open`, `latch_find`, `latch_next`, `latch_read`, `latch_write`) plus `go_line`. Function 18 is `latch_next`: it does not stage the caller's `DE` and it does not copy an FCB back. `functns` names those shapes. `rom_go` indexes `romfns` after the latch.
 
 `bdos` / `_cpm_bdos_head` is the page. Six serial bytes (`00 16 00 00 00 00`) come first. `0006h` is `_cpm_bdos_fbase`, the `JP fbase` six bytes later. Four `DEFW` error words follow (`badsctr`, `badslct`, `rodisk`, `rofile`). `fbase` starts with `ex de,hl`. It saves the user SP with `add hl,sp` while HL is 0, switches to `bdos_stack`, pushes `goback`, rejects C >= 41, indexes `functns` by two, and `jp (hl)` with DE restored. `ld de,sp` is the wrong save on both CPUs. Callers, including `test/bdos/bdos_host.asm`, enter at `_cpm_bdos_fbase`. Entering at the serial executes `16h` (`ld d,0`) and drops the high byte of DE. GOBACK returns with A = L and B = H. Function 12 stores `0022h`. An open miss stores `00FFh` in both the A/B pair and HL.
 
@@ -164,8 +164,7 @@ Closed items stay here so a later edit does not reopen them. The others are stil
 5. **The board command pass is still open.** The host `A>` is issue 4: a RAM disk, with the ACIA console traps, and with no write to port `$38`. ticks emulates the ACIA. The CF taskfile (`$10`–`$17`) and the 8255 PPIDE (`$20`–`$23`) stay outside that session. The 8085 CF ACIA board runs this branch. The directory-search crash is closed. A ticks shell banner is `ya_loop`, a different gate from this `A>`.
    Future run: a board pass in the order already written under Tests (CCP `DIR`, `ERA`, `REN`, `TYPE`, `SAVE`, `USER`, then PIP, STAT, ASM, LOAD, DDT), or a taskfile emulator that can mount. Report that pass from the board or from that emulator.
 
-6. **Master and this branch are different shells.** Master is the container-file line. Its 8085 PATA image still has `hget` and is 11 bytes under 32768. This branch mounts letter directories, reads `CPMIDE.CFG` when `cpm` has no arguments, and includes `hget` because `md`, `dd`, and `mount` are gone. The automatic-frame trial on master was reverted. `origin/master` is now `5db3e30`. `864f590` is the `ya_md` commit under that tag.
-   Future run: leave the branched functions static on `master`. Do not push `master` from this branch. Leave tag `cpm-ide-v2.6` at `5db3e30`.
+6. **Closed. The container-file shell and this disk BDOS are not the same master.** Tag `cpm-ide-v2.6` is `f093809`. That ROM mounts container files. Its 8085 PATA image of that date had `hget` and was 11 bytes under 32768. `origin/master` is the letter-directory ROM. `cpm` with no arguments reads `CPMIDE.CFG`, and the receive command is `xget`. The automatic-frame trial on the v2.6 line was reverted.
 
 7. **`hg_sum` stays file-scope.** `hg_hexbyte`, `hg_record`, and `hg_cksum` share it. A pointer parameter would give the frameless helpers their first automatic. The symbol is in the ROM.
    Future run: leave `hg_sum` file-scope.
@@ -324,7 +323,7 @@ These paths are in the tree.
 | `common/cpm22ccp.asm` | Z80 CCP. Run address from product `main.c`. |
 | `common/cpm22ccp_85.asm` | 8085 CCP. Same flow. `LDI_3` in this image. |
 | `common/cpm22bdos.asm` | Z80 BDOS. High-memory piece and ROM piece. |
-| `common/cpm22bdos_85.asm` | 8085 BDOS. Same flow. `copy_mem`, `rra`, `rl de`. |
+| `common/cpm22bdos_85.asm` | 8085 BDOS. Same flow. Fixed-length copies, `copy_mem` for a short read, `rra`, `rl de`. |
 | `test/bdos/` | Host ticks harness, one group per function, FAT16 and FAT32 images. |
 | `test/cli/` | Z80 CCP under ticks. `sh test/cli/a.sh` prints `A>`. |
 
@@ -415,13 +414,13 @@ Attribute map, function 30 and the dirent. Matching ignores bit 7. The bits are 
 
 Directory byte 13 is the FAT creation-time tenths field. Function 30 does not write it, and search does not publish it.
 
-A BDOS write sets FAT attribute `0x20` (the volume needs a backup). That bit is not copied into T3'. Delete of a T1' file takes the fatal File R/O path (`CHKROFL`): print, wait for any console character, then warm boot. It does not return `0FFh`. The same path is used for a write to a T1' file.
+The archive bit, FAT attribute `0x20`, is set when a write allocates the file's first cluster. A later record does not set it, and close does not set it. That bit is not copied into T3'. Delete of a T1' file takes the fatal File R/O path (`CHKROFL`): print, wait for any console character, then warm boot. It does not return `0FFh`. The same path is used for a write to a T1' file.
 
 ## User number
 
 Function 32 stores `E & 1Fh`, or returns the current number when `E = 0FFh`. The same mask as the current BDOS.
 
-The FAT directory is user 0. Search, open, delete, and rename with any other user return not found. Make with any other user returns `0FFh`. The `USER` command works. Files created by the BDOS are ordinary 8.3 names in the FAT root, which is what a host sees. There is no sidecar and no user number hidden in an attribute bit.
+The FAT directory is user 0. Search, open, delete, and rename with any other user return not found. Make with any other user returns `0FFh`. The `USER` command works. Files created by the BDOS are ordinary 8.3 names in the letter directory for that drive, which is what a host sees in that directory. There is no sidecar and no user number hidden in an attribute bit.
 
 ## Make, delete, rename, close
 
