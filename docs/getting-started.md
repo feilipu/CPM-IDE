@@ -131,7 +131,7 @@ With the serial link at __115200 baud 8n2__ and hardware flow control enabled:
 xget PROG.COM
 ```
 
-__`xget`__ prints `Waiting for XMODEM`. Then send the file with `sx --checksum` (minicom: Ctrl-A S, then xmodem). The shell answers ACK after each good block is stored, so the host waits while a sector is written. EOT finishes the receive. Success prints the byte count. A quiet line prints `timeout`. CAN prints `cancelled`.
+__`xget`__ prints `Waiting for XMODEM`. Then send the file with `sz --xmodem` (minicom: Ctrl-A S, then xmodem). The shell answers ACK after each good block is stored, so the host waits while a sector is written. EOT finishes the receive. Success prints the byte count. A quiet line prints `timeout`. CAN prints `cancelled`.
 
 Before the first `cpm`, use `xget` from this shell to load the starter programs into the directory that will be A:. `XMODEM`, `PIP`, `SD`, and `MD5` are enough to get started, together with the CCP commands that are already built in. The example is in [Working drive](#working-drive).
 

@@ -63,7 +63,7 @@ struct Builtin {
 struct Builtin builtins[] = {
   // CP/M related functions
     { "cpm", &ya_mkcpm, "[path] - CPMIDE.CFG, or A-P in a directory"},
-    { "xget", &ya_xget, "<file> - sx checksum"},
+    { "xget", &ya_xget, "<file> - sz --xmodem"},
 
 // fat related functions
     { "ls", &ya_ls, "[path] - directory listing"},

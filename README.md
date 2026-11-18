@@ -57,7 +57,7 @@ Burn the HEX that matches that list into a 32 kB or 64 kB ROM. Format the card F
 
 ![mkdir A, cd A, xget the starter programs, then cpm .](docs/shell-start.svg)
 
-`xget` is XMODEM-128 checksum (`sx --checksum`). The CCP already knows `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`, and `EXIT`. Leave a root `CPMIDE.CFG` out until A: has those files. A root file that names A: starts CP/M at power-on and skips the shell.
+`xget` is XMODEM-128 checksum (`sz --xmodem`). The CCP already knows `DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`, and `EXIT`. Leave a root `CPMIDE.CFG` out until A: has those files. A root file that names A: starts CP/M at power-on and skips the shell.
 
 The shell commands, the config file, and the other ways to choose the drives are in [Getting started](docs/getting-started.md).
 

@@ -620,6 +620,7 @@ static void test_make(void)
 static void test_rename(void)
 {
     unsigned rc;
+    unsigned hits;
 
     rebuild();
     plant_name(slot(0), "A1      TXT", 100, 0x20, 2);
@@ -650,6 +651,18 @@ static void test_rename(void)
     memcpy(fcb + 17, "A?      TXT", 11);
     rc = call(23);
     expect("ren_self FAIL", rc != 0xFF && memcmp(slot(0), "A1      TXT", 11) == 0);
+
+    rebuild();
+    plant_name(slot(0), "LOCKED  TXT", 128, 0x21, 2);
+    bios_reset();
+    hits = wboot_hits;
+    clear_fcb();
+    set_name("LOCKED  TXT");
+    memcpy(fcb + 17, "OPEN    TXT", 11);
+    call(23);
+    expect("ren_ro_boot FAIL", wboot_hits == hits + 1);
+    expect_con("ren_ro_msg FAIL", "\r\nBdos Err On A : File R/O", 26);
+    expect("ren_ro_keep FAIL", memcmp(slot(0), "LOCKED  TXT", 11) == 0);
 }
 
 static void test_attr(void)
@@ -880,14 +893,16 @@ static void test_io(void)
     }
     expect("seq_ext FAIL", i == 128 && rc == 0 && fcb[32] == 0 && fcb[12] == 1 &&
            (fcb[14] & 0x80) != 0 && fcb[15] == 0);
-    expect("seq_ext_sz FAIL", slot(0)[28] == 128 && slot(0)[29] == 0 && slot(0)[30] == 0);
+    expect("seq_ext_sz FAIL", slot(0)[28] == 0 && slot(0)[29] == 0x40 && slot(0)[30] == 0);
+    expect("seq_ext_cl FAIL", call(16) != 0xFF && slot(0)[29] == 0x40 &&
+           fcb[12] == 1 && (fcb[14] & 0x80) != 0);
     expect("seq_ext_fat FAIL", ram_image[516] == 3 && ram_image[517] == 0 &&
            ram_image[578] == 0xFF && ram_image[579] == 0xFF &&
            ram_image[580] == 0 && ram_image[581] == 0);
     hits = fcb[14];
     rc = call(21);
     expect("seq_full FAIL", rc == 2 && fcb[32] == 0 && fcb[12] == 1 && fcb[14] == hits &&
-           slot(0)[28] == 128 && slot(0)[29] == 0);
+           slot(0)[28] == 0 && slot(0)[29] == 0x40 && slot(0)[30] == 0);
     fcb[33] = 127;
     fcb[34] = 0;
     fcb[35] = 0;

@@ -1920,12 +1920,7 @@ del_lp:
     call    next_match              ;next name match after HL
     pop     hl                      ;offset
     jp      nc,del_done             ;no more matching names: return the first deleted slot
-    ld      hl,(dir_ptr)            ;directory entry
-    ld      de,11                   ;directory attribute
-    add     hl,de                   ;point at it
-    ld      a,(hl)                  ;attribute
-    and     1                       ;read-only bit
-    jp      nz,fatal_ro             ;print File R/O and warm-boot
+    call    file_ro                 ;a read-only match is fatal
     call    load_clst               ;start cluster into BCDE
     ld      hl,de                   ;low word
     ld      (ent_buf),hl            ;store scratch entry
@@ -1981,12 +1976,7 @@ fn_make:
     ld      (bdos_fcb+14),a         ;store FCB S2
     call    find_name               ;first directory name that matches
     jp      nc,mk_new               ;name is not in the directory: create a new directory entry
-    ld      hl,(dir_ptr)            ;directory entry
-    ld      de,11                   ;directory attribute
-    add     hl,de                   ;point at it
-    ld      a,(hl)                  ;attribute
-    and     1                       ;read-only bit
-    jp      nz,fatal_ro             ;the file is read-only: print File R/O and warm-boot
+    call    file_ro                 ;a read-only file is fatal
     call    slot_index              ;directory slot in this sector
     ld      (srch_idx),a            ;store DMA slot 0..3
     call    load_clst               ;start cluster into BCDE
@@ -2086,7 +2076,8 @@ mk_bad:
     defb    $22,$2A,$2B,$2C,$2F,$3A,$3B,$3C,$3D,$3E,$3F,$5B,$5C,$5D,$7C
 
 ;
-; Rename. Pass 1 refuses when the expanded name is already another entry.
+; Rename. Pass 1 refuses a read-only file, and refuses when the expanded
+; name is already another entry. Nothing is renamed until pass 2.
 ; The drive byte at FCB+16 is not read. The cluster chain is not moved.
 ;
 fn_rename:
@@ -2101,6 +2092,7 @@ rn1:
     push    hl                      ;offset
     call    next_match              ;next name match after HL
     jp      nc,rn1_end              ;no more matching names: did pass 1 find anything?
+    call    file_ro                 ;a read-only match is fatal
     ld      hl,(dir_ofs)            ;directory byte offset
     ld      (srch_ofs),hl           ;store search directory offset
     call    expand_new              ;build the new name in ent_buf
@@ -2290,10 +2282,21 @@ disk_ro:
     ld      hl,bdos_ro              ;address of read-only vector
     call    drv_test                ;test this drive's bit
     ret     z                       ;that drive bit is clear
-    jp      rodisk                  ;print R/O and warm-boot
+
 rodisk:
     ld      hl,msg_dsk              ;"R/O$"
     jp      fatal_go                ;print the drive and warm-boot
+;
+; Directory attribute bit 0 is file R/O. Warm-boots when that bit is set.
+;
+file_ro:
+    ld      hl,(dir_ptr)            ;this entry
+    ld      de,11                   ;attribute byte
+    add     hl,de                   ;point at it
+    ld      a,(hl)                  ;attribute
+    and     1                       ;bit 0 is read-only
+    ret     z                       ;the file is writable
+
 rofile:
 fatal_ro:
     ld      hl,msg_ro               ;"File R/O$"
@@ -2583,12 +2586,7 @@ io_find:
     or      a                       ;read: remember it and continue
     jp      z,io_info               ;this call does not write: cache the directory info
     call    disk_ro                 ;Read-Only error if the disk is R/O
-    ld      hl,(dir_ptr)            ;directory entry
-    ld      de,11                   ;directory attribute
-    add     hl,de                   ;point at it
-    ld      a,(hl)                  ;attribute
-    and     1                       ;read-only bit
-    jp      nz,fatal_ro             ;the file is read-only: print File R/O and warm-boot
+    call    file_ro                 ;a read-only file is fatal
 io_info:
     call    load_info               ;cluster, size, and directory offset
     call    open_save               ;remember this name and its R/O bit
@@ -3318,7 +3316,8 @@ xfer_write:
 
 ;
 ; Size becomes the end of this record when that is past the old size.
-; The directory is written back at the saved offset. Sync failure is A = 3.
+; The directory is written when the chain is new, and when a sequential
+; write fills an extent. Sync failure is A = 3.
 ;
 dir_update:
     call    end128                  ;io_end = io_fptr + 128
@@ -3337,9 +3336,18 @@ dir_update:
     ld      a,(hl)                  ;size byte 3
     ld      (de),a                  ;store
 du_keep:
-    ld      a,(io_new)              ;start cluster was allocated
-    or      a                       ;later records stay in io_size
-    jp      z,du_ok                 ;close writes the final size
+    ld      a,(io_new)              ;set when the start cluster was allocated
+    or      a                       ;a new chain publishes below
+    jp      nz,du_do                ;cluster, size, archive, and sync
+    ld      a,(io_cr)               ;record just written
+    cp      127                     ;last record of this extent
+    jp      nz,du_ok                ;a short extent waits for close
+    ld      hl,io_mode              ;1, then io_alloc, on a sequential write
+    ld      a,(hl+)                 ;io_mode
+    and     (hl)                    ;both bytes set
+    jp      z,du_ok                 ;read, or a random write
+    ld      (io_new),a              ;this full extent is published now
+du_do:
     ld      hl,(io_ofs)             ;saved directory offset
     call    root_at                 ;directory entry at this offset
     jp      nc,du_fail              ;drive is not mounted: return 3
@@ -3393,7 +3401,7 @@ du_sz:
     call    fat_sync_window         ;write the dirty directory window
     jp      nc,du_fail              ;sync failed: io_new stays set
     xor     a                       ;published
-    ld      (io_new),a              ;one directory write for this chain
+    ld      (io_new),a              ;clear it after a good sync
 du_ok:
     scf                             ;the record is in the file
     ret

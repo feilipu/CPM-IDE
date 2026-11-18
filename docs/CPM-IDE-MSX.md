@@ -406,7 +406,7 @@ Attribute map, function 30 and the dirent. Matching ignores bit 7. The bits are 
 
 | CP/M | Where it lives | Meaning on this BDOS |
 | --- | --- | --- |
-| T1' | FAT attribute `0x01` | Read-only. Delete and write take the fatal File R/O path |
+| T1' | FAT attribute `0x01` | Read-only. Delete, rename, and write take the fatal File R/O path |
 | T2' | FAT attribute `0x02` (hidden) | System. Search returns it. CCP DIR skips the name. BDOS still opens it |
 | T3' | not stored | The 2.2 manual reserves it. Elliott calls it the archive bit. It is not wired to FAT `0x20`, because those two bits mean opposite things |
 | F1'..F4' | not stored | Application attributes. Left clear so a host creation time cannot set them |
@@ -414,7 +414,7 @@ Attribute map, function 30 and the dirent. Matching ignores bit 7. The bits are 
 
 Directory byte 13 is the FAT creation-time tenths field. Function 30 does not write it, and search does not publish it.
 
-The archive bit, FAT attribute `0x20`, is set when a write allocates the file's first cluster. A later record does not set it, and close does not set it. That bit is not copied into T3'. Delete of a T1' file takes the fatal File R/O path (`CHKROFL`): print, wait for any console character, then warm boot. It does not return `0FFh`. The same path is used for a write to a T1' file.
+The archive bit, FAT attribute `0x20`, is set when a write allocates the file's first cluster, and again when a sequential write fills an extent. Any other record does not set it, and close does not set it. That bit is not copied into T3'. Delete of a T1' file takes the fatal File R/O path (`CHKROFL`): print, wait for any console character, then warm boot. It does not return `0FFh`. The same path is used for a write to a T1' file and for a rename of one.
 
 ## User number
 
@@ -434,7 +434,7 @@ Make (22) clears S2, as `FCREATE` does, then:
 
 Delete (19) accepts `?` in the name and type. The drive byte is not ambiguous. For each match that is not read-only: `dir_zap`, `fat_sync`, then `remove_chain`. A crash leaves an `E5` name and orphaned clusters, the same order as `ya_rm`. Return a directory code in 0..3 when at least one entry was removed, else `0FFh`. The first read-only match takes the fatal File R/O path before any later name is removed.
 
-Rename (23) accepts `?` and rewrites every match. The drive byte at FCB+0 selects the disk. The drive byte at FCB+16 is ignored, as the manual says. The user number of the file stays 0. The cluster chain stays. If the expanded new name already exists, return `0FFh` and leave both names alone. The manual and Calkins do not check; FAT cannot hold two entries of one 8.3 name, and deleting the destination would erase a file the caller did not name in the old-name field.
+Rename (23) accepts `?` and rewrites every match. A read-only match takes the fatal File R/O path before any name is stored, so nothing is renamed. The drive byte at FCB+0 selects the disk. The drive byte at FCB+16 is ignored, as the manual says. The user number of the file stays 0. The cluster chain stays. If the expanded new name already exists, return `0FFh` and leave both names alone. The manual and Calkins do not check; FAT cannot hold two entries of one 8.3 name, and deleting the destination would erase a file the caller did not name in the old-name field.
 
 Close (16) matches the name the way open does. S2 bit 7 set: return a directory code in 0..3 and do not write. S2 bit 7 clear: write the size from the FCB extent and RC, update T1' and T2', then `fat_sync`. Directory byte 13 is left as the host stored it. A missing name returns `0FFh`. A directory write that fails returns `0FFh`.
 
@@ -585,7 +585,7 @@ Fixtures: a small FAT16 volume, a FAT32 volume, a fragmented file (cluster chain
 | 19 | Wildcard delete frees the chain. Read-only takes the fatal path (hook, not a return). |
 | 20, 21 | Sequential EOF does not advance CR. Write extends. Disk full is 2. |
 | 22 | Creates a size-0 FAT entry and sets S2 bit 7. Second make of the same name truncates. Full FAT16 root is `0FFh`. |
-| 23 | Wildcard rename, same chain. The drive byte at FCB+16 is ignored. An existing destination is `0FFh` and both names stay. |
+| 23 | Wildcard rename, same chain. The drive byte at FCB+16 is ignored. An existing destination is `0FFh` and both names stay. A read-only match is fatal and no name changes. |
 | 27, 31 | Pointers are in the resident page. Free-bit count matches `min(free, 8 MB) / 2048`. Bit 7 of the first bitmap byte is block 0. EXM in the DPB is 0, BSH is 4, DSM is 4095. The pointer from 27 is not used across a later disk call. |
 | 28, 29 | After 28, a write takes the fatal R/O path. Vector bit 0 is set. |
 | 30 | T1' and T2' survive in the FAT attribute and in the next search. F1', T3', and F5' do not. |
