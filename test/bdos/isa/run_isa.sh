@@ -13,8 +13,8 @@
 set -e
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-export PATH=/data/z88dk/bin:$PATH
-export ZCCCFG=/data/z88dk/lib/config
+export PATH="${Z88DK:-/data/z88dk}/bin:$PATH"
+export ZCCCFG="${ZCCCFG:-${Z88DK:-/data/z88dk}/lib/config}"
 WORK="${WORK:-/tmp/bdos-isa-prove}"
 BASE="$HERE/baseline.txt"
 WHAT="${1:-all}"

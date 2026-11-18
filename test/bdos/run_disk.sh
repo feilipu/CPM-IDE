@@ -3,8 +3,8 @@
 set -e
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$ROOT/test/bdos"
-export PATH=/data/z88dk/bin:$PATH
-export ZCCCFG=/data/z88dk/lib/config
+export PATH="${Z88DK:-/data/z88dk}/bin:$PATH"
+export ZCCCFG="${ZCCCFG:-${Z88DK:-/data/z88dk}/lib/config}"
 export TMPDIR="${TMPDIR:-/tmp/bdos-disk}"
 mkdir -p "$TMPDIR" "$HERE/out"
 
@@ -31,9 +31,11 @@ run_cpu() {
     else
         # VEC_SUB checks function 27 against files on the current drive.
         # BDOS_NO_DEBLOCK omits the v2.6 deblock cells. This harness
-        # does not link bios_disk.
+        # does not link bios_disk. SP=0 keeps the stack above BSS.
+        # The default +test stack is $FF00, and BSS now ends past it.
         ( cd /tmp && zcc +test -vn -m -DVEC_SUB \
             -Ca-DBDOS_NO_DEBLOCK \
+            -pragma-define:REGISTER_SP=0 \
             -I"$ROOT/common" -I"$ROOT/test/fatfs" \
             "$HERE/test_disk.c" "$HERE/bdos_host.asm" \
             "$bdos" "$fat" "$ide" "$ROOT/test/fatfs/bss_ram.asm" \

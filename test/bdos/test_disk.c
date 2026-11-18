@@ -171,6 +171,39 @@ static unsigned call(unsigned fn)
     return bdos(fn, (unsigned)fcb) & 0xFF;
 }
 
+/* Both sizes here fit in 16 bits: 16512 is 80 40 00 00, 16384 is 00 40 00 00. */
+static int sz_is(unsigned sz)
+{
+    uint8_t *e;
+
+    e = slot(0);
+    return e[28] == (uint8_t)sz && e[29] == (uint8_t)(sz >> 8) &&
+           e[30] == 0 && e[31] == 0;
+}
+
+/* Rewrite record 1 of the 129-record file and close from extent 0. */
+static void tail_wr(unsigned fn)
+{
+    unsigned rc;
+
+    clear_fcb();
+    set_name("TAIL    TXT");
+    rc = call(15);
+    expect("tail_open FAIL", rc != 0xFF && fcb[15] == 128);
+    if (fn == 34) {
+        fcb[33] = 1;
+        memset(dma, 0x5B, 128);
+    } else {
+        fcb[32] = 1;
+        memset(dma, 0x5A, 128);
+    }
+    rc = call(fn);
+    expect("tail_wr FAIL", rc == 0);
+    fcb[14] = 0;
+    rc = call(16);
+    expect("tail_sz FAIL", rc != 0xFF && sz_is(16512));
+}
+
 /* 48 names fill three 512-byte directory sectors. 0x00 is slot 48,
  * the first byte of cluster 38 (a new LBA and a new cluster at csize 1).
  * S4096.TXT is 4096 bytes, 32 CP/M records, last read on a 512-byte
@@ -511,6 +544,18 @@ static void test_close(void)
     expect("shrink_dir FAIL", slot(0)[26] == 0 && slot(0)[27] == 0 &&
            slot(0)[28] == 0 && slot(0)[11] == 0x21 && slot(0)[13] == 0);
     expect("shrink_fat FAIL", ram_image[516] == 0 && ram_image[517] == 0);
+
+    /* 129 records. Close from extent 0 must not cut the file to 16 KiB.
+     * Extent 1 with RC 0 is the last extent, so that close still shrinks. */
+    rebuild();
+    plant_name(slot(0), "TAIL    TXT", 16512, 0x20, 2);
+    tail_wr(21);
+    tail_wr(34);
+    fcb[12] = 1;
+    fcb[14] = 0;
+    fcb[15] = 0;
+    rc = call(16);
+    expect("tail_sh FAIL", rc != 0xFF && sz_is(16384));
 }
 
 static void test_delete(void)

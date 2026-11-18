@@ -37,7 +37,7 @@ v2.6, still published, mounts up to four 8 MB container files. The `cpm` command
 
 ## Hardware
 
-The usual machine is an [RC2014 Pro](https://z80kits.com/shop/rc2014-pro/): Z80, 64 kB RAM, a pageable 32 kB ROM, a serial module, and either the [Compact Flash Module](https://z80kits.com/shop/compact-flash-module/) or the [IDE Hard Drive Module](https://rc2014.co.uk/ide-hard-drive-module/). The [8085 CPU Module](https://www.tindie.com/products/feilipu/8085-cpu-module-pcb/) replaces the Z80 and the clock, and uses the [ACIA](https://z80kits.com/shop/tynemouth-68b50-clocked-serial-port/) or the [UART](https://rc2014.co.uk/dual-serial-module-16c2550/). A Compact Flash card of 1 GB or greater, up to 128 GiB, holds many sets of drives. An SD card in an SD-to-CF adapter uses the same Compact Flash interface.
+The usual machine is an [RC2014 Pro](https://z80kits.com/shop/rc2014-pro/): Z80, 64 kB RAM, a pageable 32 kB ROM, a serial module, and either the [Compact Flash Module](https://z80kits.com/shop/compact-flash-module/) or the [IDE Hard Drive Module](https://rc2014.co.uk/ide-hard-drive-module/). The [8085 CPU Module](https://www.tindie.com/products/feilipu/8085-cpu-module-pcb/) replaces the Z80 and the clock, and uses the [ACIA](https://z80kits.com/shop/tynemouth-68b50-clocked-serial-port/) or the [UART](https://rc2014.co.uk/dual-serial-module-16c2550/). A Compact Flash card of 1 GB or greater, up to 128 GB, holds many sets of drives. An SD card in an SD-to-CF adapter uses the same Compact Flash interface.
 
 Serial is 115200 baud, 8 data bits, no parity, 2 stop bits. The USB adapter has to drive `/RTS` on pin 6.
 

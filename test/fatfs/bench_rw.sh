@@ -7,9 +7,9 @@
 set -e
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$ROOT/test/fatfs"
-export PATH=/data/z88dk/bin:$PATH
-export ZCCCFG=/data/z88dk/lib/config
-export Z88DK=/data/z88dk
+export PATH="${Z88DK:-/data/z88dk}/bin:$PATH"
+export ZCCCFG="${ZCCCFG:-${Z88DK:-/data/z88dk}/lib/config}"
+export Z88DK="${Z88DK:-/data/z88dk}"
 mkdir -p "$HERE/out"
 
 run_one() {

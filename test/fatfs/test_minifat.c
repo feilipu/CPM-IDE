@@ -183,6 +183,23 @@ static void put_fat32(uint8_t csize, uint16_t nroot, uint16_t fsver)
     disk_put_sector(0, s);
 }
 
+/* Lead bytes 1 and 2 select RRaA (52 52) or the old RaAA fixture (61 41). */
+static void plant_fsinfo(uint8_t b1, uint8_t b2)
+{
+    disk_set(48, 6);
+    disk_set(49, 0);
+    disk_set(6 * 512 + 0, 0x52);
+    disk_set(6 * 512 + 1, b1);
+    disk_set(6 * 512 + 2, b2);
+    disk_set(6 * 512 + 3, 0x41);
+    disk_set(6 * 512 + 484, 0x72);
+    disk_set(6 * 512 + 485, 0x72);
+    disk_set(6 * 512 + 486, 0x41);
+    disk_set(6 * 512 + 487, 0x61);
+    disk_set(6 * 512 + 510, 0x55);
+    disk_set(6 * 512 + 511, 0xAA);
+}
+
 int main(void)
 {
     uint8_t n[11];
@@ -801,6 +818,41 @@ int main(void)
     rc = fat_mount();
     expect("mount_rootclus_ent", rc == 1 && cpm_fat_vol.fs_type == 0);
 
+    /* Lead signature 52 61 41 41 is not an info sector. 52 52 61 41 is. */
+    disk_zero();
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    ram_nsect = 48;
+    put_fat32(1, 0, 0);
+    plant_fsinfo(0x61, 0x41);
+    rc = fat_mount();
+    expect("mount_fsinfo_bad", rc == 0 && cpm_fat_vol.fs_type == 3
+        && fat_last_clst == 0 && cpm_fat_vol.free_valid == 0 && fat_fsi_lba == 0);
+
+    disk_zero();
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    ram_nsect = 48;
+    put_fat32(1, 0, 0);
+    plant_fsinfo(0x52, 0x61);
+    disk_put_le32(6 * 512 + 488, 10);
+    disk_put_le32(6 * 512 + 492, 5);
+    rc = fat_mount();
+    expect("mount_fsinfo", rc == 0 && fat_last_clst == 5
+        && cpm_fat_vol.free_clst == 10 && cpm_fat_vol.free_valid == 1
+        && fat_fsi_lba == 6);
+
+    /* Bit 7 of the low ExtFlags byte selects one FAT. Bit 15 does not. */
+    disk_zero();
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    ram_nsect = 48;
+    put_fat32(1, 0, 0);
+    disk_set(16, 2);
+    disk_set(40, 0x80);
+    disk_set(41, 0);
+    disk_put_le32(32, 66551u);
+    rc = fat_mount();
+    expect("mount_extflags", rc == 0 && cpm_fat_vol.fs_type == 3
+        && cpm_fat_vol.n_fats == 1);
+
     /* 2048 FAT16 root entries: 65536 bytes must not wrap to an empty root. */
     rt_invalidate();
     disk_zero();
@@ -1101,8 +1153,8 @@ int main(void)
     disk_set(518, 0xFF);
     disk_set(519, 0x0F);
     disk_set(6 * 512 + 0, 0x52);
-    disk_set(6 * 512 + 1, 0x61);
-    disk_set(6 * 512 + 2, 0x41);
+    disk_set(6 * 512 + 1, 0x52);
+    disk_set(6 * 512 + 2, 0x61);
     disk_set(6 * 512 + 3, 0x41);
     disk_set(6 * 512 + 484, 0x72);
     disk_set(6 * 512 + 485, 0x72);
@@ -1123,7 +1175,9 @@ int main(void)
            disk_get(6 * 512 + 492) == 2 && disk_get(6 * 512 + 493) == 0 &&
            disk_get(6 * 512 + 494) == 0 && disk_get(6 * 512 + 495) == 0);
     expect("fsinfo_sig",
-           disk_get(6 * 512) == 0x52 && disk_get(6 * 512 + 484) == 0x72 &&
+           disk_get(6 * 512) == 0x52 && disk_get(6 * 512 + 1) == 0x52 &&
+           disk_get(6 * 512 + 2) == 0x61 && disk_get(6 * 512 + 3) == 0x41 &&
+           disk_get(6 * 512 + 484) == 0x72 &&
            disk_get(6 * 512 + 510) == 0x55 && disk_get(6 * 512 + 511) == 0xAA);
 
     puts(fails ? "MINIFAT_BAD" : "MINIFAT_OK");

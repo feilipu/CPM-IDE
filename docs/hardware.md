@@ -48,7 +48,7 @@ The IDE Hard Drive Module supports both PATA hard drives (including 3 1/2" magne
 
 The 8255 sits at `$20`–`$23`. One 512-byte sector is 256 words of 16 bits, and the 8-bit CPU sequences the two data bytes and the strobes. The CF Module exposes the ATA taskfile at `$10`–`$17` and moves the sector as 512 bytes. The Z80 driver can move that sector in blocks. The 8085 driver moves it a byte at a time. Both paths issue one sector per command. A serial interrupt can still be serviced during the wait.
 
-__NOTE:__ The driver addresses one Master drive with 28-bit LBA and transfers one 512-byte sector per command. The high address byte keeps its low 4 bits. 2^28 sectors is 137,438,953,472 bytes, which is 128 GiB. That is the largest disk this interface can use. The Compact Flash module uses the same address. A larger disk is reachable only in that first 128 GiB. That ceiling is the ATA address. It is not the 8 MB a CP/M program is told, and it is not the 32 kB cluster limit of the FAT layer.
+__NOTE:__ The driver addresses one Master drive with 28-bit LBA and transfers one 512-byte sector per command. The high address byte keeps its low 4 bits. 2^28 sectors is 137,438,953,472 bytes, which is 128 GB. That is the largest disk this interface can use. The Compact Flash module uses the same address. A larger disk is reachable only in that first 128 GB. That ceiling is the ATA address. It is not the 8 MB a CP/M program is told, and it is not the 32 kB cluster limit of the FAT layer.
 
 __NOTE:__ If you are using the IDE Hard Drive Module 40-pin PATA connector, be aware that this connector does not pass power to the attached disk, DOM, or CF adapter. A 5" disk or 3 1/2" disk must be powered by its own 4-pin MOLEX connector. A 40-pin DOM or CF adapter must be powered by its own accessory power connector. Connecting +5V power to the barrel jack on the IDE Hard Drive Module is not sufficient to power 40-pin devices.
 
@@ -56,7 +56,7 @@ Which library the HEX was linked with is a build choice. A PATA ROM linked with 
 
 ## Modules
 
-For the RC2014 Pro no additional hardware is required when the Compact Flash Module is the disk. It is recommended to use a modern Compact Flash card of 1 GB or greater, up to 128 GiB, or a uSD-CF adapter.
+For the RC2014 Pro no additional hardware is required when the Compact Flash Module is the disk. It is recommended to use a modern Compact Flash card of 1 GB or greater, up to 128 GB, or a uSD-CF adapter.
 
 For the IDE module builds, in addition to the Pro, which contains the CPU and SIO modules, the IDE Hard Drive Module is the extra piece.
 

@@ -4,9 +4,9 @@
 set -e
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$ROOT/test/fatfs"
-FFSRC=/data/z88dk-libraries/ff/source
-export PATH=/data/z88dk/bin:$PATH
-export ZCCCFG=/data/z88dk/lib/config
+FFSRC="${Z88DK_LIBRARIES:-/data/z88dk-libraries}/ff/source"
+export PATH="${Z88DK:-/data/z88dk}/bin:$PATH"
+export ZCCCFG="${ZCCCFG:-${Z88DK:-/data/z88dk}/lib/config}"
 export TMPDIR="${TMPDIR:-/tmp/fatfs-test}"
 mkdir -p "$TMPDIR" "$HERE/out"
 
@@ -39,7 +39,7 @@ z88dk-ticks -m8085 "$HERE/out/biosdisk85.bin" -x "$HERE/out/biosdisk85.map" \
     -counter 999999999 | tee "$HERE/out/biosdisk85.txt"
 grep -q 'bios_fails 0' "$HERE/out/biosdisk85.txt"
 
-echo "=== master tree BIOS deblock (git show master: when setLBAaddr is absent) ==="
+echo "=== v2.6 BIOS deblock (tag cpm-ide-v2.6 when this tree has no setLBAaddr) ==="
 run_master_disk() {
     tree="$1"
     cpu="$2"

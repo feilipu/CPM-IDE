@@ -3,8 +3,8 @@
 set -e
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$ROOT/test/bdos"
-export PATH=/data/z88dk/bin:$PATH
-export ZCCCFG=/data/z88dk/lib/config
+export PATH="${Z88DK:-/data/z88dk}/bin:$PATH"
+export ZCCCFG="${ZCCCFG:-${Z88DK:-/data/z88dk}/lib/config}"
 export TMPDIR="${TMPDIR:-/tmp/bdos-test}"
 mkdir -p "$TMPDIR" "$HERE/out"
 

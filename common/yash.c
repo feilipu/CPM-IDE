@@ -1276,7 +1276,7 @@ int8_t ya_ls(char ** args)      /* print directory contents */
         return 1;
     }
     /* bytes = clusters * sectors/cluster * 512.
-     * A product past 4 GiB wraps this 32-bit multiply and prints 0.
+     * A product past 4 GB wraps this 32-bit multiply and prints 0.
      * The MiB fallback needs a 32-bit divide, and that does not fit
      * the 8085 PATA image. */
     fprintf(output, ", %lu bytes free\n",
@@ -1675,8 +1675,8 @@ int8_t ya_ds(char ** args)      /* disk status */
     if (labelled == 0)
         fprintf(output, "Volume label = (none)\n");
     fprintf(output, "FAT type = FAT%u\nBytes/Cluster = %lu\nNumber of FATs = %u\n"
-        "Root DIR entries = %u\nSectors/FAT = %lu\nNumber of clusters = %lu\n"
-        "FAT start (lba) = %lu\nDIR start (lba,cluster) = %lu\nData start (lba) = %lu\n",
+        "Root DIR entries = %u\nSectors/FAT = %lu\nCluster = %lu\n"
+        "FAT start = %lu\nDIR start = %lu\nData start = %lu\n",
         ft[cpm_fat_vol.fs_type & 3], (uint32_t)cpm_fat_vol.csize * 512,
         cpm_fat_vol.n_fats, cpm_fat_vol.n_rootent, cpm_fat_vol.fatsz,
         cpm_fat_vol.n_fatent > 2 ? cpm_fat_vol.n_fatent - 2 : 0,

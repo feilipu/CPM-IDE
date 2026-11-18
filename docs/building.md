@@ -80,9 +80,9 @@ Build the PATA products while the flag is 0, then switch the flag and rebuild th
 
 ## What the tests cover
 
-The 8085 host programs use 80cc as well. `sh test/bdos/run_disk.sh` builds the disk harness with `zcc +test -clib=8085 -m8085 -compiler=80cc` and `-pragma-define:REGISTER_SP=0`. That image is 65279 bytes. `z88dk-ticks` accepts a file of up to 65536 bytes, and the run prints `BDOS_DISK_OK`.
+The 8085 host programs use 80cc as well. `sh test/bdos/run_disk.sh` builds both disk images with `-pragma-define:REGISTER_SP=0`. The default `+test` stack is `$FF00`, and this harness now ends past that address. The 8085 line is `zcc +test -clib=8085 -m8085 -compiler=80cc`. `z88dk-ticks` accepts a file of up to 65536 bytes. The Z80 image is 65227 bytes and prints `BDOS_DISK_OK` at 56799134 ticks. The 8085 image is 66421 bytes, so ticks refuses it and that half of the script does not run.
 
-The Z80 `A>` under ticks is `sh test/cli/a.sh`. The script builds `test/cli/out/a.bin` and loads it at `$0100`. `DIR` and `TYPE HELLO.TXT` run on a RAM disk and return to `A>`. The recipe is in [`test/README.md`](../test/README.md). The 8085 disk image is already near the 65536-byte ticks limit, so this session is Z80.
+The Z80 `A>` under ticks is `sh test/cli/a.sh`. The script builds `test/cli/out/a.bin` and loads it at `$0100`. `DIR` and `TYPE HELLO.TXT` run on a RAM disk and return to `A>`. The recipe is in [`test/README.md`](../test/README.md). The 8085 disk image is 66421 bytes, past the 65536-byte ticks limit, so this session is Z80.
 
 Those harnesses link flat `+test` images and RAM-backed sectors. They check the algorithms. They do not boot a product HEX, and they do not speak the CF taskfile at `$10` or the 8255 at `$20`. `z88dk-ticks -ide0` is a host trap. It is not that hardware. Some retained deblock runs load the v2.6 BIOS. They do not exercise this ROM's `read` and `write`, which return an error. `test/fatfs/run.sh` prints `MINIFAT_OK` on Z80 and 8085.
 

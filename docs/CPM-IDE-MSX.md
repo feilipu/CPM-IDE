@@ -355,7 +355,7 @@ CP/M 2.2 function 34 may leave a hole. A later read of that hole returns error 1
 
 A short last record is a full CP/M record. A 100-byte host file reads back as 128 bytes, and the 28 bytes past the FAT size are zeros. A BDOS write always stores 128 bytes and sets the FAT size to a multiple of 128. Exact byte length (Elliott’s last-record byte count, FCB+32 equal to `0FFh` on open, S1 holding that count) is CP/M 3 and DOS Plus. Function 12 stays `0022h`, so those calls are ordinary 2.2 calls.
 
-S2 bit 7 is the CP/M 2 file-write flag (Elliott, and `SETS2B7` / `CLOSEIT` / `WTSEQ10`). Open and make set it. A successful write clears it. Close with the bit set returns success and does not rewrite the directory. Close with the bit clear writes the size implied by the FCB’s extent and RC, which is how the CCP shortens `$$$.SUB`: it decrements RC, stores S2 as 0, and closes. Bit 7 does not enter the function 36 record number. Function 36 uses `(S2 & 0Fh)`.
+S2 bit 7 is the CP/M 2 file-write flag (Elliott, and `SETS2B7` / `CLOSEIT` / `WTSEQ10`). Open and make set it. A successful write clears it. Close with the bit set returns success and does not rewrite the directory. Close with the bit clear writes the size implied by the FCB’s extent and RC when that extent is the last one the directory size implies. An earlier extent leaves a longer size alone. The CCP shortens `$$$.SUB` by decrementing RC, storing S2 as 0, and closing. That file is one extent, so the shorten still runs. Bit 7 does not enter the function 36 record number. Function 36 uses `(S2 & 0Fh)`.
 
 ## Directory walker
 

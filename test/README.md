@@ -5,14 +5,17 @@ The suites here run the v3 BDOS and mini-FAT as a flat `+test` image. The BDOS d
 Run them from the repository root, one after another. Each script builds Z80, then 8085. Each build changes to `/tmp` before `zcc`, and `/tmp/zcc_opt.def` is one file, so two scripts at once corrupt the link.
 
 ```bash
-export PATH=/data/z88dk/bin:$PATH
-export ZCCCFG=/data/z88dk/lib/config
-export Z88DK=/data/z88dk
+export PATH="${Z88DK:-/data/z88dk}/bin:$PATH"
+export ZCCCFG="${ZCCCFG:-${Z88DK:-/data/z88dk}/lib/config}"
+export Z88DK="${Z88DK:-/data/z88dk}"
+export Z88DK_LIBRARIES="${Z88DK_LIBRARIES:-/data/z88dk-libraries}"
 
 sh test/fatfs/run.sh
 sh test/bdos/run.sh
 sh test/bdos/run_disk.sh
 ```
+
+The scripts use those defaults when the variables are unset. On this tree the paths are `/data/z88dk` and `/data/z88dk-libraries`.
 
 The 8085 lines use `-compiler=80cc`. The Z80 lines use the `+test` default, sccz80. A `Ticks:` line after the pass text is the cycle count. `counter limit` means ticks stopped before the program finished. The default cap is 100000000 cycles. The scripts pass `-counter 999999999`. Put `-m8085` before the binary.
 
@@ -20,14 +23,14 @@ Logs are `test/fatfs/out/` and `test/bdos/out/`. A line containing `FAIL` fails 
 
 ## test/fatfs/run.sh
 
-Host `gcc` builds the ChaN oracle from `/data/z88dk-libraries/ff/source`. `test/fatfs/mkfat.py` writes the images under `test/fatfs/out/`.
+Host `gcc` builds the ChaN oracle from `$Z88DK_LIBRARIES/ff/source`. `test/fatfs/mkfat.py` writes the images under `test/fatfs/out/`.
 
 The script then runs four groups.
 
 | Group | Pass text |
 |---|---|
 | Bundled v2.6 BIOS deblock, Z80 and 8085 | `bios_fails 0` |
-| Same deblock on the BIOS from `git show master:` for each of the six product trees that script names | `master <tree> OK` |
+| Same deblock on the v2.6 BIOS (`cpm-ide-v2.6`, then `origin/cpm-ide-2.6`) for each of the six product trees that script names | `master <tree> OK` |
 | Mini-FAT, Z80 and 8085 | `MINIFAT_OK` |
 | Shell config (`test/fatfs/test_cfg.c` plus `common/yash.c`) | `YASH_CFG_OK` |
 
@@ -51,9 +54,9 @@ Console input is a 32-byte ring in `test/bdos/bdos_host.asm`. The test pushes ke
 
 Disk BDOS, function 10, and mini-FAT on the RAM disk. Z80 links `common/cpm22bdos.asm` and `common/fatfs.asm`. 8085 links `common/cpm22bdos_85.asm` and `common/fatfs_85.asm`.
 
-Pass text is `BDOS_DISK_OK` for each CPU. The last line is `BDOS_DISK_OK z80 and 8085`.
+The Z80 image is 65227 bytes and prints `BDOS_DISK_OK` at 56799134 ticks. The 8085 image is 66421 bytes. `z88dk-ticks` refuses it, so the script stops there and the 8085 disk contract is not executed. The Z80 image is the proof for this tree.
 
-`test/bdos/test_disk.c` builds a FAT16 image in `ram_image`. Drive A: is cluster 35 at LBA 52. The 8085 link passes `-pragma-define:REGISTER_SP=0` so the stack stays inside the 64 KiB image ticks can load. `z88dk-ticks` rejects a file larger than 65536 bytes.
+`test/bdos/test_disk.c` builds a FAT16 image in `ram_image`. Drive A: is cluster 35 at LBA 52. Both links pass `-pragma-define:REGISTER_SP=0`. The default `+test` stack is `$FF00`, and this image's BSS ends past that. `z88dk-ticks` rejects a file larger than 65536 bytes.
 
 Sector I/O is `test/fatfs/ide_ram.asm` (8085: `ide_ram_8085.asm`). `HL` is the 512-byte buffer. `BCDE` is the LBA with `E` as the low byte. The bytes live in `_ram_image`. This is not the `-ide0` file.
 

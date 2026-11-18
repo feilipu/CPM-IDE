@@ -68,7 +68,7 @@
 ;   FAT32 requires FATSz16 == 0, FSVer == 0 and RootEntCnt == 0
 ;   csize is 2^n. SecPerClus >= 65 (64 KiB clusters) is refused with
 ;   L = 19. A 64 KiB cluster is 0 in the 16-bit sector math.
-;   FAT32 with mirroring off uses the active FAT in BPB_ExtFlags and
+;   FAT32 with mirroring off uses bit 7 of BPB_ExtFlags and
 ;   does not write the other copy. A bad cluster ($FFF7 / $0FFFFFF7)
 ;   is an error, not a link. fs_type is stored only after every check.
 ;   DIR_Name[0] == $05 compares as $E5; dir_create stores $E5 as $05
@@ -920,7 +920,7 @@ fat_mount_r32:
     xor     a
     ld      (_cpm_fat_vol+2),a
     ld      (_cpm_fat_vol+3),a
-    ld      a,(fatwin+BPB_ExtFlags+1)
+    ld      a,(fatwin+BPB_ExtFlags) ;bit 7 of the low byte
     and     $80                     ;mirroring disabled: one active FAT
     jr      Z,fat_mount_ok          ;mirroring stays enabled
     ld      a,(fatwin+BPB_ExtFlags)
@@ -1023,10 +1023,10 @@ fat_seed_fsinfo:
     cp      $52                     ;LeadSig 'R'
     jp      NZ,seed_drop            ;not an info sector
     ld      a,(hl+)
-    cp      $61                     ;LeadSig 'a'
+    cp      $52                     ;LeadSig 'R'
     jp      NZ,seed_drop            ;not an info sector
     ld      a,(hl+)
-    cp      $41                     ;LeadSig 'A'
+    cp      $61                     ;LeadSig 'a'
     jp      NZ,seed_drop            ;not an info sector
     ld      a,(hl)
     cp      $41                     ;FSI_LeadSig 0x41615252

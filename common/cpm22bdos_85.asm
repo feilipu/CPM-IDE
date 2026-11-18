@@ -1722,9 +1722,9 @@ op_sy:
 
 ;
 ; Close. Bit 7 of S2 looks the name up and does not write. Bit 7 clear
-; stores the FCB size, then T1' and T2' in the FAT attribute. Directory
-; byte 13 stays the creation-time tenths. A zero size frees the old
-; chain. The directory write is not marked archive.
+; stores the FCB size when this extent is the last one, then T1' and T2'.
+; An earlier extent leaves a longer directory size alone. A zero size
+; on the last extent frees the chain. The directory write is not archive.
 ;
 fn_close:
     call    gate                    ;user 0 and a mounted drive
@@ -1777,8 +1777,9 @@ cl_ret:
     ret
 
 ;
-; Z when the FCB describes a zero length. The four size bytes are written
-; either way. 65536 records is the 8 MB cap.
+; Z when this extent is the last one and the FCB length is zero. A later
+; extent already on the card returns NZ and does not store. 65536 records
+; is the 8 MB cap.
 ;
 store_size:
     ld      a,(bdos_fcb+14)         ;FCB S2
@@ -1797,6 +1798,8 @@ store_size:
     add     hl,de                   ;HL = extent number
     ld      a,(bdos_fcb+15)         ;FCB RC
     ld      c,a                     ;record count
+    call    ss_past                 ;NZ: a later extent is longer
+    ret     nz                      ;leave that size alone
     ld      a,h                     ;extent 0 and RC 0 is empty
     or      l                       ;either extent or RC is nonzero
     or      c                       ;both zero?
@@ -1843,28 +1846,66 @@ ss_s1:
     or      1                       ;NZ: the file is not empty
     ret
 ss_cap:
+    ld      c,$80                   ;8 MB cap is 00 00 80 00
+    jp      ss_st                   ;store it and return NZ
+ss_zero:
+    ld      c,0                     ;four zero size bytes
+ss_st:
     ld      hl,(dir_ptr)            ;directory entry
     ld      de,28                   ;directory file size
     add     hl,de                   ;point at it
-    xor     a                       ;8 MB cap is 00 00 80 00
+    xor     a                       ;bytes 0, 1, and 3 are 0
     ld      (hl+),a                 ;size byte 0
     ld      (hl+),a                 ;size byte 1
-    ld      a,$80                   ;size byte of the 8 MB cap
-    ld      (hl+),a                 ;size byte 2
-    xor     a                       ;size byte 3
+    ld      (hl+),c                 ;size byte 2
     ld      (hl),a                  ;size byte 3
-    or      1                       ;NZ: not a zero-length close
+    or      c                       ;Z when the four bytes are zero
     ret
-ss_zero:
+
+;
+; NZ when the directory size runs past this extent. HL is the extent
+; and C is RC. Both come back. Z stores the FCB size, shrink included.
+;
+ss_past:
+    push    hl                      ;extent
+    push    bc                      ;RC in C
+    inc     hl                      ;extent + 1
+    add     hl,hl                   ;(extent + 1) << 6
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl
+    add     hl,hl                   ;H is byte 2, L is byte 1
+    ld      b,h                     ;threshold byte 2
+    ld      c,l                     ;threshold byte 1
     ld      hl,(dir_ptr)            ;directory entry
-    ld      de,28                   ;directory file size
+    ld      de,31                   ;size byte 3
     add     hl,de                   ;point at it
-    xor     a                       ;four zero size bytes
-    ld      (hl+),a                 ;byte 0
-    ld      (hl+),a                 ;byte 1
-    ld      (hl+),a                 ;byte 2
-    ld      (hl),a                  ;byte 3; Z means free the chain
+    ld      a,(hl)                  ;size byte 3
+    or      a                       ;above 8 MB
+    jp      nz,ss_keep              ;keep a longer file
+    dec     hl                      ;size byte 2
+    ld      a,(hl)                  ;size byte 2
+    cp      b                       ;against the threshold
+    jp      c,ss_wr                 ;directory ends in this extent
+    jp      nz,ss_keep              ;directory is longer
+    dec     hl                      ;size byte 1
+    ld      a,(hl)                  ;size byte 1
+    cp      c                       ;against the threshold
+    jp      c,ss_wr                 ;directory ends in this extent
+    jp      nz,ss_keep              ;directory is longer
+    dec     hl                      ;size byte 0
+    ld      a,(hl)                  ;size byte 0
+    or      a                       ;past an extent boundary
+    jp      nz,ss_keep              ;keep a longer file
+ss_wr:
+    xor     a                       ;Z: store the FCB size
+ss_out:
+    pop     bc                      ;RC back in C
+    pop     hl                      ;extent back in HL
     ret
+ss_keep:
+    jp      ss_out                  ;NZ: leave the directory size
 
 ;
 ; T1' and T2' replace FAT attr bits 0 and 1. F1'..F4' and T3' are

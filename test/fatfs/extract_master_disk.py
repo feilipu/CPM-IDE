@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Slice the v2.6 BIOS deblock for +test (no PHASE).
 
-This branch's cpm22bios.asm has no setLBAaddr, so load_bios falls
-back to `git show master:<tree>/cpm22bios.asm`. The result is not
-the product BIOS. Product read and write return an error.
+This branch's cpm22bios.asm has no setLBAaddr. load_bios uses the
+working tree when that label is present, then tag cpm-ide-v2.6,
+origin/cpm-ide-2.6, and master. The result is not the product BIOS.
+Product read and write return an error.
 """
 import os
 import re
@@ -22,10 +23,18 @@ def load_bios(tree):
         with open(path, encoding="utf-8") as f:
             text = f.read()
         if re.search(r"^setLBAaddr\s*:", text, re.M):
-            return text
-    return subprocess.check_output(
-        ["git", "show", f"master:{path}"], text=True
-    )
+            return text, path
+    for rev in ("cpm-ide-v2.6", "origin/cpm-ide-2.6", "master"):
+        try:
+            text = subprocess.check_output(
+                ["git", "show", f"{rev}:{path}"],
+                text=True, stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            continue
+        if re.search(r"^setLBAaddr\s*:", text, re.M):
+            return text, f"{rev}:{path}"
+    raise SystemExit(f"{path}: setLBAaddr not found")
 
 
 def find_label(lines, name):
@@ -47,7 +56,7 @@ def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: extract_master_disk.py <tree>")
     tree = sys.argv[1]
-    src = load_bios(tree)
+    src, origin = load_bios(tree)
     lines = src.splitlines(True)
 
     defs = []
@@ -63,7 +72,7 @@ def main():
     i_read = find_label(lines, "read")
     i_serial = find_substr(lines, "; start of common area driver -", i_read)
 
-    sys.stdout.write(f"; extracted from master:{tree}/cpm22bios.asm\n")
+    sys.stdout.write(f"; extracted from {origin}\n")
     sys.stdout.write("SECTION code_compiler\n\n")
     sys.stdout.write("".join(defs))
     sys.stdout.write("\n")
