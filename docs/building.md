@@ -61,7 +61,7 @@ The z88dk command lines to build the CP/M-IDE for the 8085 CPU Module are below.
 
 `zcc +rc2014 -subtype=acia85 -compiler=80cc -O2 -m -D__CLASSIC -DAMALLOC -I${Z88DK}/include -I${Z88DK}/include/_DEVELOPMENT/common -I${Z88DK}/libsrc/target/rc2014 -L${Z88DK}/lib/clibs/sccz80 @cpm22.lst -o ../rc2014-cpm22-8085-cf-acia -create-app`
 
-A binary over 32768 bytes is rejected. On the 8085 the code also has to finish by `$7F81`. The tightest image is Z80 PATA SIO. That rebuild leaves 3 bytes, the smallest slack of the seven. The seven sizes are in [How CP/M-IDE fits](how-it-works.md#the-32-kib-budget). The length of the Intel HEX text is not that size. Two text characters encode one byte, and each record adds an address and a checksum. The script that builds all seven, and checks the size, the gate, and the IDE port bytes, is `.agents/scripts/rebuild-hex.sh`.
+A binary over 32768 bytes is rejected. On the 8085 the code also has to finish by `$7F81`. The tightest image is Z80 PATA SIO. That rebuild leaves 1 byte, the smallest slack of the seven. The seven sizes are in [How CP/M-IDE fits](how-it-works.md#the-32-kib-budget). The length of the Intel HEX text is not that size. Two text characters encode one byte, and each record adds an address and a checksum. The script that builds all seven, and checks the size, the gate, and the IDE port bytes, is `.agents/scripts/rebuild-hex.sh`.
 
 The sizes of the serial transmit and receive buffers are set within the z88dk RC2014 target configuration files for the [ACIA](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_acia.m4), [SIO/2](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_sio.m4), and [UART](https://github.com/z88dk/z88dk/blob/master/libsrc/target/rc2014/config/config_uart.m4) respectively. What those buffers do on the board is in [Hardware](hardware.md).
 
@@ -80,7 +80,7 @@ Build the PATA products while the flag is 0, then switch the flag and rebuild th
 
 ## What the tests cover
 
-The 8085 host programs use 80cc as well. `sh test/bdos/run_disk.sh` builds both disk images with `-pragma-define:REGISTER_SP=0`. The default `+test` stack is `$FF00`, and this harness now ends past that address. The Z80 image is 65224 bytes and prints `BDOS_DISK_OK` at 56796642 ticks. The 8085 line is `zcc +test -clib=8085 -m8085 -compiler=80cc`. The runner is linked at `$8000`. `z88dk-ticks -m8085 -b rc2014 -disk` loads a 32 kB ROM image and a RAM image. The ROM starts with `jp $8000`. That run prints `BDOS_DISK_OK` at 65628819 ticks.
+The 8085 host programs use 80cc as well. `sh test/bdos/run_disk.sh` builds both disk images with `-pragma-define:REGISTER_SP=0`. The default `+test` stack is `$FF00`, and this harness now ends past that address. The Z80 image is 65299 bytes and prints `BDOS_DISK_OK` at 56868928 ticks. The 8085 line is `zcc +test -clib=8085 -m8085 -compiler=80cc`. The runner is linked at `$8000`. `z88dk-ticks -m8085 -b rc2014 -disk` loads a 32 kB ROM image and a RAM image. The ROM starts with `jp $8000`. That run prints `BDOS_DISK_OK` at 65692651 ticks.
 
 The Z80 `A>` under ticks is `sh test/cli/a.sh`. The script builds `test/cli/out/a.bin` and loads it at `$0100`. `DIR` and `TYPE HELLO.TXT` run on a RAM disk and return to `A>`. The recipe is in [`test/README.md`](../test/README.md).
 

@@ -423,7 +423,13 @@ static void test_open(void)
     set_name("README  TXT");
     fcb[12] = 5;
     rc = call(15);
-    expect("open_later FAIL", rc != 0xFF && fcb[15] == 0 && fcb[14] == 0x80 && fcb[12] == 5);
+    ab = (rc == 0xFF && fcb[14] == 0);
+    clear_fcb();
+    set_name("BIG     TXT");
+    fcb[12] = 5;
+    rc = call(15);
+    expect("open_later FAIL", ab && rc != 0xFF && fcb[15] == 128 &&
+           fcb[12] == 5 && fcb[14] == 0x80);
 
     clear_fcb();
     set_name("BIG     TXT");

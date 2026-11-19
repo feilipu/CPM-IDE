@@ -62,7 +62,7 @@ This branch has no `hstbuf`. BIOS `read` and `write` are `ld a,1` / `ret`. Secto
 
 The shell reads a FAT16 or a FAT32 volume. A cluster is 32 KB or less.
 
-A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entries fills the 16-bit directory offset. The shell can still list that root. FAT32 must be version 0 and must have a zero root count.
+A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entries fills the 16-bit directory offset. The shell can still list that root. A FAT16 root larger than 2048 entries mounts. Entries past 2048 stay on the volume and cannot be seen or reached. FAT32 must be version 0 and must have a zero root count.
 
 `ls` stops at the last name of a full directory. A name that starts with byte `0xE5` is stored as `0x05`.
 

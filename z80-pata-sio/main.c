@@ -94,8 +94,8 @@ int main(int argc, char ** argv)
 
     buffer = (char *)malloc(BUFFER_SIZE * sizeof(char));
 
-    fprintf(stdout, "\n\nRC2014 - CP/M-IDE - PATA - SIO/2\nfeilipu 2026\n\n> :?");
-    fprintf(ttyout, "\n\nRC2014 - CP/M-IDE - PATA - SIO/2\nfeilipu 2026\n\n> :?");
+    fprintf(stdout, "\n\nRC2014 - CP/M-IDE - PATA - SIO/2\n\n> :?");
+    fprintf(ttyout, "\n\nRC2014 - CP/M-IDE - PATA - SIO/2\n\n> :?");
 
     if (buffer) {
         put_rc(fat_mount());

@@ -1593,8 +1593,9 @@ fn_next:
 
 ;
 ; Open. S2 is cleared first. The name may contain '?'. ex='?' activates
-; extent 0 of the first match. A later extent is still a hit, with RC 0.
-; Bytes 32..35 are left alone. The caller's drive and extent are put back.
+; extent 0 of the first match. A later extent the file does not have
+; returns FFh. An empty file is extent 0 with RC 0. Bytes 32..35 are
+; left alone. The caller's drive and extent are put back.
 ;
 fn_open:
     call    gate                    ;mounted drive, user 0
@@ -1617,6 +1618,14 @@ fn_open:
 op_z:
     ld      bc,0                    ;ex='?': extent 0
 op_sy:
+    push    bc                      ;extent across ext_rc
+    call    ext_rc                  ;C: this extent is in the file
+    pop     bc                      ;extent
+    jr      c,op_hit
+    pop     bc                      ;drive and EX
+    jp      ret_ff
+
+op_hit:
     ld      de,bdos_fcb             ;staged FCB receives the image
     call    synth                   ;overwrite bytes 0..31
     pop     bc                      ;drive and the original EX
@@ -3758,11 +3767,16 @@ fn_dpb:
 ; drive rounds up to the next 2 KB block. fatwin then becomes 512 bytes,
 ; all used, and that many bits are cleared from block 4095 downward.
 ; Bit 7 of byte 0 is block 0. The directory walk uses fatwin, so it
-; runs before the bitmap fill. The window is invalidated before return:
-; the bitmap is not a sector, and the pointer dies on the next disk call.
+; runs before the bitmap fill. A dirty window is written first. A failed
+; write returns fatwin still dirty and does not paint. On success the
+; window is invalidated: the bitmap is not a sector, and the pointer
+; dies on the next disk call.
 ;
 fn_vec:
+    call    fat_sync_window         ;keep a pending sector
     ld      hl,fatwin               ;the bitmap is built in the sector window
+    ret     nc                      ;write failed: leave the sector dirty
+
     push    hl                      ;returned at the end
     ld      a,(_cpm_fat_vol)        ;fs_type
     or      a                       ;0 means the volume is not mounted
