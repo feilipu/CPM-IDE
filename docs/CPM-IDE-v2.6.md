@@ -95,7 +95,7 @@ Stop when `frag` reports one run. Mount that file. The other names can be remove
 
 A received file has to be 16 MB or less. The name stored on the card is the `xget` argument, in 8.3 form.
 
-FAT32 can hold more than 65,000 files in one directory. A 128 GB card holds about 16,000 of these 8 MB drives. A larger disk can hold more. That upper limit has not been tested.
+FAT32 can hold more than 65,000 files in one directory. A 128 GiB card holds about 16,000 of these 8 MB drives. A larger disk can hold more. That upper limit has not been tested.
 
 ## Building a container file on the host
 

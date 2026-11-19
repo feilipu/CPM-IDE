@@ -80,7 +80,7 @@ Commit `3e63979` ("BDOS - update function 27", 2026-11-01) is the function 27 li
 | 8085-cf-uart | 32004 | `$7CA5` | 764 | 732 |
 | 8085-pata-uart | 32151 | `$7D38` | 617 | 585 |
 
-On that link Z80 PATA is 175 bytes under 32768. 8085 PATA `__CODE_END` `$7D38` is 585 bytes below the `$7F81` gate. Commit `59503f1` left Z80 PATA SIO at 32615 bytes, `__CODE_END` `$7E97`, 153 bytes under 32768, and 8085 PATA at 32168 bytes, `__CODE_END` `$7D49`, 568 bytes below `$7F81`. The HEX now in the tree is recorded in [How CP/M-IDE fits](how-it-works.md). Function 27 on both CPUs walks the current directory and fills `fatwin`. The disk harness that matches this BDOS printed `BDOS_DISK_OK`: Z80 `disk.bin` 64294 bytes at 63536166 ticks, 8085 `disk85.bin` 65279 bytes at 75478339 ticks.
+On that link Z80 PATA is 175 bytes under 32768. 8085 PATA `__CODE_END` `$7D38` is 585 bytes below the `$7F81` gate. Commit `59503f1` left Z80 PATA SIO at 32615 bytes, `__CODE_END` `$7E97`, 153 bytes under 32768, and 8085 PATA at 32168 bytes, `__CODE_END` `$7D49`, 568 bytes below `$7F81`. The HEX now in the tree is recorded in [How CP/M-IDE fits](how-it-works.md). Function 27 on both CPUs walks the current directory and fills `fatwin`. The disk harness that matches this BDOS printed `BDOS_DISK_OK`: Z80 `disk.bin` 65224 bytes at 56796642 ticks. The 8085 runner is 31871 bytes at `$8000` and prints `BDOS_DISK_OK` at 65628819 ticks under `z88dk-ticks -m8085 -b rc2014 -disk`.
 
 The next table is the `71eb321` image. It is not the HEX in the tree. `YASH_HGET` was 1. `read_cfg` was linked. Gate addresses were already `$F206`, `$F200`, `$FB00`, `$F7D0`.
 
@@ -134,12 +134,12 @@ POWER.COM needs this entry: the serial, the `JP`, the four error words, and the 
 
 `sh test/bdos/run.sh`, then `sh test/bdos/run_disk.sh`. They share `/tmp` and `zcc_opt.def`, so they run one after the other.
 
-The disk harness for this image printed `BDOS_DISK_OK` on both CPUs. Function 27 walks the current directory, so the disk counts include that walk. Z80 `disk.bin` is 64294 bytes at 63536166 ticks. 8085 `disk85.bin` is 65279 bytes at 75478339 ticks (`-compiler=80cc`, `-pragma-define:REGISTER_SP=0`). The character counts are the `676d65b` run. That suite was not re-run for the HEX files in the tree.
+The disk harness for this image printed `BDOS_DISK_OK` on both CPUs. Function 27 walks the current directory, so the disk counts include that walk. Z80 `disk.bin` is 65224 bytes at 56796642 ticks. The 8085 runner is linked at `$8000` (31871 bytes) and loaded with `z88dk-ticks -m8085 -b rc2014 -disk`. That run prints `BDOS_DISK_OK` at 65628819 ticks (`-compiler=80cc`, `-pragma-define:REGISTER_SP=0`, `-Ca-DBDOS_DISK_RAM`). The character counts are the `676d65b` run. That suite was not re-run for the HEX files in the tree.
 
 | Suite | Z80 | 8085 | Log |
 |---|---:|---:|---|
 | Character `BDOS_CHAR_OK` (`676d65b`) | 439263 | 337435 | `test/bdos/out/char.txt`, `char85.txt` |
-| Disk `BDOS_DISK_OK` | 63536166 | 75478339 | `test/bdos/out/disk.txt`, `disk85.txt` |
+| Disk `BDOS_DISK_OK` | 56796642 | 65628819 | `test/bdos/out/disk.txt`, `disk85.txt` |
 
 The character run checks the serial, the `C3` at offset 6, the JP target equal to head+17, `EB` at fbase, function 12 still returning A/B and HL `0022h` after the six serial bytes are overwritten with `A5`, the index encoding `21 ?? ?? 5F 16 00 19 19 5E 23 56`, and words 0, 12, 38, 39, and 40. GOBACK is checked for function 12 (`0022h`), function 11 with an empty console (0) and with a pushed key (`00FFh`), and function 41 (0). The disk run checks that the four error words are pairwise distinct and nonzero, that an open miss returns A/B and HL `00FFh`, that a successful open returns the same directory code 0..3 in A/B and HL, and that function 27 returns the `fatwin` address in both. Select, disk R/O, and file R/O messages are provoked. `badsctr` is not. The character link does not require the four error words to differ.
 
@@ -169,7 +169,7 @@ Closed items stay here so a later edit does not reopen them. The others are stil
 7. **`hg_sum` stays file-scope.** `hg_hexbyte`, `hg_record`, and `hg_cksum` share it. A pointer parameter would give the frameless helpers their first automatic. The symbol is in the ROM.
    Future run: leave `hg_sum` file-scope.
 
-8. **A few limits are accepted and are not open defects.** Function 0 is specified as warm-boot with no return; the suites count `wboot` hits from the error paths and do not add a separate "function 0 does not return" case. The FAT32 `+test` image still does not fit. `fs_type` stays unpoked. GPT stays out until functions 0–40 pass on an MBR FAT32 image. The 80cc host run recorded mini-FAT, yash config, BDOS character, BDOS disk, and ISA kern as green. The 8085 disk harness in `test/bdos/run_disk.sh` is `-compiler=80cc` with `-pragma-define:REGISTER_SP=0`. The image in `test/bdos/out` is 65279 bytes. `z88dk-ticks -m8085` prints `BDOS_DISK_OK` at 75478339 ticks. The Z80 image beside it is 64294 bytes at 63536166 ticks. `test/bdos/isa/run_isa.sh seq` still prints `SEQ_BAD 5` because that harness leaves `cpm_dir_sclust` at 0. The config-file cases in `test/fatfs/test_cfg.c` were run after `read_cfg` landed: Z80 `YASH_CFG_OK` at 11193879 ticks, 8085 80cc `YASH_CFG_OK` at 12627960 ticks.
+8. **A few limits are accepted and are not open defects.** Function 0 is specified as warm-boot with no return; the suites count `wboot` hits from the error paths and do not add a separate "function 0 does not return" case. The FAT32 `+test` image still does not fit. `fs_type` stays unpoked. GPT stays out until functions 0–40 pass on an MBR FAT32 image. The 80cc host run recorded mini-FAT, yash config, BDOS character, BDOS disk, and ISA kern as green. The 8085 disk harness in `test/bdos/run_disk.sh` is `-compiler=80cc` with `-pragma-define:REGISTER_SP=0` and `-Ca-DBDOS_DISK_RAM`. `z88dk-ticks -m8085 -b rc2014 -disk` prints `BDOS_DISK_OK` at 65628819 ticks. The Z80 image beside it is 65224 bytes at 56796642 ticks. `test/bdos/isa/run_isa.sh seq` still prints `SEQ_BAD 5` because that harness leaves `cpm_dir_sclust` at 0. The config-file cases in `test/fatfs/test_cfg.c` were run after `read_cfg` landed: Z80 `YASH_CFG_OK` at 11193879 ticks, 8085 80cc `YASH_CFG_OK` at 12627960 ticks.
    Future run: after the next BDOS or mini-FAT edit, re-run `test/bdos/run.sh`, `test/bdos/run_disk.sh`, and `test/fatfs/run.sh`. A green host suite is the host gate. The host `A>` is `sh test/cli/a.sh`. The board command pass is item 5.
 
 9. **The RC2014 repository.** Its v2.6 release is its own tag. This branch has not been copied there.
@@ -546,7 +546,7 @@ Function 27 fills `fatwin` and returns its address. The bitmap is `(DSM/8)+1` by
 
 ## Mini-FAT
 
-Keep the mount checks, both-FAT mirror, `0x05`/`0xE5`, FAT16 root multiple of 16, FAT32 version 0 and root count 0, cluster size at most 32 KB, the ChaN cluster-count rules (`$0FF5` rejected, `$FFF5` stays FAT16, above `$0FFFFFF5` rejected), the FAT size cap (`$200000` sectors), and the 28-bit LBA ceiling (`$10000000`).
+Keep the mount checks, both-FAT mirror, `0x05`/`0xE5`, FAT16 root multiple of 16, FAT32 version 0 and root count 0, cluster size at most 32 KB, the ChaN cluster-count rules (`$0FF5` rejected, `$FFF5` stays FAT16, above `$0FFFFFF5` rejected), the FAT size cap (`$200000` sectors), and the one volume-end rule (partition start plus `BPB_TotSec` at or below `$10000000`).
 
 These three are in both FAT files and in `test/fatfs/test_minifat.c`:
 

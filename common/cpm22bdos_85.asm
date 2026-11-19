@@ -60,6 +60,7 @@
 ; Console helpers are PUBLIC so that editor can call them while ROM is in.
 ;
 ; Character tests define BDOS_ROM_OMIT and supply romfns and srch_on.
+; The 8085 disk harness defines BDOS_DISK_RAM and skips the latch OUTs.
 ;
 
 ;
@@ -344,14 +345,20 @@ go_line:
 ;
 ; OUT ($38),0 / call / OUT ($38),1. bdos_latch_seq is the byte check.
 ; rom_go runs with ROM in and jumps through romfns[C].
+; BDOS_DISK_RAM skips both OUTs. The disk harness keeps FAT state in
+; the ROM window, and the latch would hide those cells.
 ;
 rom_enter:
 bdos_latch_seq:
+IFNDEF BDOS_DISK_RAM
     xor     a                       ;0 selects the ROM bank
     out     (IO_ROM_TOGGLE),a       ;latch 0: ROM in
+ENDIF
     call    rom_go                  ;jump through romfns[C]
+IFNDEF BDOS_DISK_RAM
     ld      a,$01                   ;latch 1: RAM bank
     out     (IO_ROM_TOGGLE),a       ;latch 1: RAM in
+ENDIF
     ld      (status),hl             ;store returned status
     ret
 

@@ -54,9 +54,9 @@ Console input is a 32-byte ring in `test/bdos/bdos_host.asm`. The test pushes ke
 
 Disk BDOS, function 10, and mini-FAT on the RAM disk. Z80 links `common/cpm22bdos.asm` and `common/fatfs.asm`. 8085 links `common/cpm22bdos_85.asm` and `common/fatfs_85.asm`.
 
-The Z80 image is 65227 bytes and prints `BDOS_DISK_OK` at 56799134 ticks. The 8085 image is 66421 bytes. `z88dk-ticks` refuses it, so the script stops there and the 8085 disk contract is not executed. The Z80 image is the proof for this tree.
+The Z80 image is 65224 bytes and prints `BDOS_DISK_OK` at 56796642 ticks. The 8085 runner is linked at `$8000` (31871 bytes, through `$FC7F`). `run_disk.sh` packs a 32768-byte ROM and a RAM image and loads them with `z88dk-ticks -m8085 -b rc2014 -disk`. The ROM starts with `jp $8000` and holds the literals at `$7131`. The RAM image holds data and BSS from 0 and the runner at `$8000`. That run prints `BDOS_DISK_OK` at 65628819 ticks. `-Ca-DBDOS_DISK_RAM` skips the port `$38` latch on this link, so the FAT cells inside the ROM window stay visible. The product ROMs do not pass that define.
 
-`test/bdos/test_disk.c` builds a FAT16 image in `ram_image`. Drive A: is cluster 35 at LBA 52. Both links pass `-pragma-define:REGISTER_SP=0`. The default `+test` stack is `$FF00`, and this image's BSS ends past that. `z88dk-ticks` rejects a file larger than 65536 bytes.
+`test/bdos/test_disk.c` builds a FAT16 image in `ram_image`. Drive A: is cluster 35 at LBA 52. Both links pass `-pragma-define:REGISTER_SP=0`. The default `+test` stack is `$FF00`, and this image's BSS ends past that.
 
 Sector I/O is `test/fatfs/ide_ram.asm` (8085: `ide_ram_8085.asm`). `HL` is the 512-byte buffer. `BCDE` is the LBA with `E` as the low byte. The bytes live in `_ram_image`. This is not the `-ide0` file.
 

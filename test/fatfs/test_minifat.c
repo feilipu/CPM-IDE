@@ -788,7 +788,43 @@ int main(void)
     disk_put_le32(36, 0x001FFFFFu);
     disk_put_le32(32, 0xFFFFFFFFu);
     rc = fat_mount();
-    expect("mount_nclst_max", rc == 1 && cpm_fat_vol.fs_type == 0);
+    expect("mount_nclst_max", rc == 19 && cpm_fat_vol.fs_type == 0);
+
+    /* bsect 0 + TotSec $10000000 is the last end that mounts.
+     * csize 64, fatsz $80000: nclst $003FDFFF, and $80000 covers it. */
+    disk_zero();
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_fat32(64, 0, 0);
+    disk_put_le32(36, 0x00080000u);
+    disk_put_le32(32, 0x10000000u);
+    rc = fat_mount();
+    expect("mount_end_exact", rc == 0 && cpm_fat_vol.fs_type == 3);
+
+    disk_zero();
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_fat32(64, 0, 0);
+    disk_put_le32(36, 0x00080000u);
+    disk_put_le32(32, 0x10000001u);
+    rc = fat_mount();
+    expect("mount_end_over", rc == 19 && cpm_fat_vol.fs_type == 0);
+
+    /* Partition start 1 plus TotSec $FFFFFFFF wraps the 32-bit sum. */
+    disk_zero();
+    memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
+    put_fat32(64, 0, 0);
+    {
+        uint8_t vbr[512];
+
+        memcpy(vbr, sec, 512);
+        put_le32(vbr + 32, 0xFFFFFFFFu);
+        disk_put_sector(1, vbr);
+    }
+    disk_fill(0, 0, 512);
+    disk_set(510, 0x55);
+    disk_set(511, 0xAA);
+    disk_put_le32(454, 1);
+    rc = fat_mount();
+    expect("mount_end_wrap", rc == 19 && cpm_fat_vol.fs_type == 0);
 
     /* nclst $00100000 is legal FAT32. fatsz $2001 covers n_fatent $00100002. */
     disk_zero();

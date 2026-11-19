@@ -48,7 +48,13 @@ The IDE Hard Drive Module supports both PATA hard drives (including 3 1/2" magne
 
 The 8255 sits at `$20`–`$23`. One 512-byte sector is 256 words of 16 bits, and the 8-bit CPU sequences the two data bytes and the strobes. The CF Module exposes the ATA taskfile at `$10`–`$17` and moves the sector as 512 bytes. The Z80 driver can move that sector in blocks. The 8085 driver moves it a byte at a time. Both paths issue one sector per command. A serial interrupt can still be serviced during the wait.
 
-__NOTE:__ The driver addresses one Master drive with 28-bit LBA and transfers one 512-byte sector per command. The high address byte keeps its low 4 bits. 2^28 sectors is 137,438,953,472 bytes, which is 128 GB. That is the largest disk this interface can use. The Compact Flash module uses the same address. A larger disk is reachable only in that first 128 GB. That ceiling is the ATA address. It is not the 8 MB a CP/M program is told, and it is not the 32 kB cluster limit of the FAT layer.
+__NOTE:__ The driver addresses one Master drive with 28-bit LBA and transfers one 512-byte sector per command. The high address byte keeps its low four bits, so the interface can name sectors `0` to `$0FFFFFFF`: 2^28 sectors, which is 137,438,953,472 bytes, 128 GiB or 137.4 GB. That is the largest disk this interface can use. CPM-IDE refuses to mount a volume that ends past that sector rather than letting an access alias onto a low sector. The shell prints `FR_INVALID_PARAMETER`. The Compact Flash module uses the same address. That ceiling is the ATA address. It is not the 8 MB a CP/M program is told, and it is not the 32 KiB cluster limit of the FAT layer.
+
+How the common sizes stand:
+
+- A card sold as **128 GB** is about 119 GiB, which is under the limit. It mounts whole, raw or partitioned.
+- A card of **exactly 128 GiB** is exactly 2^28 sectors and fills the address space with nothing to spare. Raw, as a super-floppy whose boot sector is at LBA 0, it mounts whole and uses every sector. Partitioned, the partition starts above sector 0, so it must end at or below `$10000000` and loses its leading sectors: with 2048-sector alignment the usable volume is 128 GiB minus 1 MiB.
+- A card sold as **256 GB** is about 238 GiB, roughly twice 2^28 sectors, so it does not fit and the mount is refused. To use one, put a single partition on it ending at or below `$10000000` — at most 128 GiB — and keep the volume inside it. The rest of the disk is unreachable and the volume must not be grown past that end. Repartitioning is enough: the refusal happens before anything is written, so the FAT survives.
 
 __NOTE:__ If you are using the IDE Hard Drive Module 40-pin PATA connector, be aware that this connector does not pass power to the attached disk, DOM, or CF adapter. A 5" disk or 3 1/2" disk must be powered by its own 4-pin MOLEX connector. A 40-pin DOM or CF adapter must be powered by its own accessory power connector. Connecting +5V power to the barrel jack on the IDE Hard Drive Module is not sufficient to power 40-pin devices.
 
@@ -56,7 +62,7 @@ Which library the HEX was linked with is a build choice. A PATA ROM linked with 
 
 ## Modules
 
-For the RC2014 Pro no additional hardware is required when the Compact Flash Module is the disk. It is recommended to use a modern Compact Flash card of 1 GB or greater, up to 128 GB, or a uSD-CF adapter.
+For the RC2014 Pro no additional hardware is required when the Compact Flash Module is the disk. It is recommended to use a modern Compact Flash card of 1 GB or greater, up to 128 GiB, or a uSD-CF adapter.
 
 For the IDE module builds, in addition to the Pro, which contains the CPU and SIO modules, the IDE Hard Drive Module is the extra piece.
 

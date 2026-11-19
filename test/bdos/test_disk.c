@@ -28,6 +28,10 @@ extern unsigned int list_out_n(void);
 extern unsigned int list_out(unsigned int i);
 extern unsigned char sp_bad;
 extern unsigned int wboot_hits;
+#ifdef __8085
+extern void disk_page_copy(void);
+extern unsigned char rom_byte(unsigned int p);
+#endif
 
 static unsigned char fcb[36];
 static unsigned char dma[128];
@@ -305,7 +309,11 @@ static int con_is(const char *s, unsigned len)
     if (con_out_n() != len)
         return 0;
     for (i = 0; i < len; i++) {
+#ifdef __8085
+        if (con_out(i) != rom_byte((unsigned)(s + i)))
+#else
         if (con_out(i) != (unsigned char)s[i])
+#endif
             return 0;
     }
     return 1;
@@ -332,7 +340,11 @@ static void push_keys(const unsigned char *keys, unsigned n)
     unsigned i;
 
     for (i = 0; i < n; i++)
+#ifdef __8085
+        con_push(rom_byte((unsigned)(keys + i)));
+#else
         con_push(keys[i]);
+#endif
 }
 
 static unsigned word_at(unsigned char *p)
@@ -1417,6 +1429,9 @@ int main(void)
 {
     unsigned rc;
 
+#ifdef __8085
+    disk_page_copy();
+#endif
     fails = 0;
     /* Cluster 34 is LBA 51. The extent walk must fail to allocate it. */
     ram_bad_lba = 51;
