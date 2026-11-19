@@ -54,7 +54,7 @@ Console input is a 32-byte ring in `test/bdos/bdos_host.asm`. The test pushes ke
 
 Disk BDOS, function 10, and mini-FAT on the RAM disk. Z80 links `common/cpm22bdos.asm` and `common/fatfs.asm`. 8085 links `common/cpm22bdos_85.asm` and `common/fatfs_85.asm`.
 
-The Z80 image is 65224 bytes and prints `BDOS_DISK_OK` at 56796642 ticks. The 8085 runner is linked at `$8000` (31871 bytes, through `$FC7F`). `run_disk.sh` packs a 32768-byte ROM and a RAM image and loads them with `z88dk-ticks -m8085 -b rc2014 -disk`. The ROM starts with `jp $8000` and holds the literals at `$7131`. The RAM image holds data and BSS from 0 and the runner at `$8000`. That run prints `BDOS_DISK_OK` at 65628819 ticks. `-Ca-DBDOS_DISK_RAM` skips the port `$38` latch on this link, so the FAT cells inside the ROM window stay visible. The product ROMs do not pass that define.
+The Z80 image is 65224 bytes and prints `BDOS_DISK_OK` at 56796642 ticks. The 8085 runner is linked at `$8000` (31871 bytes, last byte `$FC7E`, stack from `$FC7F`). `run_disk.sh` packs a 32768-byte ROM and a RAM image and loads them with `z88dk-ticks -m8085 -b rc2014 -disk`. The ROM starts with `jp $8000` and holds the literals at `$7131`. The RAM image holds data and BSS from 0 and the runner at `$8000`. That run prints `BDOS_DISK_OK` at 65628819 ticks. `-Ca-DBDOS_DISK_RAM` skips the port `$38` latch on this link, so the FAT cells inside the ROM window stay visible. The product ROMs do not pass that define.
 
 `test/bdos/test_disk.c` builds a FAT16 image in `ram_image`. Drive A: is cluster 35 at LBA 52. Both links pass `-pragma-define:REGISTER_SP=0`. The default `+test` stack is `$FF00`, and this image's BSS ends past that.
 
@@ -107,7 +107,7 @@ sh test/cli/a.sh --check         # DIR must list HELLO.TXT
 
 Drive A: is cluster 2 of a 21-sector RAM disk. The directory holds `HELLO.TXT` (the eight bytes `Hello.` and CR LF). Built-in commands that use the disk are `DIR`, `TYPE`, `ERA`, and `REN`. `USER` changes the user number. `EXIT` leaves ticks. A closed pipe also leaves ticks, so a one-shot command returns.
 
-`sh test/cli/a.sh DIR` listed `A: HELLO    TXT` and finished at 671406 ticks. `sh test/cli/a.sh TYPE HELLO.TXT` printed `Hello.` and returned to `A>` at 871393 ticks. The image is 26362 bytes. The CCP reads each command with function 10. End of input is what stops ticks.
+`sh test/cli/a.sh DIR` listed `A: HELLO    TXT` and finished at 670888 ticks. `sh test/cli/a.sh TYPE HELLO.TXT` printed `Hello.` and returned to `A>` at 867092 ticks. The image is 26428 bytes. The CCP reads each command with function 10. End of input is what stops ticks. This image is Z80. The 8085 CCP, the A: `.COM` fallback, and `EXIT` are outside this harness.
 
 The binary is `test/cli/out/a.bin`, loaded at `$0100`. The default FCB is `$5C` and the DMA buffer is `$80`, below that origin. The CCP runs at `$E9E0` and the resident stub at `$F200`. `cli_go` copies both into place and jumps to the CCP with C = 0. Console in and out are the ticks terminal traps. Enter arrives as byte 10 and is turned into CR.
 

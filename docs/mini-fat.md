@@ -14,7 +14,7 @@ The sector window is `fatwin`, 512 bytes. Every FAT entry and every directory en
 
 A cluster number and an LBA are a 32-bit value in BCDE, with E as the low byte. From C, the dword functions take a pointer in HL (`__z88dk_fastcall`) and load that little-endian dword themselves.
 
-Success is `L = 0` and carry set. Failure is `L = 1` and carry clear. A 64 KiB cluster is the exception: `L = 19` (`FR_INVALID_PARAMETER`) and carry clear. sccz80 treats a `char` return as an `int`, so the exits also clear H. 80cc returns the byte in L. Test L, or test carry, and you will agree.
+Success is `L = 0` and carry set. Failure is `L = 1` and carry clear. A 64 KiB cluster and a volume end past sector `$10000000` both return `L = 19` (`FR_INVALID_PARAMETER`) with carry clear. A cluster count above `$0FFFFFF5` stays `L = 1`. sccz80 treats a `char` return as an `int`, so the exits also clear H. 80cc returns the byte in L. Test L, or test carry, and you will agree.
 
 ## What ChaN does that this does not
 
@@ -36,7 +36,7 @@ You supply the disk. Mini-FAT calls three routines from the z88dk RC2014 IDE dri
 | `ide_read_sector` | LBA in BCDE, buffer address in HL | carry set, HL advanced by 512 |
 | `ide_write_sector` | the same | carry set when the sector is on the disk |
 
-One sector per call. The LBA is the absolute sector on that drive. `ide_read_sector` uses AF, BC, DE, and HL. Mini-FAT saves the LBA across the call. If your disk is not the RC2014 IDE, replace these three and keep that contract. `disk_read` and `disk_write` in the shell are ChaN's C wrappers over the same idea (`pdrv`, buffer, LBA, count). The assembly layer does not call those C wrappers.
+One sector per call. The LBA is the absolute sector on that drive. `ide_read_sector` uses AF, BC, DE, and HL. Mini-FAT saves the LBA across the call. If your disk is not the RC2014 IDE, replace these three and keep that contract. The driver the ROM links sets carry on the way out of `ide_read_sector` and `ide_write_sector`. The result from `ide_wait_ready` and from `ide_wait_drq` is unused, on the Compact Flash ports and on the 8255. A drive that stays busy is reported as a completed sector, so file data stays off the bad-sector path for that wait. Returning the wait would be four `ret nc` bytes. The Z80 PATA SIO image has three bytes free, and the calls stay as the library ships them. `disk_read` and `disk_write` in the shell are ChaN's C wrappers over the same idea (`pdrv`, buffer, LBA, count). The assembly layer does not call those C wrappers.
 
 Then:
 

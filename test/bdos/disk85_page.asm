@@ -220,6 +220,7 @@ fputs_loop:
     call    rom_lda_de
     and     a
     ret     z
+
     inc     de
     push    de
     push    bc
@@ -234,6 +235,7 @@ fputs_loop:
     and     h
     inc     a
     ret     z
+
     jp      fputs_loop
 
 ; sccz80 printf. A is the argument count. The format is copied out of
@@ -295,3 +297,4 @@ printf_copied:
     add     hl,sp
     ld      sp,hl
     ret
+

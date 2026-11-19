@@ -152,7 +152,9 @@ run_seq() {
                 -o seq.bin -lndos
         fi
     )
-    ticks_whole "$cpu" "$d/seq.bin" > "$d/whole.txt"
+    # cpm_dir_sclust stays 0, so ticks exits on SEQ_BAD. Swallow that
+    # status so the line is visible. require_ok still rejects it.
+    ticks_whole "$cpu" "$d/seq.bin" > "$d/whole.txt" || true
     cat "$d/whole.txt"
     require_ok "$d/whole.txt" 'SEQ_OK'
     for pair in \

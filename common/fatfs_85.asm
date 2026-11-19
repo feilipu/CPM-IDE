@@ -1146,7 +1146,7 @@ fat_mount_vol_bad:
     ld      a,19                    ;FR_INVALID_PARAMETER
     ld      (_cpm_fat_vol+27),a
 fat_mount_fail:
-    ld      a,(_cpm_fat_vol+27)     ;19 when the cluster size was refused
+    ld      a,(_cpm_fat_vol+27)     ;19 for csize or the volume end
     ld      l,a
     xor     a
     ld      (_cpm_fat_vol),a
@@ -1154,7 +1154,7 @@ fat_mount_fail:
     ld      (_cpm_fat_vol+27),a
     ld      a,l
     or      a
-    jr      NZ,fat_mount_code       ;L already holds FR 19
+    jr      NZ,fat_mount_code       ;a stored code stays in L
     ld      l,1
 fat_mount_code:
     ld      h,0
@@ -1188,6 +1188,7 @@ fat_seed_fsinfo:
     adc     a,0
     cp      (MAX_LBA28>>24)+1       ;high byte past $0FFFFFFF
     ret     NC                      ;FSInfo above 28 bits; mount ok
+
     ld      h,a
     ld      bc,hl
     push    bc
@@ -1404,6 +1405,7 @@ get_fat:
 get_fat32ok:
     scf                             ;C: link in BCDE
     ret
+
 get_fat32eoc:
     ld      a,c
     inc     a
@@ -1420,6 +1422,7 @@ get_fat32eoc:
     ld      bc,$0FFF
     scf
     ret
+
 get_fat16:
     ld      hl,(de)                 ;ff ld_16
     ld      a,h
@@ -1430,6 +1433,7 @@ get_fat16ok:
     ld      bc,0
     scf                             ;C: link in DE, high half 0
     ret
+
 get_fat16eoc:
     ld      a,l
     cp      $F7                     ;FAT16 bad cluster
@@ -1503,6 +1507,7 @@ put_fat_dirty:
     ld      (fat_wflag),a
     scf                             ;C: entry stored
     ret
+
 put_fat_wasused:
     call    fat_nfree_dec           ;free -> used
     jr      put_fat_dirty
@@ -1511,6 +1516,7 @@ put_fat_new0:
     jr      NZ,put_fat_dirty        ;free -> free
     call    fat_nfree_inc           ;used -> free
     jr      put_fat_dirty
+
 put_fat16:
     ex      de,hl                   ;HL = src dword, DE = dest in window
     push    de
@@ -1522,6 +1528,7 @@ put_fat16:
 put_fat_wasfree:
     inc     a
     jr      put_fat_old
+
 put_fat_cold:
     xor     a
     jr      put_fat_adj
@@ -1569,6 +1576,7 @@ fat_fsi_mark:
     ld      a,1
     ld      (fat_fsi_dirty),a
     ret
+
 fat_nfree_inc_hi:
     ld      hl,(_cpm_fat_vol+30)
     inc     hl
@@ -1899,6 +1907,7 @@ cc_next:
     jp      NZ,cc_scan              ;candidate low half did not wrap
     inc     bc
     jp      cc_scan
+
 cc_found:
     ld      hl,(fat_work+14)
     ld      bc,hl
@@ -2441,6 +2450,7 @@ dir_next_win:
 dir_next_end:
     xor     a                       ;carry clear and Z. This is a clean end.
     ret
+
 dir_next_io:
     ld      a,1
     or      a                       ;carry clear and NZ. Disk or chain error.
@@ -2503,6 +2513,7 @@ df_miss:
     ld      hl,1
     or      a                       ;NC: name not in this directory
     ret
+
 df_rest:
     inc     de
     inc     hl
@@ -2579,6 +2590,7 @@ dc_loop:
     jr      C,dc_resume             ;another entry
     jr      Z,dc_at_end             ;clean end: stretch or fail
     jr      dc_full                 ;disk or chain error: do not stretch
+
 dc_resume:
     ld      de,sp+10
     ex      de,hl
@@ -2770,6 +2782,7 @@ fat_dir_read_last:
     ld      hl,cc_zero              ;no trailing 0x00: next read is end
     ld      (dir_ptr),hl
     jr      fat_dir_read_ok
+
 fat_dir_read_end:
     pop     hl
     ld      (hl),0
@@ -2804,6 +2817,7 @@ fat_next_store:
     call    fat_st32                ;store the next cluster
     ld      hl,0
     ret
+
 fat_next_b1:
     ld      a,(pack_sv+1)
     cp      d                       ;next vs this, byte 1
@@ -3095,6 +3109,7 @@ fat_st32:
     inc     de
     ex      de,hl
     ret
+
 fc_z3:
     ld      bc,0
     ld      de,0

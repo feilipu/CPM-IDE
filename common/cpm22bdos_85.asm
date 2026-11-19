@@ -1807,6 +1807,7 @@ store_size:
     ld      c,a                     ;record count
     call    ss_past                 ;NZ: a later extent is longer
     ret     nz                      ;leave that size alone
+
     ld      a,h                     ;extent 0 and RC 0 is empty
     or      l                       ;either extent or RC is nonzero
     or      c                       ;both zero?
@@ -1855,6 +1856,7 @@ ss_s1:
 ss_cap:
     ld      c,$80                   ;8 MB cap is 00 00 80 00
     jp      ss_st                   ;store it and return NZ
+
 ss_zero:
     ld      c,0                     ;four zero size bytes
 ss_st:
@@ -1911,6 +1913,7 @@ ss_out:
     pop     bc                      ;RC back in C
     pop     hl                      ;extent back in HL
     ret
+
 ss_keep:
     jp      ss_out                  ;NZ: leave the directory size
 
@@ -3308,6 +3311,7 @@ xr_128:
     ld      de,bdos_rec             ;address of staged 128-byte record
     call    mv_128                  ;copy one 128-byte record
     jp      xr_ok                   ;record is in bdos_rec
+
 xr_short:
     ld      hl,io_fptr              ;address of byte offset in the file
     ld      a,(io_size)             ;directory file size
@@ -3453,6 +3457,7 @@ du_sz:
 du_ok:
     scf                             ;the record is in the file
     ret
+
 du_fail:
     ld      a,3                     ;error 3: directory write failed
     or      a                       ;directory update failed

@@ -10,11 +10,13 @@
 # exits 1 if any product failed. Job-dir rm is not success.
 #
 # Env: Z88DK, ZCCCFG, PATH, MAXJOBS (default 2), WORK (log dir).
-# Optional arg: cf — the five CF ROMs. Skips the library rebuild when
-# __IO_CF_8_BIT is already 0x01.
+# Optional arg: cf — the five CF ROMs. When the flag is already 0x01
+# the Z80 library stays and the 8085 library is rebuilt.
 # Optional arg: sio — both SIO ROMs (PATA then CF).
-# Optional arg: acia — z80-cf-acia only.
-# Optional arg: acia85 — 8085-cf-acia only.
+# Optional arg: acia — z80-cf-acia only. Skips both libraries when
+# the flag is already 0x01.
+# Optional arg: acia85 — 8085-cf-acia only. Rebuilds the 8085 library
+# when the flag is already 0x01.
 # Default (no arg) is PATA (Z80 SIO and 8085 UART), then all five CF ROMs.
 # Every product uses the FAT resident map: stub $F200, BDOS BSS $F750,
 # FAT BSS $F7D0, BIOS $FB00. CCP, BDOS stub, and BIOS origins come from
@@ -100,8 +102,14 @@ rebuild_z80_lib() {
 rebuild_8085_lib() {
   say "rc2014-8085_clib.lib"
   rm -f "$LIB85_SRC" "$LIB85_DST"
+  # z80asm -d keeps an object when the .asm is older than the .o, so a
+  # header change leaves the serial thresholds in the archive.
+  rm -f "${Z88DK}"/libsrc/target/rc2014/device/acia/8080/*.o
+  rm -f "${Z88DK}"/libsrc/target/rc2014/device/uart/8080/*.o
+  rm -f "${Z88DK}"/libsrc/target/rc2014/device/8255/8080/*.o
   rm -f "${Z88DK}"/libsrc/target/rc2014/driver/ide/asm/*.o
   rm -f "${Z88DK}"/libsrc/target/rc2014/driver/diskio/8085/*.o
+  rm -f "${Z88DK}"/libsrc/target/rc2014/driver/diskio/c/sccz80/*.o
   if ! make -C "${Z88DK}/libsrc" rc2014-8085_clib.lib \
       >"$LOG/lib-8085.log" 2>&1; then
     tail -n 40 "$LOG/lib-8085.log" >>"$LOG/summary.txt" || true
@@ -554,7 +562,9 @@ fi
 
 if [[ "$MODE" == "acia85" ]]; then
   if cf_selected; then
-    say "CF libraries already selected"
+    say "CF Z80 library already selected; rebuilding 8085 library"
+    rebuild_8085_lib
+    inc_is "$INC_85" 0x01
     LIBS_CF=1
   else
     say "FAIL  __IO_CF_8_BIT is not 0x01; acia85 does not rebuild libraries"
@@ -591,7 +601,9 @@ if [[ "$MODE" == "all" ]]; then
 fi
 
 if [[ "$MODE" == "cf" ]] && cf_selected; then
-  say "CF libraries already selected"
+  say "CF Z80 library already selected; rebuilding 8085 library"
+  rebuild_8085_lib
+  inc_is "$INC_85" 0x01
   LIBS_CF=1
 else
   say "CF libraries"

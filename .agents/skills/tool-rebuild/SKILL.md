@@ -19,10 +19,10 @@ zcc command lines live in repo-root `README.md` (Building Software from Source).
 ```bash
 # from repo root. rebuild-ff.sh is the old ChaN library build, not a ROM step.
 ./.agents/scripts/rebuild-hex.sh       # PATA, then all five CF ROMs
-./.agents/scripts/rebuild-hex.sh cf    # five CF ROMs; skips the lib rebuild when the flag is already 1
+./.agents/scripts/rebuild-hex.sh cf    # five CF ROMs; Z80 lib stays when the flag is already 1, 8085 lib is rebuilt
 ./.agents/scripts/rebuild-hex.sh sio   # both SIO ROMs (PATA then CF)
-./.agents/scripts/rebuild-hex.sh acia  # z80-cf-acia FAT image only; skips the lib rebuild when the flag is already 1
-./.agents/scripts/rebuild-hex.sh acia85  # 8085-cf-acia only; same CF-library rule
+./.agents/scripts/rebuild-hex.sh acia  # z80-cf-acia FAT image only; skips both libraries when the flag is already 1
+./.agents/scripts/rebuild-hex.sh acia85  # 8085-cf-acia only; rebuilds the 8085 library when the flag is already 1
 # *.hex gitignored; often assume-unchanged (git ls-files -v shows lowercase h)
 git update-index --no-assume-unchanged rc2014-cpm22-*.hex
 git add -f rc2014-cpm22-*.hex
@@ -45,7 +45,7 @@ Mini-FAT links the z88dk IDE driver. `__IO_CF_8_BIT` in `$Z88DK/libsrc/target/rc
 | `*-pata-*` | `0` | 8255 PPIDE `$20`–`$23` |
 | `*-cf-*` | `1` | CF 8-bit `$10`–`$17` |
 
-After a flag change: `make -C $Z88DK/libsrc/newlib rc2014-clean rc2014`. Remove `rc2014-8085_clib.lib` then `make -C $Z88DK/libsrc rc2014-8085_clib.lib` and copy it to `$Z88DK/lib/clibs/`. Include-only changes do not rebuild with `z80asm -d`.
+After a flag change: `make -C $Z88DK/libsrc/newlib rc2014-clean rc2014`. Remove `rc2014-8085_clib.lib` and the 8085 objects under `device/acia/8080`, `device/uart/8080`, `device/8255/8080`, `driver/ide/asm`, and `driver/diskio`, then `make -C $Z88DK/libsrc rc2014-8085_clib.lib` and copy it to `$Z88DK/lib/clibs/`. `z80asm -d` keeps an object whose source is older than the object, so removing the archive alone leaves the old serial thresholds inside it.
 
 `rebuild-hex.sh` does that switch itself and leaves the flag at 1. A PATA ROM linked with the CF library returns `FR_NOT_READY` on `ls`. A later `fat_mount` can still print `FR_OK`. The default run builds the UART ROMs in the same PATA-then-CF order.
 

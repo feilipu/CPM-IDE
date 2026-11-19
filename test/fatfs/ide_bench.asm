@@ -29,6 +29,7 @@ ide_init:
     call    ticks_ide
     ld      hl,0
     ret
+
 ide_absent:
     ld      hl,0
     or      a
@@ -37,6 +38,7 @@ ide_absent:
 ide_read_sector:
     ld      a,42                ;CMD_IDE_READ
     jr      ide_go
+
 ide_write_sector:
     ld      a,43                ;CMD_IDE_WRITE
 
@@ -61,10 +63,12 @@ ide_go:
     call    ticks_ide
     pop     hl
     ret     NC
+
     ld      de,512
     add     hl,de
     scf
     ret
+
 ide_range:
     pop     af
     or      a
@@ -80,6 +84,7 @@ ide_count:
     inc     hl
     ld      (_ide_nread),hl
     jr      ide_count_out
+
 ide_count_wr:
     ld      hl,(_ide_nwrite)
     inc     hl
@@ -93,6 +98,7 @@ ide_count_out:
 _bench_put_sector:
     ld      a,43
     jr      bench_xfer
+
 _bench_get_sector:
     ld      a,42
 bench_xfer:
@@ -116,6 +122,7 @@ bench_xfer:
     call    ide_go
     ld      hl,0
     ret     C
+
     ld      l,1
     ret
 

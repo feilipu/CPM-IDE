@@ -31,6 +31,7 @@ ide_init:
     call    ticks_ide
     ld      hl,0                ;ld hl,nn does not touch flags
     ret
+
 ide_absent:
     ld      hl,0
     or      a                   ;carry clear
@@ -41,6 +42,7 @@ ide_absent:
 ide_read_sector:
     ld      a,42                ;CMD_IDE_READ
     jr      ide_entry
+
 ide_write_sector:
     ld      a,43                ;CMD_IDE_WRITE
 ide_entry:
@@ -74,10 +76,12 @@ ide_go:
     call    ticks_ide
     pop     hl
     ret     NC
+
     ld      de,512
     add     hl,de
     scf
     ret
+
 ide_range:
     pop     af
     or      a                   ;carry clear: LBA is past the glue limit
@@ -89,6 +93,7 @@ ide_range:
 _ticks_put_sector:
     ld      a,43
     jr      ticks_xfer
+
 _ticks_get_sector:
     ld      a,42
 ticks_xfer:
@@ -112,5 +117,7 @@ ticks_xfer:
     call    ide_go
     ld      hl,0
     ret     C
+
     ld      l,1
     ret
+

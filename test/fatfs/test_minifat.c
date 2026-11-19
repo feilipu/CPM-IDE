@@ -781,14 +781,16 @@ int main(void)
     rc = fat_mount();
     expect("mount_fatsz_fit", rc == 0 && cpm_fat_vol.fs_type == 3);
 
-    /* nclst past 28 bits. fatsz stays under the cap, so the cover check would pass. */
+    /* nclst $0FFFFFFE under a legal end. sysect is 2, csize is 1,
+     * TotSec is $10000000. The count is past $0FFFFFF5, so mount
+     * returns the generic failure. The volume-end refusal is 19. */
     disk_zero();
     memset(&cpm_fat_vol, 0, sizeof cpm_fat_vol);
     put_fat32( 1, 0, 0);
-    disk_put_le32(36, 0x001FFFFFu);
-    disk_put_le32(32, 0xFFFFFFFFu);
+    disk_put_le32(36, 1u);
+    disk_put_le32(32, 0x10000000u);
     rc = fat_mount();
-    expect("mount_nclst_max", rc == 19 && cpm_fat_vol.fs_type == 0);
+    expect("mount_nclst_max", rc == 1 && cpm_fat_vol.fs_type == 0);
 
     /* bsect 0 + TotSec $10000000 is the last end that mounts.
      * csize 64, fatsz $80000: nclst $003FDFFF, and $80000 covers it. */

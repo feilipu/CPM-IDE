@@ -1704,6 +1704,7 @@ store_size:
     ld      c,a                     ;record count
     call    ss_past                 ;NZ: a later extent is longer
     ret     nz                      ;leave that size alone
+
     ld      a,h                     ;extent 0 and RC 0 is empty
     or      l                       ;either extent or RC is nonzero
     or      c                       ;both zero?
@@ -1750,6 +1751,7 @@ ss_s1:
 ss_cap:
     ld      c,$80                   ;8 MB cap is 00 00 80 00
     jr      ss_st                   ;store it and return NZ
+
 ss_zero:
     ld      c,0                     ;four zero size bytes
 ss_st:
@@ -1804,6 +1806,7 @@ ss_out:
     pop     bc                      ;RC back in C
     pop     hl                      ;extent back in HL
     ret
+
 ss_keep:
     jr      ss_out                  ;NZ: leave the directory size
 
@@ -3303,6 +3306,7 @@ du_sz:
 du_ok:
     scf                             ;the record is in the file
     ret
+
 du_fail:
     ld      a,3                     ;sync or directory failure
     or      a                       ;carry clear, A = 3
