@@ -27,6 +27,8 @@ PUBLIC dir_ofs
 PUBLIC fat_work
 PUBLIC pack_sv
 PUBLIC fat_last_clst
+PUBLIC fat_fsi_lba
+PUBLIC fat_fsi_dirty
 PUBLIC clst_cache_sclust
 PUBLIC clst_cache_ci
 PUBLIC clst_cache_clst
@@ -55,4 +57,9 @@ _fat_cwd:
 fat_cwd:                defs 4
 fat_work:               defs 16
 pack_sv:                defs 16
+_fat_last_clst:
 fat_last_clst:          defs 4      ;last cluster this session allocated
+_fat_fsi_lba:
+fat_fsi_lba:            defs 4      ;absolute FSInfo LBA, or 0 if none
+_fat_fsi_dirty:
+fat_fsi_dirty:          defs 1      ;1 = free count or next-free needs a write

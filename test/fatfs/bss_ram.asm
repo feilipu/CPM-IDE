@@ -5,7 +5,8 @@ SECTION bss_compiler
 PUBLIC _cpm_fat_vol, fatwin, _fatwin, fat_winsect, fat_wflag
 PUBLIC fat_cwd, fat_found_sclust, fat_found_size
 PUBLIC dir_ptr, dir_sclust, dir_clust, dir_sect, dir_ofs
-PUBLIC fat_work, pack_sv, fat_last_clst, _cpm_dir_sclust
+PUBLIC fat_work, pack_sv, fat_last_clst, _fat_last_clst, _cpm_dir_sclust
+PUBLIC fat_fsi_lba, _fat_fsi_lba, fat_fsi_dirty, _fat_fsi_dirty
 PUBLIC hstbuf, _hstbuf, hstdsk, _hstdsk, hsttrk, _hsttrk, hstsec, _hstsec
 PUBLIC hstwrt, _hstwrt
 PUBLIC wrtype, dmaadr, erflag, hstact, _hstact
@@ -42,7 +43,12 @@ _fat_cwd:
 fat_cwd:                defs 4
 fat_work:               defs 16
 pack_sv:                defs 16
+_fat_last_clst:
 fat_last_clst:          defs 4      ;last cluster this session allocated
+_fat_fsi_lba:
+fat_fsi_lba:            defs 4      ;absolute FSInfo LBA, or 0 if none
+_fat_fsi_dirty:
+fat_fsi_dirty:          defs 1      ;1 = free count or next-free needs a write
 
 ; CP/M deblock (same names as cpm22bios.asm BSS)
 _cpm_dsk0_base:         defs 16     ; 4 x 32-bit LBA bases

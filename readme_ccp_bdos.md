@@ -87,11 +87,19 @@ The recovered `dirbf` is 128 bytes, which is not a full page. The per-ROM origin
 
 ## BIOS
 
-The shell reads a FAT16 or a FAT32 volume. A cluster is 32 KB or less.
+The shell reads a FAT16 or a FAT32 volume. A cluster is 32 KB or less. A 64 KiB cluster is refused, with the same result as any other mount failure. Sectors are 512 bytes.
 
-A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entries fills the 16-bit directory offset. The shell can still list that root. FAT32 must be version 0 and must have a zero root count.
+128 GiB, sector `$10000000`, is the limit of the 28-bit address. The shell does not measure the volume and does not refuse it. A later access will fail with disk corruption potential. A sector sum that wraps is not reported. A 128 GB drive holds about 16,000 of these 8 MB container files. A drive sold as 128 GB is about 119 GiB and is inside the limit.
 
-`ls` stops at the last name of a full directory. A name that starts with byte `0xE5` is stored as `0x05`.
+A FAT16 root entry count must be a non-zero multiple of 16. A root of 2048 entries fills the 16-bit directory offset. The shell can still list that root. A larger root still mounts, and every entry past 2048 stays on the volume and cannot be seen or reached. The same 2048-entry stop applies to a FAT32 root and to a subdirectory. The root still mounts.
+
+FAT32 must be version 0, must have a zero root count, and must not use the FAT16 size fields. A FAT32-shaped boot sector whose cluster count is in the FAT16 band does not mount. A FAT16 boot sector whose cluster count is in the FAT32 range is mounted as FAT32. The root cluster must be at least 2. A root cluster at or past the end of the FAT is not tested.
+
+Both FAT copies are written. A bad cluster (`$FFF7`, `$0FFFFFF7`) is not a link. `ls` stops at it. Allocating a file skips the mark and uses the next free cluster. The new cluster is not wiped before that link is stored.
+
+`ls` stops at the last name of a full directory. A full FAT32 directory does not grow. A full FAT16 root does not either. A name that starts with byte `0xE5` is stored as `0x05`. A lower-case short name on the volume does not match an upper-case search.
+
+The FSInfo sector is read when its lead bytes are `52 52 61 41`. A later sync writes the free-cluster count and the next-free hint back to that sector. A failed info write leaves the sector marked and does not fail the FAT sync. A failed mount leaves the volume type clear.
 
 `mkdir` and `cp` free a new cluster chain when the directory update does not finish. `cp` also releases that chain when the source has walked as many clusters as the volume has. It does this before the new name is written. `mkdrv` removes and syncs the directory name before it frees a chain it cannot finish. `frag` stops if a cluster chain does not reach an end mark.
 

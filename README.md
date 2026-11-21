@@ -256,7 +256,7 @@ An empty [CP/M 8 MB drive](https://github.com/feilipu/CPM-IDE/blob/master/CPM%20
 
 `xget` writes an image onto the card without moving the drive to the host. The file has to be one contiguous cluster run before `cpm` will mount it. [Sending a file to the RC2014](#sending-a-file-to-the-rc2014) covers the XMODEM checksum receive, `frag`, and a `cp` that allocates a fresh chain.
 
-FAT32 can hold more than 65,000 files in one directory. A 128 GB drive holds about 16,000 of these 8 MB CP/M drives. A larger disk can hold more, and that upper limit has not been tested.
+FAT32 can hold more than 65,000 files in one directory. 128 GiB, sector `$10000000`, is the limit of the 28-bit address. The shell does not measure the volume and does not refuse it. A later access will fail with disk corruption potential. A 128 GB drive holds about 16,000 of these 8 MB CP/M drives. A drive sold as 128 GB is about 119 GiB and is inside the limit.
 
 ### CP/M TOOLS Usage
 
